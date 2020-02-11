@@ -1,0 +1,36 @@
+#
+# Copyright (c) 2019
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+menuconfig QSPI_FLASH_MX25RXX
+	bool "QSPI NOR Flash Macronix MX25RXX"
+	select FLASH_HAS_DRIVER_ENABLED
+    select NRFX_QSPI
+
+if QSPI_FLASH_MX25RXX
+
+config QSPI_FLASH_MX25RXX_INIT_PRIORITY
+	int
+	default 80
+	help
+	  Device driver initialization priority.
+	  Device is connected to SPI bus, it has to
+	  be initialized after SPI driver.
+
+config QSPI_FLASH_MX25RXX_FLASH_SIZE
+	int "Flash size in bytes"
+	default 8388608
+	help
+	  This is the flash capacity in bytes.
+
+config QSPI_FLASH_MX25RXX_PAGE_PROGRAM_SIZE
+	int "Page Program Size in bytes"
+	default 256
+	help
+	  This is the maximum size of a page program operation. Writing data
+	  over this page boundary will split the write operation into two
+	  pages.
+
+endif # QSPI_FLASH_MX25RXX

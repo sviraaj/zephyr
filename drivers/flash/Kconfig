@@ -60,6 +60,8 @@ source "drivers/flash/Kconfig.sam"
 
 source "drivers/flash/Kconfig.w25qxxdv"
 
+source "drivers/flash/Kconfig.mx25rxx"
+
 source "drivers/flash/Kconfig.simulator"
 
 source "drivers/flash/Kconfig.rv32m1"

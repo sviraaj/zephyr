@@ -1,0 +1,26 @@
+description: >
+    Macronix MX25RXX QSPI flash device
+
+compatible: "qspi,mx25rxx"
+
+#include: qspi-device.yaml
+include: base.yaml
+
+properties:
+    label:
+      required: true
+
+    jedec-id:
+      type: uint8-array
+      required: false
+      description: JEDEC ID as manufacturer ID, memory type, memory density
+
+    has-be32k:
+      type: boolean
+      required: false
+      description: Indicates the device supports the BE32K command
+
+    size:
+      type: int
+      required: false
+      description: flash capacity in bits
