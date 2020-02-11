@@ -33,6 +33,8 @@ struct modem_socket {
 	u16_t packet_sizes[CONFIG_MODEM_SOCKET_PACKET_COUNT];
 	u16_t packet_count;
 
+    struct ring_buf* socket_buf;
+
 	/** data ready semaphore */
 	struct k_sem sem_data_ready;
 

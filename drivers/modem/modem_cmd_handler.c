@@ -107,7 +107,7 @@ static int parse_params(u8_t *buf, size_t buf_len, struct modem_cmd *cmd,
 			}
 		}
 
-		if (*argc == argv_len) {
+		if (*argc == argv_len || *argc == cmd->arg_count) {
 			break;
 		}
 
@@ -224,7 +224,6 @@ static void cmd_handler_process(struct modem_cmd_handler *cmd_handler,
 			/* modem context buffer is empty */
 			break;
 		}
-
 		/* make sure we have storage */
 		if (!data->rx_buf) {
 			data->rx_buf = net_buf_alloc(data->buf_pool,
@@ -245,7 +244,15 @@ static void cmd_handler_process(struct modem_cmd_handler *cmd_handler,
 			LOG_ERR("Data was lost! read %zu of %zu!",
 				rx_len, bytes_read);
 		}
-	}
+    }
+
+    /* call extra data processing task and wait for it to finish */
+    if (data->process_data != NULL)
+    {
+        size_t sz = net_buf_frags_len(data->rx_buf);
+        size_t processed_len = data->process_data((void*) data, sz);
+        data->rx_buf = net_buf_skip(data->rx_buf, processed_len);
+    }
 
 	/* process all of the data in the net_buf */
 	while (data->rx_buf) {
@@ -278,7 +285,6 @@ static void cmd_handler_process(struct modem_cmd_handler *cmd_handler,
 #if defined(CONFIG_MODEM_CONTEXT_VERBOSE_DEBUG)
 		LOG_HEXDUMP_DBG(data->match_buf, match_len, "RECV");
 #endif
-
 		k_sem_take(&data->sem_parse_lock, K_FOREVER);
 
 		cmd = find_cmd_match(data);
@@ -286,7 +292,16 @@ static void cmd_handler_process(struct modem_cmd_handler *cmd_handler,
 			LOG_DBG("match cmd [%s] (len:%u)",
 				log_strdup(cmd->cmd), match_len);
 
-			process_cmd(cmd, match_len, data);
+			/* process_cmd(cmd, match_len, data); */
+			process_cmd(cmd, len, data);
+
+            /* break if extra processing required */
+            if (data->process_data != NULL)
+            {
+                data->rx_buf = net_buf_skip(data->rx_buf, match_len);
+				k_sem_give(&data->sem_parse_lock);
+                break;
+            }
 
 			/*
 			 * make sure we didn't run out of data during
@@ -386,6 +401,10 @@ static int _modem_cmd_send(struct modem_iface *iface,
 	if (ret < 0) {
 		goto exit;
 	}
+
+#if 0
+    LOG_ERR("write %s", log_strdup(buf));
+#endif
 
 	iface->write(iface, buf, strlen(buf));
 	iface->write(iface, "\r", 1);

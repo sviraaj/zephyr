@@ -85,6 +85,9 @@ struct modem_cmd_handler_data {
 	/* locks */
 	struct k_sem sem_tx_lock;
 	struct k_sem sem_parse_lock;
+
+    /* Process data fn ptr */
+    size_t (*process_data)(void *data, u16_t len);
 };
 
 /**
