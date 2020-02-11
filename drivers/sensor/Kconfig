@@ -117,6 +117,8 @@ source "drivers/sensor/mcp9808/Kconfig"
 
 source "drivers/sensor/mpu6050/Kconfig"
 
+source "drivers/sensor/icm20600/Kconfig"
+
 source "drivers/sensor/ms5837/Kconfig"
 
 source "drivers/sensor/ms5607/Kconfig"

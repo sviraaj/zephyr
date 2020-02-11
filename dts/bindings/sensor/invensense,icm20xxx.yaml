@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: >
+    This binding gives a base representation of ICM20xxx IMU
+
+compatible: "invensense,icm20xxx"
+
+include: i2c-device.yaml
+
+properties:
+    irq-gpios:
+      type: phandle-array
+      required: false

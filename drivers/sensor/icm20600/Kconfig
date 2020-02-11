@@ -1,0 +1,107 @@
+# Kconfig - ICM20600 Six-Axis Motion Tracking device configuration options
+
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+menuconfig ICM20600
+	bool "ICM20600 Six-Axis Motion Tracking Device"
+	depends on I2C
+	help
+	  Enable driver for ICM20600 I2C-based six-axis motion tracking device.
+
+if ICM20600
+
+config ICM20600_NAME
+	string "Driver name"
+	default "ICM20600"
+	help
+	  Device name with which the ICM20600 sensor is identified.
+
+config ICM20600_I2C_ADDR
+	hex "I2C address"
+	default 0x68
+	range 0x68 0x69
+	help
+	  I2C address of the ICM20600 sensor.
+	  Choose 0x68 if the AD0 pin is pulled to GND or 0x69 if the AD0 pin
+	  is pulled to VDD.
+
+config ICM20600_I2C_MASTER_DEV_NAME
+	string "I2C master where ICM20600 is connected"
+	default "I2C_0"
+	help
+	  Specify the device name of the I2C master device to which ICM20600 is
+	  connected.
+
+choice
+	prompt "Trigger mode"
+	default ICM20600_TRIGGER_NONE#ICM20600_TRIGGER_GLOBAL_THREAD
+	help
+	  Specify the type of triggering to be used by the driver.
+
+config ICM20600_TRIGGER_NONE
+	bool "No trigger"
+
+config ICM20600_TRIGGER_GLOBAL_THREAD
+	bool "Use global thread"
+	depends on GPIO
+	select ICM20600_TRIGGER
+
+config ICM20600_TRIGGER_OWN_THREAD
+	bool "Use own thread"
+	depends on GPIO
+	select ICM20600_TRIGGER
+
+endchoice
+
+config ICM20600_TRIGGER
+	bool
+
+config ICM20600_GPIO_DEV_NAME
+	string "GPIO device"
+	default "GPIO_0"
+	depends on ICM20600_TRIGGER
+	help
+	  The device name of the GPIO device to which the ICM20600 interrupt pin
+	  is connected.
+
+config ICM20600_GPIO_PIN_NUM
+	int "Interrupt GPIO pin number"
+	default 0
+	depends on ICM20600_TRIGGER
+	help
+	  The number of the GPIO on which the interrupt signal from the ICM20600
+	  chip will be received.
+
+config ICM20600_THREAD_PRIORITY
+	int "Thread priority"
+	depends on ICM20600_TRIGGER_OWN_THREAD
+	default 10
+	help
+	  Priority of thread used by the driver to handle interrupts.
+
+config ICM20600_THREAD_STACK_SIZE
+	int "Thread stack size"
+	depends on ICM20600_TRIGGER_OWN_THREAD
+	default 1024
+	help
+	  Stack size of thread used by the driver to handle interrupts.
+
+config ICM20600_ACCEL_FS
+	int "Accelerometer full-scale range"
+	default 2
+	help
+	  Magnetometer full-scale range.
+	  An X value for the config represents a range of +/- X g. Valid
+	  values are 2, 4, 8 and 16.
+
+config ICM20600_GYRO_FS
+	int "Gyroscope full-scale range"
+	default 250
+	help
+	  Gyroscope full-scale range.
+	  An X value for the config represents a range of +/- X degrees/second.
+	  Valid values are 250, 500, 1000, 2000.
+
+endif # ICM20600
