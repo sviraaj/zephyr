@@ -11,6 +11,10 @@ properties:
     label:
       required: true
 
+    int1-gpios:
+      type: phandle-array
+      required: false
+
     "#gpio-cells":
       const: 2
 
