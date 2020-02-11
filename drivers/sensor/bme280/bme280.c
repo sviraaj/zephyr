@@ -365,36 +365,68 @@ static inline int bme280_spi_init(struct bme280_data *data)
 }
 #endif
 
-int bme280_init(struct device *dev)
-{
-	struct bme280_data *data = dev->driver_data;
-
 #ifdef DT_BOSCH_BME280_BUS_I2C
-	data->i2c_master = device_get_binding(DT_INST_0_BOSCH_BME280_BUS_NAME);
-	if (!data->i2c_master) {
-		LOG_DBG("i2c master not found: %s",
-			    DT_INST_0_BOSCH_BME280_BUS_NAME);
-		return -EINVAL;
-	}
 
-	data->i2c_slave_addr = DT_INST_0_BOSCH_BME280_BASE_ADDRESS;
+#define BME280_DEVICE(idx)				                                    \
+static int bme280_##idx##_init(struct device *dev)			                \
+{                                                                           \
+	struct bme280_data *data = dev->driver_data;                            \
+	data->i2c_master = device_get_binding(DT_INST_##idx##_BOSCH_BME280_BUS_NAME); \
+	if (!data->i2c_master) {                                                \
+		LOG_DBG("i2c master not found: %s",                                 \
+			    DT_INST_##idx##_BOSCH_BME280_BUS_NAME);                      \
+		return -EINVAL;                                                     \
+	}                                                                       \
+	data->i2c_slave_addr = DT_INST_##idx##_BOSCH_BME280_BASE_ADDRESS;        \
+	if (bme280_chip_init(dev) < 0) {                                        \
+		return -EINVAL;                                                     \
+	}                                                                       \
+    return 0;                                                               \
+}                                                                           \
+                                                                            \
+static struct bme280_data bme280_##idx##_data;                              \
+                                                                            \
+DEVICE_AND_API_INIT(bme280_##idx,				                            \
+          DT_INST_##idx##_BOSCH_BME280_LABEL,		                        \
+          bme280_##idx##_init,					                            \
+          &bme280_##idx##_data,				                                \
+          NULL,              				                                \
+          POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,		                    \
+          &bme280_api_funcs)
+
 #elif defined DT_BOSCH_BME280_BUS_SPI
-	if (bme280_spi_init(data) < 0) {
-		LOG_DBG("spi master not found: %s",
-			    DT_INST_0_BOSCH_BME280_BUS_NAME);
-		return -EINVAL;
-	}
+
+#define BME280_DEVICE(idx)					                                \
+static int bme280_##idx##_init(struct device *dev)	                        \
+{                                                                           \
+	struct bme280_data *data = dev->driver_data;                            \
+	if (bme280_spi_init(data) < 0) {                                        \
+		LOG_DBG("spi master not found: %s",                                 \
+			    DT_INST_##idx##_BOSCH_BME280_BUS_NAME);                      \
+		return -EINVAL;                                                     \
+	}                                                                       \
+	if (bme280_chip_init(dev) < 0) {                                        \
+		return -EINVAL;                                                     \
+	}                                                                       \
+    return 0;                                                               \
+}                                                                           \
+                                                                            \
+static struct bme280_data bme280_##idx##_data;                              \
+                                                                            \
+DEVICE_AND_API_INIT(bme280_##idx,					                        \
+          DT_INST_##idx##_BOSCH_BME280_LABEL,		                        \
+          bme280_##idx##_init,					                            \
+          &bme280_##idx##_data,				                                \
+          NULL,              				                                \
+          POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,		                    \
+          &bme280_api_funcs)
+
 #endif
 
-	if (bme280_chip_init(dev) < 0) {
-		return -EINVAL;
-	}
+#ifdef DT_INST_0_BOSCH_BME280_LABEL
+BME280_DEVICE(0);
+#endif
 
-	return 0;
-}
-
-static struct bme280_data bme280_data;
-
-DEVICE_AND_API_INIT(bme280, DT_INST_0_BOSCH_BME280_LABEL, bme280_init, &bme280_data,
-		    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
-		    &bme280_api_funcs);
+#ifdef DT_INST_1_BOSCH_BME280_LABEL
+BME280_DEVICE(1);
+#endif
