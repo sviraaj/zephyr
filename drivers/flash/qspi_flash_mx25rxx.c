@@ -123,7 +123,8 @@ static int block_dev_qspi_read_req(struct device *dev, off_t offset, void *data,
 {
 	int ret;
     u8_t __aligned(4) block_buf[QSPI_BLOCK_SIZE];
-    u16_t rd_len = len;
+    u16_t rd_len_rem = len;
+    u16_t t_rd_len = 0;
     u8_t* rd_data = (u8_t *) data;
     u16_t pre_rd_len = 0;
 
@@ -133,7 +134,7 @@ static int block_dev_qspi_read_req(struct device *dev, off_t offset, void *data,
     {
         pre_rd_len = (QSPI_BLOCK_SIZE - ((u32_t)rd_data & (QSPI_BLOCK_SIZE - 1)));
         rd_data += pre_rd_len;
-        rd_len -= pre_rd_len;
+        rd_len_rem -= pre_rd_len;
     }
 
 	SYNC_LOCK();
@@ -144,7 +145,7 @@ static int block_dev_qspi_read_req(struct device *dev, off_t offset, void *data,
 
         ret = nrfx_qspi_read(block_buf, QSPI_BLOCK_SIZE, offset);
         if (ret != NRFX_SUCCESS) {
-            LOG_ERR("QSPI flash read fail, 0x%x, len: %d", ret, rd_len);
+            LOG_ERR("QSPI flash read fail, 0x%x, len: %d", ret, rd_len_rem);
             ret = -EIO;
             goto exit;
         }
@@ -156,24 +157,26 @@ static int block_dev_qspi_read_req(struct device *dev, off_t offset, void *data,
         memcpy((u8_t* )data, block_buf, pre_rd_len);
     }
 
-    rd_len &= ~(QSPI_BLOCK_SIZE - 1);
+    t_rd_len = (rd_len_rem & ~(QSPI_BLOCK_SIZE - 1));
 
 	p_work_state = NRF_BLOCK_DEV_QSPI_STATE_READ_EXEC;
 
-	ret = nrfx_qspi_read(rd_data, rd_len, offset);
+	ret = nrfx_qspi_read(rd_data, t_rd_len, offset);
 	if (ret != NRFX_SUCCESS) {
-		LOG_ERR("QSPI flash read fail, 0x%x, len: %d", ret, rd_len);
+		LOG_ERR("QSPI flash read fail, 0x%x, len: %d", ret, rd_len_rem);
 		ret = -EIO;
 		goto exit;
 	}
 
+    rd_len_rem -= t_rd_len;
+
 	OP_LOCK();
 
-    if (rd_len != len)
+    if (rd_len_rem != 0)
     {
         p_work_state = NRF_BLOCK_DEV_QSPI_STATE_READ_EXEC;
 
-        ret = nrfx_qspi_read(block_buf, QSPI_BLOCK_SIZE, offset + rd_len);
+        ret = nrfx_qspi_read(block_buf, QSPI_BLOCK_SIZE, offset + t_rd_len);
         if (ret != NRFX_SUCCESS) {
             LOG_ERR("QSPI flash read fail, 0x%x, len: %d", ret, QSPI_BLOCK_SIZE);
             ret = -EIO;
@@ -182,7 +185,7 @@ static int block_dev_qspi_read_req(struct device *dev, off_t offset, void *data,
 
         OP_LOCK();
 
-        memcpy(((u8_t* )rd_data) + rd_len, block_buf, len - rd_len);
+        memcpy(((u8_t* )rd_data) + t_rd_len, block_buf,  rd_len_rem);
     }
 
     ret = 0;
