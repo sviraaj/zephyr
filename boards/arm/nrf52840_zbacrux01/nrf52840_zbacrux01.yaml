@@ -1,0 +1,19 @@
+identifier: nrf52840_zbacrux01
+name: nRF52840-ZBACRUX01
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+  - xtools
+supported:
+  - adc
+  - arduino_gpio
+  - arduino_i2c
+  - usb_device
+  - usb_cdc
+  - ble
+  - ieee802154
+  - pwm
+  - watchdog
+  - counter

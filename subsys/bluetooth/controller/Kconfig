@@ -44,6 +44,9 @@ config BT_CTLR_MIN_USED_CHAN_SUPPORT
 config BT_CTLR_DTM_HCI_SUPPORT
 	bool
 
+config BT_CTLR_SMI_SUPPORT
+	bool
+
 config BT_CTLR_XTAL_ADVANCED_SUPPORT
 	bool
 
@@ -135,6 +138,10 @@ config BT_LLL_VENDOR_NORDIC
 	select BT_CTLR_SCHED_ADVANCED_SUPPORT
 	select BT_CTLR_TIFS_HW_SUPPORT
 
+	# Until ticker resolve collision is fixed for skipped ticker catch-up
+	# issue, use the old compatibility mode
+	select BT_TICKER_COMPATIBILITY_MODE
+
 	default y
 	help
 	  Use Nordic Lower Link Layer implementation.
@@ -143,6 +150,7 @@ config BT_LLL_VENDOR_OPENISA
 	bool "Use OpenISA LLL"
 	depends on BT_LL_SW_SPLIT && SOC_OPENISA_RV32M1_RISCV32
 	select BT_HAS_HCI_VS
+	select BT_CTLR_LE_ENC_SUPPORT if !BT_CTLR_DATA_LENGTH_CLEAR
 	default y
 	help
 	  Use OpenISA Lower Link Layer implementation.
@@ -310,7 +318,7 @@ config BT_CTLR_TX_PWR_DYNAMIC_CONTROL
 
 config BT_CTLR_SETTINGS
 	bool "Settings System"
-	depends on BT_SETTINGS
+	depends on SETTINGS
 	help
 	  Enable use of settings system in controller.
 
@@ -388,7 +396,7 @@ config BT_CTLR_PRIVACY
 	bool "LE Controller-based Privacy"
 	depends on BT_CTLR_PRIVACY_SUPPORT
 	default y
-	select BT_CTLR_FILTER
+	select BT_CTLR_FILTER if (BT_LL_SW_SPLIT || BT_LL_SW_LEGACY)
 	select BT_RPA
 	help
 	  Enable support for Bluetooth v4.2 LE Controller-based Privacy feature
@@ -402,21 +410,6 @@ config BT_CTLR_RL_SIZE
 	help
 	  Set the size of the Resolving List for LE Controller-based Privacy.
 	  On nRF5x-based controllers, the hardware imposes a limit of 8 devices.
-
-config BT_CTLR_SW_DEFERRED_PRIVACY
-	bool "LE Controller-based Software Privacy"
-	depends on BT_CTLR_PRIVACY
-	help
-	  Enable support for software based deferred privacy calculations.
-
-config BT_CTLR_RPA_CACHE_SIZE
-	int "LE Controller-based Software Privacy Resolving List size"
-	depends on BT_CTLR_SW_DEFERRED_PRIVACY
-	default 8
-	range 1 64
-	help
-	  Set the size of the Known Unknown Resolving List for LE
-	  Controller-based Software deferred Privacy.
 
 config BT_CTLR_EXT_SCAN_FP
 	bool "LE Extended Scanner Filter Policies"
@@ -495,6 +488,24 @@ config BT_CTLR_DTM_HCI
 	help
 	  Enable support for Direct Test Mode over the HCI transport.
 
+config BT_CTLR_SMI_RX
+	bool "Stable modulation index - Receiver"
+	depends on BT_CTLR_SMI_SUPPORT
+	help
+	  Enable support for Bluetooth 5.0 SMI RX in the Controller.
+
+config BT_CTLR_SMI_TX
+	bool "Stable modulation index - Transmitter"
+	depends on BT_CTLR_SMI_SUPPORT
+	help
+	  Enable support for Bluetooth 5.0 SMI TX in the Controller.
+
+config BT_CTLR_SMI_TX_SETTING
+	bool "Stable modulation index - Transmitter as setting"
+	depends on BT_CTLR_SMI_TX && BT_CTLR_SETTINGS
+	help
+	  Enable support for Bluetooth 5.0 SMI TX through a system setting.
+
 if BT_LL_SW_SPLIT || BT_LL_SW_LEGACY
 
 config BT_CTLR_ADVANCED_FEATURES
@@ -510,6 +521,21 @@ config BT_CTLR_FILTER
 	default y
 	help
 	  Enable support for controller device whitelist feature
+
+config BT_CTLR_SW_DEFERRED_PRIVACY
+	bool "LE Controller-based Software Privacy"
+	depends on BT_CTLR_PRIVACY
+	help
+	  Enable support for software based deferred privacy calculations.
+
+config BT_CTLR_RPA_CACHE_SIZE
+	int "LE Controller-based Software Privacy Resolving List size"
+	depends on BT_CTLR_SW_DEFERRED_PRIVACY
+	default 8
+	range 1 64
+	help
+	  Set the size of the Known Unknown Resolving List for LE
+	  Controller-based Software deferred Privacy.
 
 config BT_CTLR_DATA_LENGTH_CLEAR
 	bool "Data Length Support (Cleartext only)"
@@ -817,6 +843,16 @@ config BT_TICKER_COMPATIBILITY_MODE
 	  ticker node timeouts and thereby prevents ticker interrupts during
 	  radio RX/TX. Enabling this option disables the ticker priority- and
 	  'must expire' features.
+
+config BT_TICKER_EXT
+	bool "Ticker extensions"
+	depends on !BT_TICKER_COMPATIBILITY_MODE
+	default y
+	help
+	  This option enables ticker extensions such as re-scheduling of
+	  ticker nodes with slot_window set to non-zero. Ticker extensions
+	  are invoked by using available '_ext' versions of ticker interface
+	  functions.
 
 config BT_CTLR_USER_EXT
 	prompt "Enable proprietary extensions in Controller"

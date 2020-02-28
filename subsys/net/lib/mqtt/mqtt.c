@@ -579,7 +579,9 @@ int mqtt_abort(struct mqtt_client *client)
 
 int mqtt_live(struct mqtt_client *client)
 {
+	int err_code = 0;
 	u32_t elapsed_time;
+	bool ping_sent = false;
 
 	NULL_PARAM_CHECK(client);
 
@@ -589,12 +591,35 @@ int mqtt_live(struct mqtt_client *client)
 				client->internal.last_activity);
 	if ((client->keepalive > 0) &&
 	    (elapsed_time >= (client->keepalive * 1000))) {
-		(void)mqtt_ping(client);
+		err_code = mqtt_ping(client);
+		ping_sent = true;
 	}
 
 	mqtt_mutex_unlock(client);
 
-	return 0;
+	if (ping_sent) {
+		return err_code;
+	} else {
+		return -EAGAIN;
+	}
+}
+
+u32_t mqtt_keepalive_time_left(const struct mqtt_client *client)
+{
+	u32_t elapsed_time = mqtt_elapsed_time_in_ms_get(
+					client->internal.last_activity);
+	u32_t keepalive_ms = 1000U * client->keepalive;
+
+	if (client->keepalive == 0) {
+		/* Keep alive not enabled. */
+		return UINT32_MAX;
+	}
+
+	if (keepalive_ms <= elapsed_time) {
+		return 0;
+	}
+
+	return keepalive_ms - elapsed_time;
 }
 
 int mqtt_input(struct mqtt_client *client)

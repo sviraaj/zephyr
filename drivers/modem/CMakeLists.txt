@@ -26,3 +26,8 @@ if(CONFIG_MODEM_A9GRDA)
 	zephyr_library_include_directories(${ZEPHYR_BASE}/subsys/net/ip)
 	zephyr_library_sources(a9grda.c)
 endif()
+
+if(CONFIG_MODEM_GSM_PPP)
+	zephyr_library_include_directories(${ZEPHYR_BASE}/subsys/net/ip)
+	zephyr_library_sources(gsm_ppp.c)
+endif()

@@ -10,7 +10,6 @@
 #include <net/net_if.h>
 #include <net/net_offload.h>
 #include <net/socket_offload.h>
-#include <net/socket_offload_ops.h>
 
 struct usr_http_cfg {
 	char *url;

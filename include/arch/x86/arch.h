@@ -6,7 +6,7 @@
 #ifndef ZEPHYR_INCLUDE_ARCH_X86_ARCH_H_
 #define ZEPHYR_INCLUDE_ARCH_X86_ARCH_H_
 
-#include <generated_dts_board.h>
+#include <devicetree.h>
 
 /* Changing this value will require manual changes to exception and IDT setup
  * in locore.S for intel64
@@ -203,6 +203,8 @@ extern unsigned char _irq_to_interrupt_vector[];
 
 
 #endif /* _ASMLANGUAGE */
+
+#include <drivers/interrupt_controller/sysapic.h>
 
 #ifdef CONFIG_X86_64
 #include <arch/x86/intel64/arch.h>

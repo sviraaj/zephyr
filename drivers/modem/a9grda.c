@@ -112,7 +112,7 @@ struct modem_data {
 	/* modem cmds */
 	struct modem_cmd_handler_data cmd_handler_data;
 	u8_t cmd_read_buf[MDM_RECV_BUF_SIZE];
-	u8_t cmd_match_buf[MDM_RECV_BUF_SIZE];
+	u8_t cmd_match_buf[MDM_RECV_BUF_SIZE + 1];
 
 	/* socket data */
 	struct modem_socket_config socket_config;
@@ -255,6 +255,7 @@ MODEM_CMD_DEFINE(on_cmd_ok)
 	LOG_DBG("%s", __func__);
 	modem_cmd_handler_set_error(data, 0);
 	k_sem_give(&mdata.sem_response);
+    return 0;
 }
 
 /* Handler: CONNECT OK */
@@ -265,6 +266,7 @@ MODEM_CMD_DEFINE(on_cmd_connect_ok)
 	connect_status = MDM_CONNECT_SUCCESS;
 	k_sem_give(&mdata.sem_connect);
 	/* CONNECT OK comes before/after OK */
+    return 0;
 }
 
 /* Handler: CONNECT FAIL */
@@ -275,6 +277,7 @@ MODEM_CMD_DEFINE(on_cmd_connect_fail)
 	connect_status = MDM_CONNECT_FAIL;
 	k_sem_give(&mdata.sem_connect);
 	/* CONNECT FAIL comes before/after OK */
+    return 0;
 }
 
 /* Handler: SHUT OK */
@@ -283,6 +286,7 @@ MODEM_CMD_DEFINE(on_cmd_shut_ok)
 	LOG_DBG("%s", __func__);
 	modem_cmd_handler_set_error(data, 0);
 	/* SHUT OK comes before OK */
+    return 0;
 }
 
 /* Handler: ERROR */
@@ -291,6 +295,7 @@ MODEM_CMD_DEFINE(on_cmd_error)
 	LOG_DBG("%s", __func__);
 	modem_cmd_handler_set_error(data, -EIO);
 	k_sem_give(&mdata.sem_response);
+    return 0;
 }
 
 /* Handler: +CME Error: <err>[0] */
@@ -300,6 +305,7 @@ MODEM_CMD_DEFINE(on_cmd_exterror)
 	/* TODO: map extended error codes to values */
 	modem_cmd_handler_set_error(data, -EIO);
 	k_sem_give(&mdata.sem_response);
+    return 0;
 }
 
 /*
@@ -330,6 +336,7 @@ MODEM_CMD_DEFINE(on_cmd_gps_agps)
         connect_status = MDM_CONNECT_FAIL;
         k_sem_give(&mdata.sem_connect);
     }
+    return 0;
 }
 
 /* Handler: +GETREFLOC: <lat>,<long> */
@@ -358,6 +365,7 @@ MODEM_CMD_DEFINE(on_cmd_gps_getrefloc)
         connect_status = MDM_CONNECT_SUCCESS;
         k_sem_give(&mdata.sem_connect);
     }
+    return 0;
 }
 
 /* Handler: %GNGGA, ... */
@@ -385,6 +393,7 @@ MODEM_CMD_DEFINE(on_cmd_gps_read)
 
     LOG_INF("GPS data: %s", log_strdup(mdata.gps_data));
 	k_sem_give(&mdata.sem_response);
+    return 0;
 }
 
 /*
@@ -401,6 +410,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_manufacturer)
 				    data->rx_buf, 0, len);
 	mdata.mdm_manufacturer[out_len] = '\0';
 	LOG_INF("Manufacturer: %s", log_strdup(mdata.mdm_manufacturer));
+    return 0;
 }
 
 /* Handler: <model> */
@@ -413,6 +423,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_model)
 				  data->rx_buf, 0, len);
 	mdata.mdm_model[out_len] = '\0';
 	LOG_INF("Model: %s", log_strdup(mdata.mdm_model));
+    return 0;
 }
 
 /* Handler: <rev> */
@@ -425,6 +436,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_revision)
 				    data->rx_buf, 0, len);
 	mdata.mdm_revision[out_len] = '\0';
 	LOG_INF("Revision: %s", log_strdup(mdata.mdm_revision));
+    return 0;
 }
 
 /* Handler: +EGMR:<IMEI> */
@@ -436,6 +448,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_imei)
 	memcpy(mdata.mdm_imei, argv[0], out_len);
 	mdata.mdm_imei[out_len] = '\0';
 	LOG_INF("IMEI: %s", log_strdup(mdata.mdm_imei));
+    return 0;
 }
 
 /* Handler: +CSQ: <signal_power>[0],<qual>[1] */
@@ -455,8 +468,10 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_rssi_csq)
 	}
 
 	LOG_INF("QUAL: %d", mctx.data_rssi);
+    return 0;
 }
 
+#if 0
 /*
  * Modem Socket Command Handlers
  */
@@ -523,6 +538,7 @@ static void on_cmd_sockread_common(int socket_id,
 
 	/* don't give back semaphore -- unsol cmd */
 }
+#endif
 
 static size_t on_cmd_http_common(void *data_v, u16_t len)
 {
@@ -592,6 +608,7 @@ exit:
 	return ret;
 }
 
+#if 0
 /*
  * MODEM UNSOLICITED NOTIFICATION HANDLERS
  */
@@ -652,6 +669,7 @@ MODEM_CMD_DEFINE(on_cmd_socknotifydata)
 	/* read data */
 	on_cmd_sockread_common(socket_id, data, new_total, len);
 }
+#endif
 
 /* Handler: +HTTP: <method>,<length>,"data" */
 MODEM_CMD_DEFINE(on_cmd_http_response)
@@ -679,16 +697,19 @@ MODEM_CMD_DEFINE(on_cmd_http_response)
 	mdata.recv_cfg.expected_len = http_resp_len;
 
 	if (on_cmd_http_common(data, len) == 0) {
-		return;
+        return -EAGAIN;
 	}
+    return 0;
 }
 
+#if 0
 /* Handler: +CREG: <stat>[0] */
 MODEM_CMD_DEFINE(on_cmd_socknotifycreg)
 {
 	mdata.ev_creg = ATOI(argv[0], 0, "stat");
 	LOG_DBG("CREG:%d", mdata.ev_creg);
 }
+#endif
 
 /* RX thread */
 static void modem_rx(void)
@@ -909,7 +930,7 @@ restart:
 			goto error;
 		}
 
-		LOG_ERR("Failed network init.  Restarting process.");
+		LOG_ERR("Failed network init.  Restarting process. %d", mctx.data_rssi);
 		goto restart;
 	}
 
@@ -930,6 +951,7 @@ error:
 	return;
 }
 
+#if 0
 /*
  * generic socket creation function
  * which can be called in bind() or connect()
@@ -1097,13 +1119,26 @@ ret:
 /* support for POLLIN only for now. */
 static int offload_poll(struct pollfd *fds, int nfds, int msecs)
 {
-	int ret = modem_socket_poll(&mdata.socket_config, fds, nfds, msecs);
+	int i;
+	void *obj;
 
-	if (ret < 0) {
-		LOG_ERR("ret:%d errno:%d", ret, errno);
+	/* Only accept modem sockets. */
+	for (i = 0; i < nfds; i++) {
+		if (fds[i].fd < 0) {
+			continue;
+		}
+
+		/* If vtable matches, then it's modem socket. */
+		obj = z_get_fd_obj(fds[i].fd,
+				   (const struct fd_op_vtable *)
+						&offload_socket_fd_op_vtable,
+				   EINVAL);
+		if (obj == NULL) {
+			return -1;
+		}
 	}
 
-	return ret;
+	return modem_socket_poll(&mdata.socket_config, fds, nfds, msecs);
 }
 
 static ssize_t offload_recvfrom(int sock_fd, void *buf, short int len,
@@ -1256,6 +1291,23 @@ void offload_freeaddrinfo(struct addrinfo *res)
 	memcpy(mdata.hst_name, 0, CONFIG_MODEM_SOCKET_MAX_HST_LEN);
 }
 
+static const struct socket_op_vtable offload_socket_fd_op_vtable = {
+	.fd_vtable = {
+		.read = offload_read,
+		.write = offload_write,
+		.ioctl = offload_ioctl,
+	},
+	.bind = offload_bind,
+	.connect = offload_connect,
+	.sendto = offload_sendto,
+	.recvfrom = offload_recvfrom,
+	.listen = NULL,
+	.accept = NULL,
+	.sendmsg = NULL,
+	.getsockopt = NULL,
+	.setsockopt = NULL,
+};
+
 static const struct socket_offload modem_socket_offload = {
 	.socket = offload_socket,
 	.close = offload_close,
@@ -1269,6 +1321,7 @@ static const struct socket_offload modem_socket_offload = {
 	.getaddrinfo = offload_getaddrinfo,
 	.freeaddrinfo = offload_freeaddrinfo,
 };
+#endif
 
 static int net_offload_dummy_get(sa_family_t family, enum net_sock_type type,
 				 enum net_ip_protocol ip_proto,
@@ -1675,7 +1728,6 @@ static void modem_net_iface_init(struct net_if *iface)
 	iface->if_dev->offload = &modem_net_offload;
 	net_if_set_link_addr(iface, modem_get_mac(dev), sizeof(data->mac_addr),
 			     NET_LINK_ETHERNET);
-	socket_offload_register(&modem_socket_offload);
 	data->net_iface = iface;
 }
 
@@ -1708,9 +1760,11 @@ static struct modem_cmd response_cmds[] = {
 };
 
 static struct modem_cmd unsol_cmds[] = {
+#if 0
 	MODEM_CMD("CLOSED", on_cmd_socknotifyclose, 0U, ""), /* TCP closed */
 	MODEM_CMD("+CIPRCV: ", on_cmd_socknotifydata, 1U, ","),
 	MODEM_CMD("+CREG: ", on_cmd_socknotifycreg, 1U, ","),
+#endif
 	MODEM_CMD("+HTTP: ", on_cmd_http_response, 2U, ","),
 };
 
@@ -1729,16 +1783,18 @@ static int modem_init(struct device *dev)
 		       K_THREAD_STACK_SIZEOF(modem_workq_stack),
 		       K_PRIO_COOP(7));
 
+#if 0
 	/* socket config */
 	mdata.socket_config.sockets = &mdata.sockets[0];
 	/* FIXME Only socket 0 in use, HACK */
 	mdata.socket_config.sockets[0].socket_buf = &mdm_socket_ring_buf_0;
 	mdata.socket_config.sockets_len = ARRAY_SIZE(mdata.sockets);
 	mdata.socket_config.base_socket_num = MDM_BASE_SOCKET_NUM;
-	ret = modem_socket_init(&mdata.socket_config);
+	ret = modem_socket_init(&mdata.socket_config, &offload_socket_fd_op_vtable);
 	if (ret < 0) {
 		goto error;
 	}
+#endif
 
 	/* cmd handler */
 	mdata.cmd_handler_data.cmds[CMD_RESP] = response_cmds;
@@ -1752,6 +1808,7 @@ static int modem_init(struct device *dev)
 	mdata.cmd_handler_data.buf_pool = &mdm_recv_pool;
 	mdata.cmd_handler_data.alloc_timeout = BUF_ALLOC_TIMEOUT;
 	mdata.cmd_handler_data.process_data = NULL;
+    mdata.cmd_handler_data.eol = "\r";
 	ret = modem_cmd_handler_init(&mctx.cmd_handler,
 				     &mdata.cmd_handler_data);
 	if (ret < 0) {

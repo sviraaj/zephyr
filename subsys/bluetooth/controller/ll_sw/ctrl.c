@@ -3663,6 +3663,7 @@ isr_rx_conn_pkt(struct radio_pdu_node_rx *node_rx,
 	/* Ack for transmitted data */
 	pdu_data_rx = (void *)node_rx->pdu_data;
 	if (pdu_data_rx->nesn != _radio.conn_curr->sn) {
+		struct radio_pdu_node_tx *node_tx;
 
 		/* Increment serial number */
 		_radio.conn_curr->sn++;
@@ -3674,11 +3675,16 @@ isr_rx_conn_pkt(struct radio_pdu_node_rx *node_rx,
 			_radio.conn_curr->slave.latency_enabled = 1U;
 		}
 
-		if (_radio.conn_curr->empty == 0) {
-			struct radio_pdu_node_tx *node_tx;
+		if (!_radio.conn_curr->empty) {
+			node_tx = _radio.conn_curr->pkt_tx_head;
+		} else {
+			_radio.conn_curr->empty = 0U;
+			node_tx = NULL;
+		}
+
+		if (node_tx) {
 			u8_t pdu_data_tx_len;
 
-			node_tx = _radio.conn_curr->pkt_tx_head;
 			pdu_data_tx = (void *)(node_tx->pdu_data +
 				_radio.conn_curr->packet_tx_head_offset);
 
@@ -3696,13 +3702,12 @@ isr_rx_conn_pkt(struct radio_pdu_node_rx *node_rx,
 				}
 			}
 
-			_radio.conn_curr->packet_tx_head_offset += pdu_data_tx_len;
+			_radio.conn_curr->packet_tx_head_offset +=
+				pdu_data_tx_len;
 			if (_radio.conn_curr->packet_tx_head_offset ==
 			    _radio.conn_curr->packet_tx_head_len) {
 				*tx_release = isr_rx_conn_pkt_release(node_tx);
 			}
-		} else {
-			_radio.conn_curr->empty = 0U;
 		}
 #if defined(CONFIG_BT_CTLR_TX_RETRY_DISABLE)
 	} else if (_radio.packet_counter != 1) {
@@ -6489,7 +6494,7 @@ again:
 	LL_ASSERT(retry);
 	retry--;
 
-	bt_rand(&access_addr, sizeof(u32_t));
+	util_rand(&access_addr, sizeof(u32_t));
 
 	bit_idx = 31U;
 	transitions = 0U;
@@ -9051,13 +9056,40 @@ static void event_connection_prepare(u32_t ticks_at_expire,
 		}
 	}
 
-	/* check if procedure is requested */
+	/* Check if procedures with instant or encryption setup is requested or
+	 * active.
+	 */
 	if (conn->llcp_ack != conn->llcp_req) {
 		/* Stop previous event, to avoid Radio DMA corrupting the
 		 * rx queue
 		 */
 		event_stop(0, 0, 0, (void *)STATE_ABORT);
 
+		/* Process parallel procedures that are active */
+		if (0) {
+#if defined(CONFIG_BT_CTLR_DATA_LENGTH)
+		/* Check if DLE in progress */
+		} else if (conn->llcp_length.ack != conn->llcp_length.req) {
+			if ((conn->llcp_length.state ==
+			     LLCP_LENGTH_STATE_RESIZE) ||
+			    (conn->llcp_length.state ==
+			     LLCP_LENGTH_STATE_RESIZE_RSP)) {
+				/* handle DLU state machine */
+				if (event_len_prep(conn)) {
+					/* NOTE: rx pool could not be resized,
+					 * lets skip this event and try in the
+					 * next event.
+					 */
+					_radio.ticker_id_prepare = 0U;
+
+					goto event_connection_prepare_skip;
+				}
+			}
+#endif /* CONFIG_BT_CTLR_DATA_LENGTH */
+		}
+
+		/* Process procedures with instants or encryption setup */
+		/* FIXME: Make LE Ping cacheable */
 		switch (conn->llcp_type) {
 		case LLCP_CONN_UPD:
 			if (!event_conn_upd_prep(conn, event_counter,
@@ -11992,7 +12024,7 @@ u32_t radio_connect_enable(u8_t adv_addr_type, u8_t *adv_addr, u16_t interval,
 	conn->llcp_feature.features = LL_FEAT;
 	access_addr = access_addr_get();
 	memcpy(&conn->access_addr[0], &access_addr, sizeof(conn->access_addr));
-	bt_rand(&conn->crc_init[0], 3);
+	util_rand(&conn->crc_init[0], 3);
 	memcpy(&conn->data_chan_map[0], &_radio.data_chan_map[0],
 	       sizeof(conn->data_chan_map));
 	conn->data_chan_count = _radio.data_chan_count;
@@ -12333,8 +12365,8 @@ u8_t ll_enc_req_send(u16_t handle, u8_t *rand, u8_t *ediv, u8_t *ltk)
 			memcpy(enc_req->rand, rand, sizeof(enc_req->rand));
 			enc_req->ediv[0] = ediv[0];
 			enc_req->ediv[1] = ediv[1];
-			bt_rand(enc_req->skdm, sizeof(enc_req->skdm));
-			bt_rand(enc_req->ivm, sizeof(enc_req->ivm));
+			util_rand(enc_req->skdm, sizeof(enc_req->skdm));
+			util_rand(enc_req->ivm, sizeof(enc_req->ivm));
 		} else if (conn->enc_rx && conn->enc_tx) {
 			memcpy(&conn->llcp_enc.rand[0], rand,
 			       sizeof(conn->llcp_enc.rand));
