@@ -1,5 +1,5 @@
-#ifndef _MDM_A9G_RDA_H__
-#define _MDM_A9G_RDA_H__
+#ifndef __MDM_A9G_RDA_H__
+#define __MDM_A9G_RDA_H__
 
 #include <kernel.h>
 #include <ctype.h>
@@ -10,6 +10,12 @@
 #include <net/net_if.h>
 #include <net/net_offload.h>
 #include <net/socket_offload.h>
+
+#define MDM_MANUFACTURER_LENGTH 10
+#define MDM_MODEL_LENGTH 16
+#define MDM_REVISION_LENGTH 64
+#define MDM_IMEI_LENGTH 16
+#define MDM_TIME_LENGTH 32
 
 struct usr_http_cfg {
 	char *url;
@@ -22,12 +28,26 @@ struct usr_http_cfg {
 	u16_t timeout;
 };
 
+struct mdm_ctx {
+	/* modem data */
+	char data_manufacturer[MDM_MANUFACTURER_LENGTH];
+	char data_model[MDM_MODEL_LENGTH];
+	char data_revision[MDM_REVISION_LENGTH];
+	char data_imei[MDM_IMEI_LENGTH];
+	char data_timeval[MDM_TIME_LENGTH];
+    uint32_t data_sys_timeval;
+	int   data_rssi;
+};
+
 struct usr_gps_cfg {
 	char *lat;
 	char *lon;
     char* gps_data;
     int agps_status;
 };
+
+typedef int (*mdm_get_clock)(struct device *dev,
+                        char *timeval);
 
 typedef int (*mdm_http_init)(struct device *dev,
                         struct usr_http_cfg *cfg);
@@ -45,10 +65,15 @@ typedef int (*mdm_gps_read)(struct device *dev,
 typedef int (*mdm_gps_close)(struct device *dev,
                         struct usr_gps_cfg *cfg);
 
+typedef int (*mdm_get_ctx)(struct device *dev,
+                        struct mdm_ctx *ctx);
+
 struct modem_a9g_rda_net_api {
 	struct net_if_api net_api;
 
 	/* Driver specific extension api */
+    mdm_get_clock  get_clock;
+
 	mdm_http_init http_init;
 	mdm_http_execute http_execute;
 	mdm_http_term http_term;
@@ -57,12 +82,25 @@ struct modem_a9g_rda_net_api {
 	mdm_gps_agps gps_agps;
 	mdm_gps_read gps_read;
 	mdm_gps_close gps_close;
+
+	mdm_get_ctx get_ctx;
 };
 
 enum http_method {
 	HTTP_GET = 0,
 	HTTP_POST,
 };
+
+__syscall int mdm_a9g_get_clock(struct device *dev,
+				char *timeval);
+
+static inline int mdm_a9g_get_clock(struct device *dev,
+					   char *timeval)
+{
+	const struct modem_a9g_rda_net_api *api =
+        (const struct modem_a9g_rda_net_api *) dev->driver_api;
+	return api->get_clock(dev, timeval);
+}
 
 __syscall int mdm_a9g_http_init(struct device *dev,
 				struct usr_http_cfg *cfg);
@@ -139,6 +177,17 @@ static inline int mdm_a9g_gps_close(struct device *dev,
 	const struct modem_a9g_rda_net_api *api =
         (const struct modem_a9g_rda_net_api *) dev->driver_api;
 	return api->gps_close(dev, cfg);
+}
+
+__syscall int mdm_a9g_get_ctx(struct device *dev,
+				struct mdm_ctx *ctx);
+
+static inline int mdm_a9g_get_ctx(struct device *dev,
+					   struct mdm_ctx *ctx)
+{
+	const struct modem_a9g_rda_net_api *api =
+        (const struct modem_a9g_rda_net_api *) dev->driver_api;
+	return api->get_ctx(dev, ctx);
 }
 
 #endif

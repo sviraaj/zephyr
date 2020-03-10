@@ -58,12 +58,8 @@ static struct modem_pin modem_pins[] = {
 
 #define BUF_ALLOC_TIMEOUT K_SECONDS(1)
 
-#define MDM_MANUFACTURER_LENGTH 10
 #define MDM_CD_LEN 16
 #define MDM_GPS_DATA_LEN 256
-#define MDM_MODEL_LENGTH 16
-#define MDM_REVISION_LENGTH 64
-#define MDM_IMEI_LENGTH 16
 
 #define RSSI_TIMEOUT_SECS 30
 #define MDM_SOCKET_MAX_BUF_SIZE 4096U
@@ -132,6 +128,7 @@ struct modem_data {
 	char mdm_model[MDM_MODEL_LENGTH];
 	char mdm_revision[MDM_REVISION_LENGTH];
 	char mdm_imei[MDM_IMEI_LENGTH];
+	char mdm_timeval[MDM_TIME_LENGTH];
 
 	/* modem state */
 	int ev_creg;
@@ -157,6 +154,8 @@ struct modem_data {
 	char lat_cur[MDM_CD_LEN];
 	char lon_cur[MDM_CD_LEN];
     */
+
+    char time_data[MDM_TIME_LENGTH];
 };
 
 enum CONNECT_STATUS {
@@ -396,6 +395,34 @@ MODEM_CMD_DEFINE(on_cmd_gps_read)
     return 0;
 }
 
+/* Handler: +CCLK: "..." */
+MODEM_CMD_DEFINE(on_cmd_gettime)
+{
+	size_t out_len;
+
+	out_len = strlen(argv[0]);
+
+    if (argv[0][0] != '\"')
+    {
+        LOG_ERR("Time format +CCLK wrong %s, %c", argv[0], argv[0][0]);
+        return -1;
+    }
+
+    /* argv[0] + 1 to ensure not to cpy preceding "
+     * out_len -1 to ensure not to cpy trailing " */
+	memcpy(mdata.mdm_timeval, argv[0] + 1, out_len - 1);
+	mdata.mdm_timeval[out_len] = '\0';
+	mctx.data_sys_timeval = k_uptime_get_32();
+
+	memcpy(mdata.time_data, argv[0] + 1, out_len - 1);
+	mdata.time_data[out_len] = '\0';
+
+    LOG_INF("TIME CCLK: %s", log_strdup(mdata.time_data));
+	k_sem_give(&mdata.sem_response);
+
+    return 0;
+}
+
 /*
  * Modem Info Command Handlers
  */
@@ -448,6 +475,19 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_imei)
 	memcpy(mdata.mdm_imei, argv[0], out_len);
 	mdata.mdm_imei[out_len] = '\0';
 	LOG_INF("IMEI: %s", log_strdup(mdata.mdm_imei));
+    return 0;
+}
+
+/* Handler: +CTZV:<Time> */
+MODEM_CMD_DEFINE(on_cmd_timezoneval)
+{
+	size_t out_len;
+
+	out_len = strlen(argv[0]);
+	memcpy(mdata.mdm_timeval, argv[0], out_len);
+	mdata.mdm_timeval[out_len] = '\0';
+	mctx.data_sys_timeval = k_uptime_get_32();
+	LOG_INF("TIME: %s, %u", log_strdup(mdata.mdm_timeval), mctx.data_sys_timeval);
     return 0;
 }
 
@@ -702,14 +742,12 @@ MODEM_CMD_DEFINE(on_cmd_http_response)
     return 0;
 }
 
-#if 0
 /* Handler: +CREG: <stat>[0] */
 MODEM_CMD_DEFINE(on_cmd_socknotifycreg)
 {
 	mdata.ev_creg = ATOI(argv[0], 0, "stat");
 	LOG_DBG("CREG:%d", mdata.ev_creg);
 }
-#endif
 
 /* RX thread */
 static void modem_rx(void)
@@ -844,6 +882,7 @@ restart:
 
 	pin_init();
 
+    //while(1);
 	LOG_INF("Waiting for modem to respond");
 
 	/* Give the modem a while to start responding to simple 'AT' commands.
@@ -1337,6 +1376,38 @@ static struct net_offload modem_net_offload = {
 	.get = net_offload_dummy_get,
 };
 
+int a9g_get_clock(struct device *dev, char *timeval)
+{
+	char buf[sizeof("AT+CCLK?\r")];
+	int ret = 0;
+
+	memset(buf, 0, sizeof(buf));
+	snprintk(buf, sizeof(buf), "AT+CCLK?");
+
+    /* FIXME Find a common solution for all locks */
+    ret = k_sem_take(&mdata.mdm_lock, MDM_LOCK_TIMEOUT);
+    if (ret != 0)
+    {
+        return ret;
+    }
+
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
+			     &mdata.sem_response, MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		goto ret;
+	}
+
+    /* copy time value */
+    strcpy(timeval, mdata.time_data);
+
+ret:
+    k_sem_give(&mdata.mdm_lock);
+
+	return ret;
+}
+
+
 int a9g_http_init(struct device *dev, struct usr_http_cfg *cfg)
 {
 	char buf[sizeof("AT+CGACT=#,#\r")];
@@ -1652,10 +1723,10 @@ int a9g_gps_read(struct device *dev, struct usr_gps_cfg *cfg)
 	}
 
 	/* read data */
-    /*
+#if 0
     strcpy(cfg->lat, mdata.lat_cur);
     strcpy(cfg->lon, mdata.lon_cur);
-    */
+#endif
     strcpy(cfg->gps_data, mdata.gps_data);
 
 ret:
@@ -1688,6 +1759,21 @@ ret:
     k_sem_give(&mdata.mdm_lock);
 
 	return ret;
+}
+
+int a9g_get_ctx(struct device *dev, struct mdm_ctx *ctx)
+{
+    struct modem_context *mdm_ctx = modem_context_from_id(0);
+
+    strcpy(ctx->data_manufacturer, mdata.mdm_manufacturer);
+    strcpy(ctx->data_model, mdata.mdm_model);
+    strcpy(ctx->data_revision, mdata.mdm_revision);
+    strcpy(ctx->data_imei, mdata.mdm_imei);
+    strcpy(ctx->data_timeval, mdata.mdm_timeval);
+    ctx->data_sys_timeval = mctx.data_sys_timeval;
+    ctx->data_rssi = mctx.data_rssi;
+
+    return 0;
 }
 
 #define HASH_MULTIPLIER 37
@@ -1736,6 +1822,7 @@ static struct modem_a9g_rda_net_api api_funcs = {
 		{
 			.init = modem_net_iface_init,
 		},
+	.get_clock = a9g_get_clock,
 	.http_init = a9g_http_init,
 	.http_execute = a9g_http_execute,
 	.http_term = a9g_http_term,
@@ -1743,6 +1830,7 @@ static struct modem_a9g_rda_net_api api_funcs = {
 	.gps_agps = a9g_agps,
 	.gps_read = a9g_gps_read,
 	.gps_close = a9g_gps_close,
+	.get_ctx = a9g_get_ctx,
 };
 
 /* TODO Using single socket mode for now. Use multi socket mode todo */
@@ -1757,14 +1845,16 @@ static struct modem_cmd response_cmds[] = {
 	MODEM_CMD("+AGPS: ", on_cmd_gps_agps, 1U, ","),
 	MODEM_CMD("+GETREFLOC: ", on_cmd_gps_getrefloc, 2U, ","),
 	MODEM_CMD("$GNGGA,", on_cmd_gps_read, 0U, ""),
+	MODEM_CMD("+CCLK: ", on_cmd_gettime, 1U, ""),
 };
 
 static struct modem_cmd unsol_cmds[] = {
 #if 0
 	MODEM_CMD("CLOSED", on_cmd_socknotifyclose, 0U, ""), /* TCP closed */
 	MODEM_CMD("+CIPRCV: ", on_cmd_socknotifydata, 1U, ","),
-	MODEM_CMD("+CREG: ", on_cmd_socknotifycreg, 1U, ","),
 #endif
+	MODEM_CMD("+CREG: ", on_cmd_socknotifycreg, 1U, ","),
+	MODEM_CMD("+CTZV:", on_cmd_timezoneval, 1U, ""),
 	MODEM_CMD("+HTTP: ", on_cmd_http_response, 2U, ","),
 };
 
@@ -1839,6 +1929,7 @@ static int modem_init(struct device *dev)
 	mctx.data_model = mdata.mdm_model;
 	mctx.data_revision = mdata.mdm_revision;
 	mctx.data_imei = mdata.mdm_imei;
+	mctx.data_timeval = mdata.mdm_timeval;
 
 	/* pin setup */
 	mctx.pins = modem_pins;

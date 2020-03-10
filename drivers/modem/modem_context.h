@@ -62,6 +62,8 @@ struct modem_context {
 	char *data_model;
 	char *data_revision;
 	char *data_imei;
+	char *data_timeval;
+    uint32_t data_sys_timeval;
 	int   data_rssi;
 
 	/* pin config */
