@@ -65,6 +65,14 @@
 		};
 	};
 
+	vbatt {
+		compatible = "voltage-divider";
+		io-channels = <&adc 1>;
+		output-ohms = <47000>;
+		full-ohms = <(47000 + 806000)>;
+        power-gpios = <&sx1509b 8 GPIO_ACTIVE_HIGH>;
+	};
+
     mx25rxx: mx25rxx_0 {
         status = "okay";
         compatible = "qspi,mx25rxx";
