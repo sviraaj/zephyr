@@ -68,6 +68,8 @@ typedef int (*mdm_gps_close)(struct device *dev,
 typedef int (*mdm_get_ctx)(struct device *dev,
                         struct mdm_ctx *ctx);
 
+typedef void (*mdm_reset)(void);
+
 struct modem_a9g_rda_net_api {
 	struct net_if_api net_api;
 
@@ -84,6 +86,8 @@ struct modem_a9g_rda_net_api {
 	mdm_gps_close gps_close;
 
 	mdm_get_ctx get_ctx;
+
+	mdm_reset reset;
 };
 
 enum http_method {
@@ -188,6 +192,15 @@ static inline int mdm_a9g_get_ctx(struct device *dev,
 	const struct modem_a9g_rda_net_api *api =
         (const struct modem_a9g_rda_net_api *) dev->driver_api;
 	return api->get_ctx(dev, ctx);
+}
+
+__syscall void mdm_a9g_reset(struct device *dev);
+
+static inline void mdm_a9g_reset(struct device *dev)
+{
+	const struct modem_a9g_rda_net_api *api =
+        (const struct modem_a9g_rda_net_api *) dev->driver_api;
+	return api->reset();
 }
 
 #endif

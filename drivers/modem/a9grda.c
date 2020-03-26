@@ -373,14 +373,14 @@ MODEM_CMD_DEFINE(on_cmd_gps_read)
 #if 0
     if (!data->rx_buf)
     {
-        LOG_INF("no rx");
+        LOG_DBG("no rx");
     }
     else
     {
-        LOG_INF("rx len: %d", len);
+        LOG_DBG("rx len: %d", len);
     }
 
-    LOG_INF("%s***, %s***, %s***, %s***, %s***, %s***!", argv[0], argv[1],
+    LOG_DBG("%s***, %s***, %s***, %s***, %s***, %s***!", argv[0], argv[1],
             argv[2], argv[3], argv[4], argv[5]);
 #endif
 	size_t out_len;
@@ -746,7 +746,7 @@ MODEM_CMD_DEFINE(on_cmd_http_response)
 MODEM_CMD_DEFINE(on_cmd_socknotifycreg)
 {
 	mdata.ev_creg = ATOI(argv[0], 0, "stat");
-	LOG_DBG("CREG:%d", mdata.ev_creg);
+	LOG_INF("CREG:%d", mdata.ev_creg);
 }
 
 /* RX thread */
@@ -765,7 +765,7 @@ static void modem_rx(void)
 
 static int pin_init(void)
 {
-	LOG_INF("Setting Modem Pins");
+	LOG_DBG("Setting Modem Pins");
 
 	LOG_DBG("MDM_RESET_PIN -> NOT_ASSERTED");
 	modem_pin_write(&mctx, MDM_RESET, MDM_RESET_NOT_ASSERTED);
@@ -815,7 +815,7 @@ static int pin_init(void)
 
 	modem_pin_config(&mctx, MDM_POWER, GPIO_DIR_IN);
 
-	LOG_INF("... Done!");
+	LOG_DBG("... Done!");
 
 	return 0;
 }
@@ -882,15 +882,13 @@ restart:
 
 	pin_init();
 
-    //while(1);
 	LOG_INF("Waiting for modem to respond");
 
 	/* Give the modem a while to start responding to simple 'AT' commands.
-	 * Also wait for CSPS=1 or RRCSTATE=1 notification
 	 */
 	ret = -1;
 
-    //k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    k_sem_take(&mdata.mdm_lock, K_FOREVER);
 
 	while (counter++ < 50 && ret < 0) {
 		k_sleep(K_SECONDS(2));
@@ -904,6 +902,7 @@ restart:
 
 	if (ret < 0) {
 		LOG_ERR("MODEM WAIT LOOP ERROR: %d", ret);
+        k_sem_give(&mdata.mdm_lock);
 		goto error;
 	}
 
@@ -913,6 +912,7 @@ restart:
 					   MDM_REGISTRATION_TIMEOUT);
 
 	if (ret < 0) {
+        k_sem_give(&mdata.mdm_lock);
 		goto error;
 	}
 
@@ -928,6 +928,7 @@ restart:
 		goto error;
 	}
 #endif
+
 	LOG_INF("Waiting for network");
 
 	/*
@@ -941,6 +942,7 @@ restart:
 			     MDM_REGISTRATION_TIMEOUT);
 	if (ret < 0) {
 		LOG_ERR("AT+CREG ret:%d", ret);
+        k_sem_give(&mdata.mdm_lock);
 		goto error;
 	}
 
@@ -948,6 +950,9 @@ restart:
 	while (counter++ < 20 && mdata.ev_creg != 1 && mdata.ev_creg != 5) {
 		k_sleep(K_SECONDS(1));
 	}
+
+    /* give semaphore for rssi query to work */
+    k_sem_give(&mdata.mdm_lock);
 
 	/* query modem RSSI */
 	modem_rssi_query_work(NULL);
@@ -985,8 +990,6 @@ restart:
 				       K_SECONDS(RSSI_TIMEOUT_SECS));
 
 error:
-    //k_sem_give(&mdata.mdm_lock);
-
 	return;
 }
 
@@ -1831,6 +1834,7 @@ static struct modem_a9g_rda_net_api api_funcs = {
 	.gps_read = a9g_gps_read,
 	.gps_close = a9g_gps_close,
 	.get_ctx = a9g_get_ctx,
+    .reset = modem_reset,
 };
 
 /* TODO Using single socket mode for now. Use multi socket mode todo */
@@ -1914,6 +1918,15 @@ static int modem_init(struct device *dev)
     memset(mdata.gps_data, 0, MDM_GPS_DATA_LEN);
 
 	/* modem interface */
+    /* HACK FIXME */
+#define HIGH_DRIVE_UART_MDM 1
+#if HIGH_DRIVE_UART_MDM
+    gpio_pin_configure(device_get_binding(DT_ALIAS_GPIO_0_LABEL), DT_ALIAS_UART_0_TX_PIN,
+            GPIO_DIR_OUT | GPIO_DS_ALT_LOW | GPIO_DS_ALT_HIGH);
+
+    gpio_pin_configure(device_get_binding(DT_ALIAS_GPIO_0_LABEL), DT_ALIAS_UART_0_RX_PIN,
+            GPIO_DIR_OUT | GPIO_DS_ALT_LOW | GPIO_DS_ALT_HIGH);
+#endif
 	mdata.iface_data.isr_buf = &mdata.iface_isr_buf[0];
 	mdata.iface_data.isr_buf_len = sizeof(mdata.iface_isr_buf);
 	mdata.iface_data.rx_rb_buf = &mdata.iface_rb_buf[0];
