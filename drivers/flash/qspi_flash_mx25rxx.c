@@ -1,7 +1,10 @@
 /*
- * Copyright (c) 2019 
+ * Copyright (c) 2019 ZedBlox Ltd
  *
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Reference:
+ * nrf5_sdk/components/libraries/block_dev/qspi
  */
 
 #include <errno.h>

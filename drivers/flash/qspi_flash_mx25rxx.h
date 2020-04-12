@@ -1,3 +1,13 @@
+/*
+ * Copyright (c) 2019 ZedBlox Ltd
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Reference:
+ * nrf5_sdk/components/libraries/block_dev/qspi
+ */
+
+
 #ifndef  ZEPHYR_DRIVERS_FLASH_QSPI_FLASH_MX25RXX_H_
 #define  ZEPHYR_DRIVERS_FLASH_QSPI_FLASH_MX25RXX_H_
 
