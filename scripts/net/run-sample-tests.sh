@@ -10,6 +10,7 @@ docker_pid=0
 configuration=""
 result=0
 sample=""
+zephyr_overlay=""
 
 check_dirs ()
 {
@@ -20,9 +21,7 @@ check_dirs ()
     then
 	echo '$ZEPHYR_BASE is unset' >&2
 	ret_zephyr=1
-    fi
-
-    if [ ! -d "$ZEPHYR_BASE" ]
+    elif [ ! -d "$ZEPHYR_BASE" ]
     then
 	echo '$ZEPHYR_BASE is set, but it is not a directory' >&2
 	ret_zephyr=1
@@ -54,9 +53,7 @@ check_dirs ()
     then
 	echo '$NET_TOOLS_BASE is unset, no net-tools found' >&2
 	ret_net_tools=1
-    fi
-
-    if [ ! -d "$NET_TOOLS_BASE" ]
+    elif [ ! -d "$NET_TOOLS_BASE" ]
     then
 	echo '$NET_TOOLS_BASE set, but it is not a directory' >&2
 	ret_net_tools=1
@@ -203,10 +200,15 @@ stop_zephyr ()
 
 wait_zephyr ()
 {
+    local result=""
+
     echo "Waiting for Zephyr $zephyr_pid..."
     wait $zephyr_pid
+    result=$?
 
     zephyr_pid=0
+
+    return $result
 }
 
 
@@ -218,14 +220,7 @@ docker_run ()
     for test in "$@"
     do
 	echo "Running '$test' in the container..."
-	docker container exec net-tools $test
-	result="$?"
-
-	if [ $result -ne 0 ]
-	then
-	    return $result
-	fi
-
+	docker container exec net-tools $test || return $?
     done
 }
 
@@ -239,7 +234,7 @@ start_docker ()
 
 stop_docker ()
 {
-    if [ "$docker_pid" -ne 0 ]
+    if [ "$docker_pid" -ne 0 -a "$configuration" != "keep" ]
     then
 	local dockers="$docker_pid $(list_children "$docker_pid")"
 
@@ -252,24 +247,38 @@ stop_docker ()
 
 wait_docker ()
 {
-    echo "Waiting for Docker $docker_pid..."
+    local result=""
+
+    echo "Waiting for Docker PID $docker_pid..."
     wait $docker_pid
+    result=$?
 
     docker_pid=0
+
+    echo "Docker returned '$result'"
+    return $result
 }
 
 docker_exec ()
 {
     local result=0
+    local overlay=""
+
+    if [ -n "$zephyr_overlay" ]
+    then
+       overlay="-DOVERLAY_CONFIG=$zephyr_overlay"
+    fi
 
     case "$1" in
 	echo_server)
-	    start_configuration
-	    start_zephyr
+	    start_configuration || return $?
+	    start_zephyr "$overlay" || return $?
 
 	    start_docker \
 		"/net-tools/echo-client -i eth0 192.0.2.1" \
-		"/net-tools/echo-client -i eth0 2001:db8::1"
+		"/net-tools/echo-client -i eth0 2001:db8::1" \
+		"/net-tools/echo-client -i eth0 192.0.2.1 -t" \
+		"/net-tools/echo-client -i eth0 2001:db8::1 -t"
 
 	    wait_docker
 	    result=$?
@@ -278,11 +287,12 @@ docker_exec ()
 	    ;;
 
 	echo_client)
-	    start_configuration "--ip=192.0.2.1 --ip6=2001:db8::1"
+	    start_configuration "--ip=192.0.2.1 --ip6=2001:db8::1" || return $?
 	    start_docker \
-		"/net-tools/echo-server -i eth0"
+		"/net-tools/echo-server -i eth0" || return $?
 
-	    start_zephyr "-DCONFIG_NET_SAMPLE_SEND_ITERATIONS=10"
+	    start_zephyr "$overlay" \
+			 "-DCONFIG_NET_SAMPLE_SEND_ITERATIONS=10"
 
 	    wait_zephyr
 	    result=$?
@@ -291,13 +301,63 @@ docker_exec ()
 	    ;;
 
 	coap_server)
-	    start_configuration
+	    start_configuration || return $?
 	    start_zephyr
-	    start_docker "/net-tools/libcoap/examples/etsi_coaptest.sh -i eth0 192.0.2.1"
+	    start_docker "/net-tools/libcoap/examples/etsi_coaptest.sh \
+			-i eth0 192.0.2.1" || return $?
 	    wait $docker_pid
 	    result=$?
 
 	    stop_zephyr
+	    ;;
+
+	mqtt_publisher)
+	    start_configuration || return $?
+	    start_docker "/usr/local/sbin/mosquitto -v
+			  -c /usr/local/etc/mosquitto/mosquitto.conf" || \
+			      return $?
+
+	    start_zephyr -DOVERLAY_CONFIG=overlay-sample.conf "$overlay"
+
+	    wait_zephyr
+	    result=$?
+
+	    if [ $result -ne 0 ]
+	    then
+		break
+	    fi
+
+	    # test TLS
+	    start_docker "/usr/local/sbin/mosquitto -v
+			  -c /usr/local/etc/mosquitto/mosquitto-tls.conf" || \
+			      return $?
+
+	    start_zephyr \
+		-DOVERLAY_CONFIG="overlay-tls.conf overlay-sample.conf" \
+		 "$overlay"
+
+	    wait_zephyr
+	    result=$?
+
+	    if [ $result -ne 0 ]
+	    then
+		break
+	    fi
+
+	    # TLS and SOCKS5, mosquitto TLS is already running
+	    start_docker "/usr/sbin/danted" || \
+		return $?
+
+	    start_zephyr \
+		-DOVERLAY_CONFIG="overlay-tls.conf overlay-sample.conf overlay-socks5.conf" \
+		 "$overlay" || return $?
+
+	    wait_zephyr
+	    result=$?
+
+	    stop_docker
+
+	    return $result
 	    ;;
 
 	*)
@@ -343,6 +403,9 @@ usage ()
     echo "-N|--net-tools-dir <dir>\tset net-tools directory"
     echo "--start\t\t\t\tonly start Docker container and network and exit"
     echo "--stop\t\t\t\tonly stop Docker container and network"
+    echo "--keep\t\t\t\tkeep Docker container and network after test"
+    echo -n "--overlay <config files>\tadditional configuration/overlay "
+    echo "files for the\n\t\t\t\tZephyr build process"
     echo "<test script>\t\t\tsample script to run instead of test based on"
     echo "\t\t\t\tcurrent directory"
     echo "The automatically detected directories are:"
@@ -394,6 +457,20 @@ do
 	    fi
 	    configuration=stop_only
 	    ;;
+	--keep)
+	    configuration=keep
+	    ;;
+
+	--overlay)
+	    shift
+	    if [ -n "$zephyr_overlay" ]
+	    then
+		zephyr_overlay="$zephyr_overlay $1"
+	    else
+		zephyr_overlay="$1"
+	    fi
+	    ;;
+
 	-*)
 	    echo "Argument '$1' not recognised" >&2
 	    usage
@@ -414,7 +491,8 @@ done
 
 check_dirs || exit $?
 
-if [ -z "$configuration" -o "$configuration" = "start_only" ]
+if [ -z "$configuration" -o "$configuration" = "start_only" -o \
+	"$configuration" = "keep" ]
 then
     if [ "$configuration" = start_only ]
     then

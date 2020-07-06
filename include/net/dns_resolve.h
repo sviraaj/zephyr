@@ -178,7 +178,7 @@ struct dns_resolve_context {
 	/** This timeout is also used when a buffer is required from the
 	 * buffer pools.
 	 */
-	s32_t buf_timeout;
+	k_timeout_t buf_timeout;
 
 	/** Result callbacks. We have multiple callbacks here so that it is
 	 * possible to do multiple queries at the same time.
@@ -197,7 +197,7 @@ struct dns_resolve_context {
 		void *user_data;
 
 		/** TX timeout */
-		s32_t timeout;
+		k_timeout_t timeout;
 
 		/** String containing the thing to resolve like www.example.com
 		 */
@@ -316,8 +316,8 @@ int dns_resolve_cancel_with_name(struct dns_resolve_context *ctx,
  * has happened.
  * @param user_data The user data.
  * @param timeout The timeout value for the query. Possible values:
- * K_FOREVER: the query is tried forever, user needs to cancel it manually
- *            if it takes too long time to finish
+ * SYS_FOREVER_MS: the query is tried forever, user needs to cancel it
+ *            manually if it takes too long time to finish
  * >0: start the query and let the system timeout it after specified ms
  *
  * @return 0 if resolving was started ok, < 0 otherwise
@@ -363,8 +363,8 @@ struct dns_resolve_context *dns_resolve_get_default(void);
  * has happened.
  * @param user_data The user data.
  * @param timeout The timeout value for the connection. Possible values:
- * K_FOREVER: the query is tried forever, user needs to cancel it manually
- *            if it takes too long time to finish
+ * SYS_FOREVER_MS: the query is tried forever, user needs to cancel it
+ *            manually if it takes too long time to finish
  * >0: start the query and let the system timeout it after specified ms
  *
  * @return 0 if resolving was started ok, < 0 otherwise

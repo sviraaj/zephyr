@@ -11,7 +11,11 @@
 
 #include <toolchain.h>
 #include <linker/sections.h>
+#include <arch/cpu.h>
 #include "vector_table.h"
+#include "macro_priv.inc"
+
+_ASM_FILE_PROLOGUE
 
 /*
  * Four types of exceptions:
@@ -86,16 +90,7 @@ SECTION_SUBSEC_FUNC(exc_vector_table,_vector_table_section,_vector_table)
 
 	/* Current EL with SPx / SError */
 	.align 7
-	stp	x0, x1, [sp, #-16]!
-	stp	x2, x3, [sp, #-16]!
-	stp	x4, x5, [sp, #-16]!
-	stp	x6, x7, [sp, #-16]!
-	stp	x8, x9, [sp, #-16]!
-	stp	x10, x11, [sp, #-16]!
-	stp	x12, x13, [sp, #-16]!
-	stp	x14, x15, [sp, #-16]!
-	stp	x16, x17, [sp, #-16]!
-	stp	x18, x30, [sp, #-16]!
+	z_arm64_enter_exc
 
 	mov	x1, sp
 	mov	x0, #0 /* K_ERR_CPU_EXCEPTION */

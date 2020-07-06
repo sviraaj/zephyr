@@ -75,7 +75,7 @@
 
     mx25rxx: mx25rxx_0 {
         status = "okay";
-        compatible = "qspi,mx25rxx";
+        compatible = "macronix,mx25rxx";
         label = "MX25RXX";
     };
 };
@@ -109,6 +109,12 @@
 		mdm-power-gpios = <&gpio1 8 0>;
 		mdm-reset-gpios = <&sx1509b 9 0>;
     };
+    quectel-bg95 {
+        compatible = "quectel,bg95";
+	    label = "quectel-bg95";
+		mdm-power-gpios = <&gpio1 8 0>;
+		mdm-reset-gpios = <&sx1509b 9 0>;
+    };
 };
 
 &uart1 {
@@ -135,14 +141,40 @@
     bme280_int: bme280@76 {
         compatible = "bosch,bme280";
         reg = <0x76>;
-        label = "BME280_int";
+        label = "BME280_INT";
     };
 
     bme280_ext: bme280@77 {
         compatible = "bosch,bme280";
         reg = <0x77>;
-        label = "BME280_ext";
+        label = "BME280_EXT";
     };
+
+    hdc2080_int: hdc2080@40 {
+        compatible = "ti,hdc2080";
+        reg = <0x40>;
+        label = "HDC2080_INT";
+    };
+
+    lps22hh_int: lps22hh@5c {
+		compatible = "st,lps22hh";
+		reg = <0x5c>;
+		label = "LPS22HH_INT";
+		//drdy-gpios = <&gpiod 15 GPIO_ACTIVE_HIGH>;
+	};
+
+    hdc2080_ext: hdc2080@41 {
+        compatible = "ti,hdc2080";
+        reg = <0x41>;
+        label = "HDC2080_EXT";
+    };
+ 
+    lps22hh_ext: lps22hh@5d {
+		compatible = "st,lps22hh";
+		reg = <0x5d>;
+		label = "LPS22HH_EXT";
+		//drdy-gpios = <&gpiod 15 GPIO_ACTIVE_HIGH>;
+	};
 };
 
 &i2c1 {
@@ -157,7 +189,7 @@
 		reg = <0x3e>;
 		label = "GPIO_P0";
 		gpio-controller;
-		int1-gpios = <&gpio1 2 0>;
+		nint-gpios = <&gpio1 2 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
 		#gpio-cells = <2>;
 		ngpios = <16>;
 	};

@@ -19,6 +19,8 @@
 #include <bluetooth/gatt.h>
 #include <sys/byteorder.h>
 
+static void start_scan(void);
+
 static struct bt_conn *default_conn;
 
 static struct bt_uuid_16 uuid = BT_UUID_INIT_16(0);
@@ -110,6 +112,7 @@ static bool eir_found(struct bt_data *data, void *user_data)
 		}
 
 		for (i = 0; i < data->data_len; i += sizeof(u16_t)) {
+			struct bt_le_conn_param *param;
 			struct bt_uuid *uuid;
 			u16_t u16;
 			int err;
@@ -126,8 +129,14 @@ static bool eir_found(struct bt_data *data, void *user_data)
 				continue;
 			}
 
-			default_conn = bt_conn_create_le(addr,
-							 BT_LE_CONN_PARAM_DEFAULT);
+			param = BT_LE_CONN_PARAM_DEFAULT;
+			err = bt_conn_le_create(addr, BT_CONN_LE_CREATE_CONN,
+						param, &default_conn);
+			if (err) {
+				printk("Create conn failed (err %d)\n", err);
+				start_scan();
+			}
+
 			return false;
 		}
 	}
@@ -145,7 +154,8 @@ static void device_found(const bt_addr_le_t *addr, s8_t rssi, u8_t type,
 	       dev, type, ad->len, rssi);
 
 	/* We're only interested in connectable events */
-	if (type == BT_LE_ADV_IND || type == BT_LE_ADV_DIRECT_IND) {
+	if (type == BT_GAP_ADV_TYPE_ADV_IND ||
+	    type == BT_GAP_ADV_TYPE_ADV_DIRECT_IND) {
 		bt_data_parse(ad, eir_found, (void *)addr);
 	}
 }
@@ -157,8 +167,8 @@ static void start_scan(void)
 	/* Use active scanning and disable duplicate filtering to handle any
 	 * devices that might update their advertising data at runtime. */
 	struct bt_le_scan_param scan_param = {
-		.type       = BT_HCI_LE_SCAN_ACTIVE,
-		.filter_dup = BT_HCI_LE_SCAN_FILTER_DUP_DISABLE,
+		.type       = BT_LE_SCAN_TYPE_ACTIVE,
+		.options    = BT_LE_SCAN_OPT_NONE,
 		.interval   = BT_GAP_SCAN_FAST_INTERVAL,
 		.window     = BT_GAP_SCAN_FAST_WINDOW,
 	};

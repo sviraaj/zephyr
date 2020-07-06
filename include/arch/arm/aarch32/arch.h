@@ -6,9 +6,9 @@
 
 /**
  * @file
- * @brief ARM specific kernel interface header
+ * @brief ARM AArch32 specific kernel interface header
  *
- * This header contains the ARM specific kernel interface.  It is
+ * This header contains the ARM AArch32 specific kernel interface.  It is
  * included by the kernel interface architecture-abstraction header
  * (include/arm/cpu.h)
  */
@@ -37,8 +37,8 @@
 #include <arch/arm/aarch32/cortex_m/memory_map.h>
 #include <arch/common/sys_io.h>
 #elif defined(CONFIG_CPU_CORTEX_R)
-#include <arch/arm/aarch32/cortex_r/cpu.h>
-#include <arch/arm/aarch32/cortex_r/sys_io.h>
+#include <arch/arm/aarch32/cortex_a_r/cpu.h>
+#include <arch/arm/aarch32/cortex_a_r/sys_io.h>
 #endif
 
 #ifdef __cplusplus
@@ -46,16 +46,16 @@ extern "C" {
 #endif
 
 /**
- * @brief Declare the STACK_ALIGN_SIZE
+ * @brief Declare the ARCH_STACK_PTR_ALIGN
  *
  * Denotes the required alignment of the stack pointer on public API
  * boundaries
  *
  */
 #ifdef CONFIG_STACK_ALIGN_DOUBLE_WORD
-#define STACK_ALIGN_SIZE 8
+#define ARCH_STACK_PTR_ALIGN 8
 #else
-#define STACK_ALIGN_SIZE 4
+#define ARCH_STACK_PTR_ALIGN 4
 #endif
 
 /**
@@ -70,7 +70,7 @@ extern "C" {
 #if defined(CONFIG_USERSPACE)
 #define Z_THREAD_MIN_STACK_ALIGN CONFIG_ARM_MPU_REGION_MIN_ALIGN_AND_SIZE
 #else
-#define Z_THREAD_MIN_STACK_ALIGN STACK_ALIGN_SIZE
+#define Z_THREAD_MIN_STACK_ALIGN ARCH_STACK_PTR_ALIGN
 #endif
 
 /**
@@ -97,7 +97,7 @@ extern "C" {
  * |  Some thread data   | <---- Defined when thread is created
  * |        ...          |
  * |---------------------| <---- Actual initial stack ptr
- * |  Initial Stack Ptr  |       aligned to STACK_ALIGN_SIZE
+ * |  Initial Stack Ptr  |       aligned to ARCH_STACK_PTR_ALIGN
  * |        ...          |
  * |        ...          |
  * |        ...          |
@@ -124,12 +124,12 @@ extern "C" {
  *        that is using the Floating Point services.
  *
  * For threads that are using the Floating Point services under Shared
- * Registers (CONFIG_FP_SHARING=y) mode, the exception stack frame may
+ * Registers (CONFIG_FPU_SHARING=y) mode, the exception stack frame may
  * contain both the basic stack frame and the FP caller-saved context,
  * upon exception entry. Therefore, a wide guard region is required to
  * guarantee that stack-overflow detection will always be successful.
  */
-#if defined(CONFIG_FLOAT) && defined(CONFIG_FP_SHARING) \
+#if defined(CONFIG_FPU) && defined(CONFIG_FPU_SHARING) \
 	&& defined(CONFIG_MPU_STACK_GUARD)
 #define MPU_GUARD_ALIGN_AND_SIZE_FLOAT CONFIG_MPU_STACK_GUARD_MIN_SIZE_FLOAT
 #else
@@ -174,7 +174,7 @@ extern "C" {
  * the MPU Stack Guard feature).
  */
 #if defined(CONFIG_USERSPACE)
-#define Z_PRIVILEGE_STACK_ALIGN MAX(STACK_ALIGN_SIZE, Z_MPU_GUARD_ALIGN)
+#define Z_PRIVILEGE_STACK_ALIGN MAX(ARCH_STACK_PTR_ALIGN, Z_MPU_GUARD_ALIGN)
 #endif
 
 /**
@@ -198,11 +198,11 @@ extern "C" {
 #if defined(CONFIG_USERSPACE) && \
 	defined(CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
 #define ARCH_THREAD_STACK_DEFINE(sym, size) \
-	struct _k_thread_stack_element __noinit \
+	struct z_thread_stack_element __noinit \
 		__aligned(POW2_CEIL(size)) sym[POW2_CEIL(size)]
 #else
 #define ARCH_THREAD_STACK_DEFINE(sym, size) \
-	struct _k_thread_stack_element __noinit __aligned(STACK_ALIGN) \
+	struct z_thread_stack_element __noinit __aligned(STACK_ALIGN) \
 		sym[size+MPU_GUARD_ALIGN_AND_SIZE]
 #endif
 
@@ -216,12 +216,12 @@ extern "C" {
 #if defined(CONFIG_USERSPACE) && \
 	defined(CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
 #define ARCH_THREAD_STACK_ARRAY_DEFINE(sym, nmemb, size) \
-	struct _k_thread_stack_element __noinit \
+	struct z_thread_stack_element __noinit \
 		__aligned(POW2_CEIL(size)) \
 		sym[nmemb][ARCH_THREAD_STACK_LEN(size)]
 #else
 #define ARCH_THREAD_STACK_ARRAY_DEFINE(sym, nmemb, size) \
-	struct _k_thread_stack_element __noinit \
+	struct z_thread_stack_element __noinit \
 		__aligned(STACK_ALIGN) \
 		sym[nmemb][ARCH_THREAD_STACK_LEN(size)]
 #endif
@@ -229,11 +229,11 @@ extern "C" {
 #if defined(CONFIG_USERSPACE) && \
 	defined(CONFIG_MPU_REQUIRES_POWER_OF_TWO_ALIGNMENT)
 #define ARCH_THREAD_STACK_MEMBER(sym, size) \
-	struct _k_thread_stack_element __aligned(POW2_CEIL(size)) \
+	struct z_thread_stack_element __aligned(POW2_CEIL(size)) \
 		sym[POW2_CEIL(size)]
 #else
 #define ARCH_THREAD_STACK_MEMBER(sym, size) \
-	struct _k_thread_stack_element __aligned(STACK_ALIGN) \
+	struct z_thread_stack_element __aligned(STACK_ALIGN) \
 		sym[size+MPU_GUARD_ALIGN_AND_SIZE]
 #endif
 

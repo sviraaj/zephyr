@@ -177,7 +177,7 @@ static void on_failed_write(int retry_cnt)
 		k_busy_wait(USEC_PER_MSEC *
 				CONFIG_LOG_BACKEND_RTT_RETRY_DELAY_MS);
 	} else {
-		k_sleep(CONFIG_LOG_BACKEND_RTT_RETRY_DELAY_MS);
+		k_msleep(CONFIG_LOG_BACKEND_RTT_RETRY_DELAY_MS);
 	}
 }
 
@@ -257,8 +257,8 @@ static void log_backend_rtt_init(void)
 
 static void panic(struct log_backend const *const backend)
 {
-	log_backend_std_panic(&log_output);
 	panic_mode = true;
+	log_backend_std_panic(&log_output);
 }
 
 static void dropped(const struct log_backend *const backend, u32_t cnt)

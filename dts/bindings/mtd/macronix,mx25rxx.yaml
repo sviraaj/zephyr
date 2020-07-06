@@ -1,7 +1,7 @@
 description: >
     Macronix MX25RXX QSPI flash device
 
-compatible: "qspi,mx25rxx"
+compatible: "macronix,mx25rxx"
 
 #include: qspi-device.yaml
 include: base.yaml

@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT silabs_gecko_spi_usart
+
 #define LOG_LEVEL CONFIG_SPI_LOG_LEVEL
 #include <logging/log.h>
 LOG_MODULE_REGISTER(spi_gecko);
@@ -51,7 +53,7 @@ struct spi_gecko_config {
 static int spi_config(struct device *dev, const struct spi_config *config,
 		      u16_t *control)
 {
-	const struct spi_gecko_config *gecko_config = dev->config->config_info;
+	const struct spi_gecko_config *gecko_config = dev->config_info;
 	struct spi_gecko_data *data = DEV_DATA(dev);
 
 	if (SPI_WORD_SIZE_GET(config->operation) != SPI_WORD_SIZE) {
@@ -166,7 +168,7 @@ static void spi_gecko_xfer(struct device *dev,
 {
 	int ret;
 	struct spi_context *ctx = &DEV_DATA(dev)->ctx;
-	const struct spi_gecko_config *gecko_config = dev->config->config_info;
+	const struct spi_gecko_config *gecko_config = dev->config_info;
 	struct spi_gecko_data *data = DEV_DATA(dev);
 
 	spi_context_cs_control(ctx, true);
@@ -181,7 +183,7 @@ static void spi_gecko_xfer(struct device *dev,
 
 static void spi_gecko_init_pins(struct device *dev)
 {
-	const struct spi_gecko_config *config = dev->config->config_info;
+	const struct spi_gecko_config *config = dev->config_info;
 
 	soc_gpio_configure(&config->pin_rx);
 	soc_gpio_configure(&config->pin_tx);
@@ -206,7 +208,7 @@ static void spi_gecko_init_pins(struct device *dev)
 
 static int spi_gecko_init(struct device *dev)
 {
-	const struct spi_gecko_config *config = dev->config->config_info;
+	const struct spi_gecko_config *config = dev->config_info;
 	USART_InitSync_TypeDef usartInit = USART_INITSYNC_DEFAULT;
 
 	/* The peripheral and gpio clock are already enabled from soc and gpio
@@ -267,7 +269,7 @@ static int spi_gecko_transceive_async(struct device *dev,
 static int spi_gecko_release(struct device *dev,
 			     const struct spi_config *config)
 {
-	const struct spi_gecko_config *gecko_config = dev->config->config_info;
+	const struct spi_gecko_config *gecko_config = dev->config_info;
 
 	if (!(gecko_config->base->STATUS & USART_STATUS_TXIDLE)) {
 		return -EBUSY;
@@ -291,54 +293,32 @@ static struct spi_driver_api spi_gecko_api = {
 	}; \
 	static struct spi_gecko_config spi_gecko_cfg_##n = { \
 	    .base = (USART_TypeDef *) \
-		 DT_INST_##n##_SILABS_GECKO_SPI_USART_BASE_ADDRESS, \
+		 DT_INST_REG_ADDR(n), \
 	    .clock = CLOCK_USART(usart), \
-	    .pin_rx = { DT_INST_##n##_SILABS_GECKO_SPI_USART_LOCATION_RX_1, \
-			DT_INST_##n##_SILABS_GECKO_SPI_USART_LOCATION_RX_2, \
+	    .pin_rx = { DT_INST_PROP_BY_IDX(n, location_rx, 1), \
+			DT_INST_PROP_BY_IDX(n, location_rx, 2), \
 			gpioModeInput, 1},				\
-	    .pin_tx = { DT_INST_##n##_SILABS_GECKO_SPI_USART_LOCATION_TX_1, \
-			DT_INST_##n##_SILABS_GECKO_SPI_USART_LOCATION_TX_2, \
+	    .pin_tx = { DT_INST_PROP_BY_IDX(n, location_tx, 1), \
+			DT_INST_PROP_BY_IDX(n, location_tx, 2), \
 			gpioModePushPull, 1},				\
-	    .pin_clk = { DT_INST_##n##_SILABS_GECKO_SPI_USART_LOCATION_CLK_1, \
-			DT_INST_##n##_SILABS_GECKO_SPI_USART_LOCATION_CLK_2, \
+	    .pin_clk = { DT_INST_PROP_BY_IDX(n, location_clk, 1), \
+			DT_INST_PROP_BY_IDX(n, location_clk, 2), \
 			gpioModePushPull, 1},				\
-	    .loc_rx = DT_INST_##n##_SILABS_GECKO_SPI_USART_LOCATION_RX_0, \
-	    .loc_tx = DT_INST_##n##_SILABS_GECKO_SPI_USART_LOCATION_TX_0, \
-	    .loc_clk = DT_INST_##n##_SILABS_GECKO_SPI_USART_LOCATION_CLK_0, \
+	    .loc_rx = DT_INST_PROP_BY_IDX(n, location_rx, 0), \
+	    .loc_tx = DT_INST_PROP_BY_IDX(n, location_tx, 0), \
+	    .loc_clk = DT_INST_PROP_BY_IDX(n, location_clk, 0), \
 	}; \
 	DEVICE_AND_API_INIT(spi_##n, \
-			DT_INST_##n##_SILABS_GECKO_SPI_USART_LABEL, \
+			DT_INST_LABEL(n), \
 			spi_gecko_init, \
 			&spi_gecko_data_##n, \
 			&spi_gecko_cfg_##n, \
 			POST_KERNEL, \
 			CONFIG_SPI_INIT_PRIORITY, \
-			&spi_gecko_api)
+			&spi_gecko_api);
 
-#define SPI_ID(n) DT_INST_##n##_SILABS_GECKO_SPI_USART_PERIPHERAL_ID
+#define SPI_ID(n) DT_INST_PROP(n, peripheral_id)
 
 #define SPI_INIT(n) SPI_INIT2(n, SPI_ID(n))
 
-#ifdef DT_INST_0_SILABS_GECKO_SPI_USART_LABEL
-
-SPI_INIT(0);
-
-#endif /* DT_INST_0_SILABS_GECKO_SPI_USART_LABEL */
-
-#ifdef DT_INST_1_SILABS_GECKO_SPI_USART_LABEL
-
-SPI_INIT(1);
-
-#endif /* DT_INST_1_SILABS_GECKO_SPI_USART_LABEL */
-
-#ifdef DT_INST_2_SILABS_GECKO_SPI_USART_LABEL
-
-SPI_INIT(2);
-
-#endif /* DT_INST_2_SILABS_GECKO_SPI_USART_LABEL */
-
-#ifdef DT_INST_3_SILABS_GECKO_SPI_USART_LABEL
-
-SPI_INIT(3);
-
-#endif /* DT_INST_3_SILABS_GECKO_SPI_USART_LABEL */
+DT_INST_FOREACH_STATUS_OKAY(SPI_INIT)

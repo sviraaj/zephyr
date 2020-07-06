@@ -31,6 +31,8 @@ comment "Device Drivers"
 
 source "drivers/sensor/adt7420/Kconfig"
 
+source "drivers/sensor/adxl345/Kconfig"
+
 source "drivers/sensor/adxl362/Kconfig"
 
 source "drivers/sensor/adxl372/Kconfig"
@@ -57,9 +59,13 @@ source "drivers/sensor/bmi160/Kconfig"
 
 source "drivers/sensor/bmm150/Kconfig"
 
+source "drivers/sensor/bq274xx/Kconfig"
+
 source "drivers/sensor/ccs811/Kconfig"
 
 source "drivers/sensor/dht/Kconfig"
+
+source "drivers/sensor/dps310/Kconfig"
 
 source "drivers/sensor/ens210/Kconfig"
 
@@ -71,15 +77,25 @@ source "drivers/sensor/grove/Kconfig"
 
 source "drivers/sensor/ti_hdc/Kconfig"
 
+source "drivers/sensor/hdc2080/Kconfig"
+
 source "drivers/sensor/hmc5883l/Kconfig"
 
 source "drivers/sensor/hp206c/Kconfig"
 
 source "drivers/sensor/hts221/Kconfig"
 
+source "drivers/sensor/icm20600/Kconfig"
+
+source "drivers/sensor/iis2dlpc/Kconfig"
+
+source "drivers/sensor/iis2mdc/Kconfig"
+
 source "drivers/sensor/iis3dhhc/Kconfig"
 
 source "drivers/sensor/isl29035/Kconfig"
+
+source "drivers/sensor/ism330dhcx/Kconfig"
 
 source "drivers/sensor/lis2dh/Kconfig"
 
@@ -113,11 +129,13 @@ source "drivers/sensor/max30101/Kconfig"
 
 source "drivers/sensor/max44009/Kconfig"
 
+source "drivers/sensor/mchp_tach_xec/Kconfig"
+
 source "drivers/sensor/mcp9808/Kconfig"
 
-source "drivers/sensor/mpu6050/Kconfig"
+source "drivers/sensor/mpr/Kconfig"
 
-source "drivers/sensor/icm20600/Kconfig"
+source "drivers/sensor/mpu6050/Kconfig"
 
 source "drivers/sensor/ms5837/Kconfig"
 

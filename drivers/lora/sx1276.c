@@ -4,26 +4,30 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <drivers/counter.h>
+#define DT_DRV_COMPAT semtech_sx1276
+
 #include <drivers/gpio.h>
 #include <drivers/lora.h>
 #include <drivers/spi.h>
 #include <zephyr.h>
 
+/* LoRaMac-node specific includes */
 #include <sx1276/sx1276.h>
+#include <timer.h>
 
 #define LOG_LEVEL CONFIG_LORA_LOG_LEVEL
 #include <logging/log.h>
 LOG_MODULE_REGISTER(sx1276);
 
-#define GPIO_RESET_PIN		DT_INST_0_SEMTECH_SX1276_RESET_GPIOS_PIN
-#define GPIO_RESET_FLAGS	DT_INST_0_SEMTECH_SX1276_RESET_GPIOS_FLAGS
-#define GPIO_CS_PIN		DT_INST_0_SEMTECH_SX1276_CS_GPIOS_PIN
+#define GPIO_RESET_PIN		DT_INST_GPIO_PIN(0, reset_gpios)
+#define GPIO_RESET_FLAGS	DT_INST_GPIO_FLAGS(0, reset_gpios)
+#define GPIO_CS_PIN		DT_INST_SPI_DEV_CS_GPIOS_PIN(0)
 
 #define SX1276_REG_PA_CONFIG			0x09
 #define SX1276_REG_PA_DAC			0x4d
 #define SX1276_REG_VERSION			0x42
 
+static u32_t saved_time;
 extern DioIrqHandler *DioIrq[];
 
 struct sx1276_dio {
@@ -32,22 +36,29 @@ struct sx1276_dio {
 	gpio_dt_flags_t flags;
 };
 
-static struct sx1276_dio sx1276_dios[] =
-#ifdef DT_INST_0_SEMTECH_SX1276_DIO_GPIOS_PIN_0
-	DT_INST_0_SEMTECH_SX1276_DIO_GPIOS
-#else
-	{DT_INST_0_SEMTECH_SX1276_DIO_GPIOS}
-#endif
-	;
+/* Helper macro that UTIL_LISTIFY can use and produces an element with comma */
+#define SX1276_DIO_GPIO_ELEM(idx, inst) \
+	{ \
+		DT_INST_GPIO_LABEL_BY_IDX(inst, dio_gpios, idx), \
+		DT_INST_GPIO_PIN_BY_IDX(inst, dio_gpios, idx), \
+		DT_INST_GPIO_FLAGS_BY_IDX(inst, dio_gpios, idx), \
+	},
+
+#define SX1276_DIO_GPIO_INIT(n) \
+	UTIL_LISTIFY(DT_INST_PROP_LEN(n, dio_gpios), SX1276_DIO_GPIO_ELEM, n)
+
+static const struct sx1276_dio sx1276_dios[] = { SX1276_DIO_GPIO_INIT(0) };
+
 #define SX1276_MAX_DIO ARRAY_SIZE(sx1276_dios)
 
 struct sx1276_data {
-	struct device *counter;
 	struct device *reset;
 	struct device *spi;
 	struct spi_config spi_cfg;
 	struct device *dio_dev[SX1276_MAX_DIO];
+	struct k_work dio_work[SX1276_MAX_DIO];
 	struct k_sem data_sem;
+	struct k_timer timer;
 	RadioEvents_t sx1276_event;
 	u8_t *rx_buf;
 	u8_t rx_len;
@@ -59,11 +70,6 @@ bool SX1276CheckRfFrequency(uint32_t frequency)
 {
 	/* TODO */
 	return true;
-}
-
-void RtcStopAlarm(void)
-{
-	counter_stop(dev_data.counter);
 }
 
 void SX1276SetAntSwLowPower(bool status)
@@ -86,11 +92,11 @@ void SX1276Reset(void)
 	gpio_pin_configure(dev_data.reset, GPIO_RESET_PIN,
 			   GPIO_OUTPUT_ACTIVE | GPIO_RESET_FLAGS);
 
-	k_sleep(1);
+	k_sleep(K_MSEC(1));
 
 	gpio_pin_set(dev_data.reset, GPIO_RESET_PIN, 0);
 
-	k_sleep(6);
+	k_sleep(K_MSEC(6));
 }
 
 void BoardCriticalSectionBegin(uint32_t *mask)
@@ -103,49 +109,71 @@ void BoardCriticalSectionEnd(uint32_t *mask)
 	irq_unlock(*mask);
 }
 
-uint32_t RtcGetTimerElapsedTime(void)
+u32_t RtcGetTimerValue(void)
 {
-	u32_t ticks;
-	int err;
+	return k_uptime_get_32();
+}
 
-	err = counter_get_value(dev_data.counter, &ticks);
-	if (err) {
-		LOG_ERR("Failed to read counter value (err %d)", err);
-		return 0;
-	}
-
-	return ticks;
+u32_t RtcGetTimerElapsedTime(void)
+{
+	return (k_uptime_get_32() - saved_time);
 }
 
 u32_t RtcGetMinimumTimeout(void)
 {
-	/* TODO: Get this value from counter driver */
-	return 3;
+	return 1;
 }
 
-void RtcSetAlarm(uint32_t timeout)
+void RtcStopAlarm(void)
 {
-	struct counter_alarm_cfg alarm_cfg;
-
-	alarm_cfg.flags = 0;
-	alarm_cfg.ticks = timeout;
-
-	counter_set_channel_alarm(dev_data.counter, 0, &alarm_cfg);
+	k_timer_stop(&dev_data.timer);
 }
 
-uint32_t RtcSetTimerContext(void)
+static void timer_callback(struct k_timer *_timer)
 {
-	return 0;
+	ARG_UNUSED(_timer);
+
+	TimerIrqHandler();
 }
 
-uint32_t RtcMs2Tick(uint32_t milliseconds)
+void RtcSetAlarm(u32_t timeout)
 {
-	return counter_us_to_ticks(dev_data.counter, (milliseconds / 1000));
+	k_timer_start(&dev_data.timer, K_MSEC(timeout), K_NO_WAIT);
 }
 
-void DelayMsMcu(uint32_t ms)
+u32_t RtcSetTimerContext(void)
 {
-	k_sleep(ms);
+	saved_time = k_uptime_get_32();
+
+	return saved_time;
+}
+
+/* For us, 1 tick = 1 milli second. So no need to do any conversion here */
+u32_t RtcGetTimerContext(void)
+{
+	return saved_time;
+}
+
+void DelayMsMcu(u32_t ms)
+{
+	k_sleep(K_MSEC(ms));
+}
+
+u32_t RtcMs2Tick(uint32_t milliseconds)
+{
+	return milliseconds;
+}
+
+u32_t RtcTick2Ms(uint32_t tick)
+{
+	return tick;
+}
+
+static void sx1276_dio_work_handle(struct k_work *work)
+{
+	int dio = work - dev_data.dio_work;
+
+	(*DioIrq[dio])(NULL);
 }
 
 static void sx1276_irq_callback(struct device *dev,
@@ -156,8 +184,9 @@ static void sx1276_irq_callback(struct device *dev,
 	pin = find_lsb_set(pins) - 1;
 
 	for (i = 0; i < SX1276_MAX_DIO; i++) {
-		if (pin == sx1276_dios[i].pin) {
-			(*DioIrq[i])(NULL);
+		if (dev == dev_data.dio_dev[i] &&
+		    pin == sx1276_dios[i].pin) {
+			k_work_submit(&dev_data.dio_work[i]);
 		}
 	}
 }
@@ -169,12 +198,18 @@ void SX1276IoIrqInit(DioIrqHandler **irqHandlers)
 
 	/* Setup DIO gpios */
 	for (i = 0; i < SX1276_MAX_DIO; i++) {
+		if (!irqHandlers[i]) {
+			continue;
+		}
+
 		dev_data.dio_dev[i] = device_get_binding(sx1276_dios[i].port);
 		if (dev_data.dio_dev[i] == NULL) {
 			LOG_ERR("Cannot get pointer to %s device",
 				sx1276_dios[i].port);
 			return;
 		}
+
+		k_work_init(&dev_data.dio_work[i], sx1276_dio_work_handle);
 
 		gpio_pin_configure(dev_data.dio_dev[i], sx1276_dios[i].pin,
 				   GPIO_INPUT | GPIO_INT_DEBOUNCE
@@ -354,19 +389,14 @@ static void sx1276_rx_done(u8_t *payload, u16_t size, int16_t rssi, int8_t snr)
 }
 
 static int sx1276_lora_recv(struct device *dev, u8_t *data, u8_t size,
-			    s32_t timeout, s16_t *rssi, s8_t *snr)
+			    k_timeout_t timeout, s16_t *rssi, s8_t *snr)
 {
 	int ret;
 
 	Radio.SetMaxPayloadLength(MODEM_LORA, 255);
 	Radio.Rx(0);
 
-	/*
-	 * As per the API requirement, timeout value can be in ms/K_FOREVER/
-	 * K_NO_WAIT. So, let's handle all cases.
-	 */
-	ret = k_sem_take(&dev_data.data_sem, timeout == K_FOREVER ? K_FOREVER :
-			 timeout == K_NO_WAIT ? K_NO_WAIT : K_MSEC(timeout));
+	ret = k_sem_take(&dev_data.data_sem, timeout);
 	if (ret < 0) {
 		LOG_ERR("Receive timeout!");
 		return ret;
@@ -416,6 +446,13 @@ static int sx1276_lora_config(struct device *dev,
 	return 0;
 }
 
+static int sx1276_lora_test_cw(struct device *dev, u32_t frequency,
+			       s8_t tx_power, u16_t duration)
+{
+	Radio.SetTxContinuousWave(frequency, tx_power, duration);
+	return 0;
+}
+
 /* Initialize Radio driver callbacks */
 const struct Radio_s Radio = {
 	.Init = SX1276Init,
@@ -438,6 +475,7 @@ const struct Radio_s Radio = {
 	.IrqProcess = NULL,
 	.RxBoosted = NULL,
 	.SetRxDutyCycle = NULL,
+	.SetTxContinuousWave = SX1276SetTxContinuousWave,
 };
 
 static int sx1276_lora_init(struct device *dev)
@@ -446,23 +484,23 @@ static int sx1276_lora_init(struct device *dev)
 	int ret;
 	u8_t regval;
 
-	dev_data.spi = device_get_binding(DT_INST_0_SEMTECH_SX1276_BUS_NAME);
+	dev_data.spi = device_get_binding(DT_INST_BUS_LABEL(0));
 	if (!dev_data.spi) {
 		LOG_ERR("Cannot get pointer to %s device",
-			    DT_INST_0_SEMTECH_SX1276_BUS_NAME);
+			    DT_INST_BUS_LABEL(0));
 		return -EINVAL;
 	}
 
 	dev_data.spi_cfg.operation = SPI_WORD_SET(8) | SPI_TRANSFER_MSB;
-	dev_data.spi_cfg.frequency = DT_INST_0_SEMTECH_SX1276_SPI_MAX_FREQUENCY;
-	dev_data.spi_cfg.slave = DT_INST_0_SEMTECH_SX1276_BASE_ADDRESS;
+	dev_data.spi_cfg.frequency = DT_INST_PROP(0, spi_max_frequency);
+	dev_data.spi_cfg.slave = DT_INST_REG_ADDR(0);
 
 	spi_cs.gpio_pin = GPIO_CS_PIN,
 	spi_cs.gpio_dev = device_get_binding(
-			DT_INST_0_SEMTECH_SX1276_CS_GPIOS_CONTROLLER);
+			DT_INST_SPI_DEV_CS_GPIOS_LABEL(0));
 	if (!spi_cs.gpio_dev) {
 		LOG_ERR("Cannot get pointer to %s device",
-		       DT_INST_0_SEMTECH_SX1276_CS_GPIOS_CONTROLLER);
+		       DT_INST_SPI_DEV_CS_GPIOS_LABEL(0));
 		return -EIO;
 	}
 
@@ -470,10 +508,10 @@ static int sx1276_lora_init(struct device *dev)
 
 	/* Setup Reset gpio */
 	dev_data.reset = device_get_binding(
-			DT_INST_0_SEMTECH_SX1276_RESET_GPIOS_CONTROLLER);
+			DT_INST_GPIO_LABEL(0, reset_gpios));
 	if (!dev_data.reset) {
 		LOG_ERR("Cannot get pointer to %s device",
-		       DT_INST_0_SEMTECH_SX1276_RESET_GPIOS_CONTROLLER);
+		       DT_INST_GPIO_LABEL(0, reset_gpios));
 		return -EIO;
 	}
 
@@ -481,9 +519,9 @@ static int sx1276_lora_init(struct device *dev)
 	ret = gpio_pin_configure(dev_data.reset, GPIO_RESET_PIN,
 				 GPIO_OUTPUT_ACTIVE | GPIO_RESET_FLAGS);
 
-	k_sleep(100);
+	k_sleep(K_MSEC(100));
 	gpio_pin_set(dev_data.reset, GPIO_RESET_PIN, 0);
-	k_sleep(100);
+	k_sleep(K_MSEC(100));
 
 	ret = sx1276_read(SX1276_REG_VERSION, &regval, 1);
 	if (ret < 0) {
@@ -491,13 +529,9 @@ static int sx1276_lora_init(struct device *dev)
 		return -EIO;
 	}
 
-	dev_data.counter = device_get_binding(DT_RTC_0_NAME);
-	if (!dev_data.counter) {
-		LOG_ERR("Cannot get pointer to %s device", DT_RTC_0_NAME);
-		return -EIO;
-	}
-
 	k_sem_init(&dev_data.data_sem, 0, UINT_MAX);
+
+	k_timer_init(&dev_data.timer, timer_callback, NULL);
 
 	dev_data.sx1276_event.TxDone = sx1276_tx_done;
 	dev_data.sx1276_event.RxDone = sx1276_rx_done;
@@ -512,9 +546,10 @@ static const struct lora_driver_api sx1276_lora_api = {
 	.config = sx1276_lora_config,
 	.send = sx1276_lora_send,
 	.recv = sx1276_lora_recv,
+	.test_cw = sx1276_lora_test_cw,
 };
 
-DEVICE_AND_API_INIT(sx1276_lora, DT_INST_0_SEMTECH_SX1276_LABEL,
+DEVICE_AND_API_INIT(sx1276_lora, DT_INST_LABEL(0),
 		    &sx1276_lora_init, NULL,
 		    NULL, POST_KERNEL, CONFIG_LORA_INIT_PRIORITY,
 		    &sx1276_lora_api);

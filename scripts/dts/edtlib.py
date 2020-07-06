@@ -34,6 +34,11 @@ a .dts file to parse and a list of paths to directories containing bindings.
 # Please do not access private things. Instead, think of what API you need, and
 # add it.
 #
+# This module is not meant to have any global state. It should be possible to
+# create several EDT objects with independent binding paths and flags. If you
+# need to add a configuration parameter or the like, store it in the EDT
+# instance, and initialize it e.g. with a constructor argument.
+#
 # This library is layered on top of dtlib, and is not meant to expose it to
 # clients. This keeps the header generation script simple.
 #
@@ -83,8 +88,6 @@ from dtlib import DT, DTError, to_num, to_nums, TYPE_EMPTY, TYPE_NUMS, \
 from grutils import Graph
 
 
-dtc_flags = ""
-
 #
 # Public classes
 #
@@ -117,6 +120,26 @@ class EDT:
                 ...
         };
 
+      This exists only for the sake of gen_legacy_defines.py. It will probably
+      be removed following the Zephyr 2.3 release.
+
+    compat2nodes:
+      A collections.defaultdict that maps each 'compatible' string that appears
+      on some Node to a list of Nodes with that compatible.
+
+    compat2okay:
+      Like compat2nodes, but just for nodes with status 'okay'.
+
+    label2node:
+      A collections.OrderedDict that maps a node label to the node with
+      that label.
+
+    chosen_nodes:
+      A collections.OrderedDict that maps the properties defined on the
+      devicetree's /chosen node to their values. 'chosen' is indexed by
+      property name (a string), and values are converted to Node objects.
+      Note that properties of the /chosen node which can't be converted
+      to a Node are not included in the value.
 
     dts_path:
       The .dts path passed to __init__()
@@ -128,7 +151,10 @@ class EDT:
     bindings_dirs:
       The bindings directory paths passed to __init__()
     """
-    def __init__(self, dts, bindings_dirs, warn_file=None):
+    def __init__(self, dts, bindings_dirs, warn_file=None,
+                 warn_reg_unit_address_mismatch=True,
+                 default_prop_types=True,
+                 support_fixed_partitions_on_any_bus=True):
         """
         EDT constructor. This is the top-level entry point to the library.
 
@@ -139,12 +165,30 @@ class EDT:
           List of paths to directories containing bindings, in YAML format.
           These directories are recursively searched for .yaml files.
 
-        warn_file:
+        warn_file (default: None):
           'file' object to write warnings to. If None, sys.stderr is used.
+
+        warn_reg_unit_address_mismatch (default: True):
+          If True, a warning is printed if a node has a 'reg' property where
+          the address of the first entry does not match the unit address of the
+          node
+
+        default_prop_types (default: True):
+          If True, default property types will be used when a node has no
+          bindings.
+
+        support_fixed_partitions_on_any_bus (default True):
+          If True, set the Node.bus for 'fixed-partitions' compatible nodes
+          to None.  This allows 'fixed-partitions' binding to match regardless
+          of the bus the 'fixed-partition' is under.
         """
         # Do this indirection with None in case sys.stderr is deliberately
         # overridden
         self._warn_file = sys.stderr if warn_file is None else warn_file
+
+        self._warn_reg_unit_address_mismatch = warn_reg_unit_address_mismatch
+        self._default_prop_types = default_prop_types
+        self._fixed_partitions_no_bus = support_fixed_partitions_on_any_bus
 
         self.dts_path = dts
         self.bindings_dirs = bindings_dirs
@@ -154,7 +198,7 @@ class EDT:
 
         self._init_compat2binding(bindings_dirs)
         self._init_nodes()
-        self._init_compat2enabled()
+        self._init_luts()
 
         self._define_order()
 
@@ -168,22 +212,32 @@ class EDT:
         except DTError as e:
             _err(e)
 
+    @property
+    def chosen_nodes(self):
+        ret = OrderedDict()
+
+        try:
+            chosen = self._dt.get_node("/chosen")
+        except DTError:
+            return ret
+
+        for name, prop in chosen.props.items():
+            try:
+                node = prop.to_path()
+            except DTError:
+                # DTS value is not phandle or string, or path doesn't exist
+                continue
+
+            ret[name] = self._node2enode[node]
+
+        return ret
+
     def chosen_node(self, name):
         """
         Returns the Node pointed at by the property named 'name' in /chosen, or
         None if the property is missing
         """
-        try:
-            chosen = self._dt.get_node("/chosen")
-        except DTError:
-            # No /chosen node
-            return None
-
-        if name not in chosen.props:
-            return None
-
-        # to_path() checks that the node exists
-        return self._node2enode[chosen.props[name].to_path()]
+        return self.chosen_nodes.get(name)
 
     @property
     def dts_source(self):
@@ -397,6 +451,9 @@ class EDT:
                 _err("'include:' in {} should be a string or a list of strings"
                      .format(binding_path))
 
+        if "child-binding" in binding and "include" in binding["child-binding"]:
+            self._merge_included_bindings(binding["child-binding"], binding_path)
+
         # Legacy syntax
         if "inherits" in binding:
             self._warn("the 'inherits:' syntax in {} is deprecated and will "
@@ -471,7 +528,11 @@ class EDT:
             node = Node()
             node.edt = self
             node._node = dt_node
-            node.bus_node = node._bus_node()
+            if "compatible" in node._node.props:
+                node.compats = node._node.props["compatible"].to_strings()
+            else:
+                node.compats = []
+            node.bus_node = node._bus_node(self._fixed_partitions_no_bus)
             node._init_binding()
             node._init_regs()
 
@@ -482,18 +543,30 @@ class EDT:
             # These depend on all Node objects having been created, because
             # they (either always or sometimes) reference other nodes, so we
             # run them separately
-            node._init_props()
+            node._init_props(default_prop_types=self._default_prop_types)
             node._init_interrupts()
             node._init_pinctrls()
 
-    def _init_compat2enabled(self):
-        # Creates self.compat2enabled
+    def _init_luts(self):
+        # Initialize node lookup tables (LUTs).
 
+        self.label2node = OrderedDict()
         self.compat2enabled = defaultdict(list)
+        self.compat2nodes = defaultdict(list)
+        self.compat2okay = defaultdict(list)
+
         for node in self.nodes:
-            if node.enabled:
-                for compat in node.compats:
+            for label in node.labels:
+                self.label2node[label] = node
+
+            for compat in node.compats:
+                self.compat2nodes[compat].append(node)
+
+                if node.enabled:
                     self.compat2enabled[compat].append(node)
+
+                if node.status == "okay":
+                    self.compat2okay[compat].append(node)
 
     def _check_binding(self, binding, binding_path):
         # Does sanity checking on 'binding'. Only takes 'self' for the sake of
@@ -701,6 +774,14 @@ class Node:
       The text from the 'label' property on the node, or None if the node has
       no 'label'
 
+    labels:
+      A list of all of the devicetree labels for the node, in the same order
+      as the labels appear, but with duplicates removed.
+
+      This corresponds to the actual devicetree source labels, unlike the
+      "label" attribute, which is the value of a devicetree property named
+      "label".
+
     parent:
       The Node instance for the devicetree parent of the Node, or None if the
       node is the root node
@@ -722,8 +803,16 @@ class Node:
     depends_on:
       A list with the nodes that the node directly depends on
 
+    status:
+      The node's status property value, as a string, or "okay" if the node
+      has no status property set. If the node's status property is "ok",
+      it is converted to "okay" for consistency.
+
     enabled:
       True unless the node has 'status = "disabled"'
+
+      This exists only for the sake of gen_legacy_defines.py. It will probably
+      be removed following the Zephyr 2.3 release.
 
     read_only:
       True if the node has a 'read-only' property, and False otherwise
@@ -778,9 +867,12 @@ class Node:
     flash_controller:
       The flash controller for the node. Only meaningful for nodes representing
       flash partitions.
-    """
-    global dtc_flags
 
+    spi_cs_gpio:
+      The device's SPI GPIO chip select as a ControllerAndData instance, if it
+      exists, and None otherwise. See
+      Documentation/devicetree/bindings/spi/spi-controller.yaml in the Linux kernel.
+    """
     @property
     def name(self):
         "See the class docstring"
@@ -802,12 +894,12 @@ class Node:
 
         addr = _translate(addr, self._node)
 
-        # This code is redundant, it checks the same thing as simple_bus_reg in
-        # dtc, we disable it in python if it's suppressed in dtc.
-        if "-Wno-simple_bus_reg" not in dtc_flags:
-            if self.regs and self.regs[0].addr != addr:
-                self.edt._warn("unit-address and first reg (0x{:x}) don't match "
-                               "for {}".format(self.regs[0].addr, self.name))
+        # Matches the simple_bus_reg warning in dtc
+        if self.edt._warn_reg_unit_address_mismatch and \
+           self.regs and self.regs[0].addr != addr:
+            self.edt._warn("unit address and first address in 'reg' "
+                           f"(0x{self.regs[0].addr:x}) don't match for "
+                           f"{self.path}")
 
         return addr
 
@@ -829,6 +921,11 @@ class Node:
         if "label" in self._node.props:
             return self._node.props["label"].to_string()
         return None
+
+    @property
+    def labels(self):
+        "See the class docstring"
+        return self._node.labels
 
     @property
     def parent(self):
@@ -855,10 +952,24 @@ class Node:
         return self.edt._graph.depends_on(self)
 
     @property
+    def status(self):
+        "See the class docstring"
+        status = self._node.props.get("status")
+
+        if status is None:
+            as_string = "okay"
+        else:
+            as_string = status.to_string()
+
+        if as_string == "ok":
+            as_string = "okay"
+
+        return as_string
+
+    @property
     def enabled(self):
         "See the class docstring"
-        return "status" not in self._node.props or \
-            self._node.props["status"].to_string() != "disabled"
+        return "status" not in self._node.props or self.status != "disabled"
 
     @property
     def read_only(self):
@@ -918,6 +1029,28 @@ class Node:
             return controller.parent
         return controller
 
+    @property
+    def spi_cs_gpio(self):
+        "See the class docstring"
+
+        if not (self.on_bus == "spi" and "cs-gpios" in self.bus_node.props):
+            return None
+
+        if not self.regs:
+            _err("{!r} needs a 'reg' property, to look up the chip select index "
+                 "for SPI".format(self))
+
+        parent_cs_lst = self.bus_node.props["cs-gpios"].val
+
+        # cs-gpios is indexed by the unit address
+        cs_index = self.regs[0].addr
+        if cs_index >= len(parent_cs_lst):
+            _err("index from 'regs' in {!r} ({}) is >= number of cs-gpios "
+                 "in {!r} ({})".format(
+                     self, cs_index, self.bus_node, len(parent_cs_lst)))
+
+        return parent_cs_lst[cs_index]
+
     def __repr__(self):
         return "<Node {} in '{}', {}>".format(
             self.path, self.edt.dts_path,
@@ -936,8 +1069,7 @@ class Node:
         # initialized, which is guaranteed by going through the nodes in
         # node_iter() order.
 
-        if "compatible" in self._node.props:
-            self.compats = self._node.props["compatible"].to_strings()
+        if self.compats:
             on_bus = self.on_bus
 
             for compat in self.compats:
@@ -952,8 +1084,6 @@ class Node:
             # No 'compatible' property. See if the parent binding has a
             # 'child-binding:' key that gives the binding (or a legacy
             # 'sub-node:' key).
-
-            self.compats = []
 
             binding_from_parent = self._binding_from_parent()
             if binding_from_parent:
@@ -988,12 +1118,20 @@ class Node:
 
         return None
 
-    def _bus_node(self):
+    def _bus_node(self, support_fixed_partitions_on_any_bus = True):
         # Returns the value for self.bus_node. Relies on parent nodes being
         # initialized before their children.
 
         if not self.parent:
             # This is the root node
+            return None
+
+        # Treat 'fixed-partitions' as if they are not on any bus.  The reason is
+        # that flash nodes might be on a SPI or controller or SoC bus.  Having
+        # bus be None means we'll always match the binding for fixed-partitions
+        # also this means want processing the fixed-partitions node we wouldn't
+        # try to do anything bus specific with it.
+        if support_fixed_partitions_on_any_bus and "fixed-partitions" in self.compats:
             return None
 
         if self.parent.bus:
@@ -1003,21 +1141,37 @@ class Node:
         # Same bus node as parent (possibly None)
         return self.parent.bus_node
 
-    def _init_props(self):
+    def _init_props(self, default_prop_types=False):
         # Creates self.props. See the class docstring. Also checks that all
         # properties on the node are declared in its binding.
 
         self.props = OrderedDict()
 
-        if not self._binding:
-            return
+        node = self._node
+        if self._binding:
+            binding_props = self._binding.get("properties")
+        else:
+            binding_props = None
 
         # Initialize self.props
-        if "properties" in self._binding:
-            for name, options in self._binding["properties"].items():
+        if binding_props:
+            for name, options in binding_props.items():
                 self._init_prop(name, options)
-
-        self._check_undeclared_props()
+            self._check_undeclared_props()
+        elif default_prop_types:
+            for name in node.props:
+                if name in _DEFAULT_PROP_TYPES:
+                    prop_type = _DEFAULT_PROP_TYPES[name]
+                    val = self._prop_val(name, prop_type, False, None)
+                    prop = Property()
+                    prop.node = self
+                    prop.name = name
+                    prop.description = None
+                    prop.val = val
+                    prop.type = prop_type
+                    # We don't set enum_index for "compatible"
+                    prop.enum_index = None
+                    self.props[name] = prop
 
     def _init_prop(self, name, options):
         # _init_props() helper for initializing a single property
@@ -1196,8 +1350,14 @@ class Node:
                               .format(address_cells, size_cells)):
             reg = Register()
             reg.node = self
-            reg.addr = _translate(to_num(raw_reg[:4*address_cells]), node)
-            reg.size = to_num(raw_reg[4*address_cells:])
+            if address_cells == 0:
+                reg.addr = None
+            else:
+                reg.addr = _translate(to_num(raw_reg[:4*address_cells]), node)
+            if size_cells == 0:
+                reg.size = None
+            else:
+                reg.size = to_num(raw_reg[4*address_cells:])
             if size_cells != 0 and reg.size == 0:
                 _err("zero-sized 'reg' in {!r} seems meaningless (maybe you "
                      "want a size of one or #size-cells = 0 instead)"
@@ -1346,8 +1506,8 @@ class Register:
       there is no 'reg-names' property
 
     addr:
-      The starting address of the register, in the parent address space. Any
-      'ranges' properties are taken into account.
+      The starting address of the register, in the parent address space, or None
+      if #address-cells is zero. Any 'ranges' properties are taken into account.
 
     size:
       The length of the register in bytes
@@ -1357,8 +1517,10 @@ class Register:
 
         if self.name is not None:
             fields.append("name: " + self.name)
-        fields.append("addr: " + hex(self.addr))
-        fields.append("size: " + hex(self.size))
+        if self.addr is not None:
+            fields.append("addr: " + hex(self.addr))
+        if self.size is not None:
+            fields.append("size: " + hex(self.size))
 
         return "<Register, {}>".format(", ".join(fields))
 
@@ -1493,35 +1655,6 @@ class Property:
 
 class EDTError(Exception):
     "Exception raised for devicetree- and binding-related errors"
-
-
-#
-# Public global functions
-#
-
-
-def spi_dev_cs_gpio(node):
-    # Returns an SPI device's GPIO chip select if it exists, as a
-    # ControllerAndData instance, and None otherwise. See
-    # Documentation/devicetree/bindings/spi/spi-bus.txt in the Linux kernel.
-
-    if not (node.on_bus == "spi" and "cs-gpios" in node.bus_node.props):
-        return None
-
-    if not node.regs:
-        _err("{!r} needs a 'reg' property, to look up the chip select index "
-             "for SPI".format(node))
-
-    parent_cs_lst = node.bus_node.props["cs-gpios"].val
-
-    # cs-gpios is indexed by the unit address
-    cs_index = node.regs[0].addr
-    if cs_index >= len(parent_cs_lst):
-        _err("index from 'regs' in {!r} ({}) is >= number of cs-gpios "
-             "in {!r} ({})".format(
-                 node, cs_index, node.bus_node, len(parent_cs_lst)))
-
-    return parent_cs_lst[cs_index]
 
 
 #
@@ -2208,3 +2341,17 @@ _BindingLoader.add_constructor("!include", _binding_include)
 _BindingLoader.add_constructor(
     yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
     lambda loader, node: OrderedDict(loader.construct_pairs(node)))
+
+# Zephyr: do not change this list without updating the documentation
+# for the DT_PROP() macro in include/devicetree.h.
+_DEFAULT_PROP_TYPES = {
+    "compatible": "string-array",
+    "status": "string",
+    "reg": "array",
+    "reg-names": "string-array",
+    "label": "string",
+    "interrupts": "array",
+    "interrupts-extended": "compound",
+    "interrupt-names": "string-array",
+    "interrupt-controller": "boolean",
+}

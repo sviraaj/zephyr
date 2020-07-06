@@ -16,7 +16,7 @@ if LPS22HH
 
 choice LPS22HH_TRIGGER_MODE
 	prompt "Trigger mode"
-	default LPS22HH_TRIGGER_GLOBAL_THREAD
+	default LPS22HH_TRIGGER_NONE  #LPS22HH_TRIGGER_GLOBAL_THREAD
 	help
 	  Specify the type of triggering to be used by the driver.
 

@@ -898,6 +898,7 @@ restart:
 		if (ret < 0 && ret != -ETIMEDOUT) {
 			break;
 		}
+        LOG_INF("Waiting for modem retrying.");
 	}
 
 	if (ret < 0) {
@@ -1527,7 +1528,7 @@ int a9g_http_execute(struct device *dev, struct usr_http_cfg *cfg)
 		/* wait for response */
 		k_sem_reset(&mdata.sem_connect);
 
-		if (k_sem_take(&mdata.sem_connect, cfg->timeout) != 0) {
+		if (k_sem_take(&mdata.sem_connect, K_MSEC(cfg->timeout)) != 0) {
 			LOG_ERR("No http resp in %d ms", cfg->timeout);
 			/* clear callback for more data */
 			mdata.cmd_handler_data.process_data = NULL;
@@ -1587,7 +1588,7 @@ int a9g_http_execute(struct device *dev, struct usr_http_cfg *cfg)
 		/* wait for response */
 		k_sem_reset(&mdata.sem_connect);
 
-		if (k_sem_take(&mdata.sem_connect, cfg->timeout) != 0) {
+		if (k_sem_take(&mdata.sem_connect, K_MSEC(cfg->timeout)) != 0) {
 			LOG_ERR("No http resp in %d ms", cfg->timeout);
 
 			/* clear callback for more data */
@@ -1683,7 +1684,7 @@ int a9g_agps(struct device *dev, struct usr_gps_cfg *cfg)
 	/* wait for agps result */
 	k_sem_reset(&mdata.sem_connect);
 
-	if (k_sem_take(&mdata.sem_connect, 50000) != 0) {
+	if (k_sem_take(&mdata.sem_connect, K_MSEC(50000)) != 0) {
 		LOG_ERR("No agps resp in %d ms", 50000);
 		ret = -EIO;
 	}
@@ -1971,6 +1972,6 @@ error:
 	return ret;
 }
 
-NET_DEVICE_OFFLOAD_INIT(modem_a9g, DT_INST_0_RDA_A9G_LABEL, modem_init, &mdata,
-			NULL, CONFIG_MODEM_A9GRDA_INIT_PRIORITY, &api_funcs,
-			MDM_MAX_DATA_LENGTH);
+NET_DEVICE_OFFLOAD_INIT(modem_a9g, DT_INST_0_RDA_A9G_LABEL, modem_init,
+        device_pm_control_nop, &mdata, NULL, CONFIG_MODEM_A9GRDA_INIT_PRIORITY,
+        &api_funcs, MDM_MAX_DATA_LENGTH);

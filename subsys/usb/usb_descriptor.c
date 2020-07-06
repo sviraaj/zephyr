@@ -241,7 +241,8 @@ static int usb_validate_ep_cfg_data(struct usb_ep_descriptor * const ep_descr,
 		for (u8_t idx = 1; idx < 16; idx++) {
 			struct usb_dc_ep_cfg_data ep_cfg;
 
-			ep_cfg.ep_type = ep_descr->bmAttributes;
+			ep_cfg.ep_type = (ep_descr->bmAttributes &
+					  USB_EP_TRANSFER_TYPE_MASK);
 			ep_cfg.ep_mps = ep_descr->wMaxPacketSize;
 			ep_cfg.ep_addr = ep_descr->bEndpointAddress;
 			if (ep_cfg.ep_addr & USB_EP_DIR_IN) {
@@ -312,8 +313,8 @@ __weak u8_t *usb_update_sn_string_descriptor(void)
 	if (hwinfo_get_device_id(hwid, sizeof(hwid)) > 0) {
 		LOG_HEXDUMP_DBG(hwid, sizeof(hwid), "Serial Number");
 		for (int i = 0; i < sizeof(hwid); i++) {
-			sn[i * 2] = hex[hwid[(sizeof(hwid) - 1) - i] >> 4];
-			sn[i * 2 + 1] = hex[hwid[(sizeof(hwid) - 1) - i] & 0xF];
+			sn[i * 2] = hex[hwid[i] >> 4];
+			sn[i * 2 + 1] = hex[hwid[i] & 0xF];
 		}
 	}
 
@@ -484,7 +485,7 @@ struct usb_dev_data *usb_get_dev_data_by_cfg(sys_slist_t *list,
 
 	SYS_SLIST_FOR_EACH_CONTAINER(list, dev_data, node) {
 		struct device *dev = dev_data->dev;
-		const struct usb_cfg_data *cfg_cur = dev->config->config_info;
+		const struct usb_cfg_data *cfg_cur = dev->config_info;
 
 		if (cfg_cur == cfg) {
 			return dev_data;
@@ -503,7 +504,7 @@ struct usb_dev_data *usb_get_dev_data_by_iface(sys_slist_t *list,
 
 	SYS_SLIST_FOR_EACH_CONTAINER(list, dev_data, node) {
 		struct device *dev = dev_data->dev;
-		const struct usb_cfg_data *cfg = dev->config->config_info;
+		const struct usb_cfg_data *cfg = dev->config_info;
 		const struct usb_if_descriptor *if_desc =
 						cfg->interface_descriptor;
 
@@ -523,7 +524,7 @@ struct usb_dev_data *usb_get_dev_data_by_ep(sys_slist_t *list, u8_t ep)
 
 	SYS_SLIST_FOR_EACH_CONTAINER(list, dev_data, node) {
 		struct device *dev = dev_data->dev;
-		const struct usb_cfg_data *cfg = dev->config->config_info;
+		const struct usb_cfg_data *cfg = dev->config_info;
 		const struct usb_ep_cfg_data *ep_data = cfg->endpoint;
 
 		for (u8_t i = 0; i < cfg->num_endpoints; i++) {

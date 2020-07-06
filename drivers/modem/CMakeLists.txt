@@ -22,6 +22,11 @@ if(CONFIG_MODEM_WNCM14A2A)
 	zephyr_library_sources(wncm14a2a.c)
 endif()
 
+if(CONFIG_MODEM_QUECTEL_BG95)
+	zephyr_library_include_directories(${ZEPHYR_BASE}/subsys/net/ip)
+	zephyr_library_sources(quectel-bg95.c)
+endif()
+
 if(CONFIG_MODEM_A9GRDA)
 	zephyr_library_include_directories(${ZEPHYR_BASE}/subsys/net/ip)
 	zephyr_library_sources(a9grda.c)

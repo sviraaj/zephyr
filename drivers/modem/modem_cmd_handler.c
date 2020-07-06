@@ -70,11 +70,36 @@ static u16_t findcrlf(struct modem_cmd_handler_data *data,
 	return 0;
 }
 
+static bool starts_with(struct net_buf *buf, const char *str)
+{
+	int pos = 0;
+
+	while (buf && buf->len && *str) {
+		if (*(buf->data + pos) == *str) {
+			str++;
+			pos++;
+			if (pos >= buf->len) {
+				buf = buf->frags;
+				pos = 0;
+			}
+		} else {
+			return false;
+		}
+	}
+
+	if (*str == 0) {
+		return true;
+	}
+
+	return false;
+}
+
 /*
  * Cmd Handler Functions
  */
 
-static inline struct net_buf *read_rx_allocator(s32_t timeout, void *user_data)
+static inline struct net_buf *read_rx_allocator(k_timeout_t timeout,
+						void *user_data)
 {
 	return net_buf_alloc((struct net_buf_pool *)user_data, timeout);
 }
@@ -208,6 +233,29 @@ static struct modem_cmd *find_cmd_match(struct modem_cmd_handler_data *data)
 	return NULL;
 }
 
+static struct modem_cmd *find_cmd_direct_match(
+		struct modem_cmd_handler_data *data)
+{
+	int j, i;
+
+	for (j = 0; j < ARRAY_SIZE(data->cmds); j++) {
+		if (!data->cmds[j] || data->cmds_len[j] == 0U) {
+			continue;
+		}
+
+		for (i = 0; i < data->cmds_len[j]; i++) {
+			/* match start of cmd */
+			if (data->cmds[j][i].direct &&
+			    (data->cmds[j][i].cmd[0] == '\0' ||
+			     starts_with(data->rx_buf, data->cmds[j][i].cmd))) {
+				return &data->cmds[j][i];
+			}
+		}
+	}
+
+	return NULL;
+}
+
 static void cmd_handler_process(struct modem_cmd_handler *cmd_handler,
 				struct modem_iface *iface)
 {
@@ -233,6 +281,7 @@ static void cmd_handler_process(struct modem_cmd_handler *cmd_handler,
 			/* modem context buffer is empty */
 			break;
 		}
+
 		/* make sure we have storage */
 		if (!data->rx_buf) {
 			data->rx_buf = net_buf_alloc(data->buf_pool,
@@ -253,7 +302,7 @@ static void cmd_handler_process(struct modem_cmd_handler *cmd_handler,
 			LOG_ERR("Data was lost! read %zu of %zu!",
 				rx_len, bytes_read);
 		}
-    }
+	}
 
     /* call extra data processing task and wait for it to finish */
     if (data->process_data != NULL)
@@ -268,6 +317,19 @@ static void cmd_handler_process(struct modem_cmd_handler *cmd_handler,
 		skipcrlf(data);
 		if (!data->rx_buf) {
 			break;
+		}
+
+		cmd = find_cmd_direct_match(data);
+		if (cmd && cmd->func) {
+			ret = cmd->func(data, cmd->cmd_len, NULL, 0);
+			if (ret == -EAGAIN) {
+				/* Wait for more data */
+				break;
+			} else if (ret > 0) {
+				data->rx_buf = net_buf_skip(data->rx_buf, ret);
+			}
+
+			continue;
 		}
 
 		frag = NULL;
@@ -295,6 +357,7 @@ static void cmd_handler_process(struct modem_cmd_handler *cmd_handler,
 #if defined(CONFIG_MODEM_CONTEXT_VERBOSE_DEBUG)
 		LOG_HEXDUMP_DBG(data->match_buf, match_len, "RECV");
 #endif
+
 		k_sem_take(&data->sem_parse_lock, K_FOREVER);
 
 		cmd = find_cmd_match(data);
@@ -302,7 +365,7 @@ static void cmd_handler_process(struct modem_cmd_handler *cmd_handler,
 			LOG_DBG("match cmd [%s] (len:%u)",
 				log_strdup(cmd->cmd), match_len);
 
-			/* process_cmd(cmd, match_len, data); */
+			//if (process_cmd(cmd, match_len, data) == -EAGAIN) {
 			if (process_cmd(cmd, len, data) == -EAGAIN) {
 				k_sem_give(&data->sem_parse_lock);
 				break;
@@ -394,8 +457,8 @@ static int _modem_cmd_send(struct modem_iface *iface,
 			   struct modem_cmd_handler *handler,
 			   struct modem_cmd *handler_cmds,
 			   size_t handler_cmds_len,
-			   const u8_t *buf, struct k_sem *sem, int timeout,
-			   bool no_tx_lock)
+			   const u8_t *buf, struct k_sem *sem,
+			   k_timeout_t timeout, bool no_tx_lock)
 {
 	struct modem_cmd_handler_data *data;
 	int ret;
@@ -415,14 +478,24 @@ static int _modem_cmd_send(struct modem_iface *iface,
 		goto exit;
 	}
 
-#if 0
-    LOG_ERR("write %s", log_strdup(buf));
-#endif
+#if defined(CONFIG_MODEM_CONTEXT_VERBOSE_DEBUG)
+	LOG_HEXDUMP_DBG(buf, strlen(buf), "SENT DATA");
 
+	if (data->eol_len > 0) {
+		if (data->eol[0] != '\r') {
+			/* Print the EOL only if it is not \r, otherwise there
+			 * is just too much printing.
+			 */
+			LOG_HEXDUMP_DBG(data->eol, data->eol_len, "SENT EOL");
+		}
+	} else {
+		LOG_DBG("EOL not set!!!");
+	}
+#endif
 	iface->write(iface, buf, strlen(buf));
 	iface->write(iface, data->eol, data->eol_len);
 
-	if (timeout == K_NO_WAIT) {
+	if (K_TIMEOUT_EQ(timeout, K_NO_WAIT)) {
 		ret = 0;
 		goto exit;
 	}
@@ -455,7 +528,8 @@ int modem_cmd_send_nolock(struct modem_iface *iface,
 			  struct modem_cmd_handler *handler,
 			  struct modem_cmd *handler_cmds,
 			  size_t handler_cmds_len,
-			  const u8_t *buf, struct k_sem *sem, int timeout)
+			  const u8_t *buf, struct k_sem *sem,
+			  k_timeout_t timeout)
 {
 	return _modem_cmd_send(iface, handler, handler_cmds, handler_cmds_len,
 			       buf, sem, timeout, true);
@@ -464,7 +538,7 @@ int modem_cmd_send_nolock(struct modem_iface *iface,
 int modem_cmd_send(struct modem_iface *iface,
 		   struct modem_cmd_handler *handler,
 		   struct modem_cmd *handler_cmds, size_t handler_cmds_len,
-		   const u8_t *buf, struct k_sem *sem, int timeout)
+		   const u8_t *buf, struct k_sem *sem, k_timeout_t timeout)
 {
 	return _modem_cmd_send(iface, handler, handler_cmds, handler_cmds_len,
 			       buf, sem, timeout, false);
@@ -474,7 +548,7 @@ int modem_cmd_send(struct modem_iface *iface,
 int modem_cmd_handler_setup_cmds(struct modem_iface *iface,
 				 struct modem_cmd_handler *handler,
 				 struct setup_cmd *cmds, size_t cmds_len,
-				 struct k_sem *sem, int timeout)
+				 struct k_sem *sem, k_timeout_t timeout)
 {
 	int ret = 0, i;
 

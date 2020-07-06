@@ -6,6 +6,8 @@
 
 #include "icm20600.h"
 
+#define DT_DRV_COMPAT invensense_icm20xxx
+
 #define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
 LOG_MODULE_REGISTER(ICM20600);
 
@@ -108,7 +110,7 @@ static int icm20600_sample_fetch(struct device *dev, enum sensor_channel chan)
 	s16_t buf[7];
     int ret = 0;
 
-    ret = i2c_burst_read(drv_data->i2c, CONFIG_ICM20600_I2C_ADDR,
+    ret = i2c_burst_read(drv_data->i2c, DT_INST_REG_ADDR(0),
 			   ICM20600_REG_DATA_START, (u8_t *)buf, 14);
 	if (ret < 0) {
 		LOG_ERR("Failed to read data sample %d", ret);
@@ -139,15 +141,15 @@ int icm20600_init(struct device *dev)
 	struct icm20600_data *drv_data = dev->driver_data;
 	u8_t id, i;
 
-	drv_data->i2c = device_get_binding(CONFIG_ICM20600_I2C_MASTER_DEV_NAME);
+	drv_data->i2c = device_get_binding(DT_INST_BUS_LABEL(0));
 	if (drv_data->i2c == NULL) {
 		LOG_ERR("Failed to get pointer to %s device",
-			    CONFIG_ICM20600_I2C_MASTER_DEV_NAME);
+			    DT_INST_BUS_LABEL(0));
 		return -EINVAL;
 	}
 
 	/* check chip ID */
-	if (i2c_reg_read_byte(drv_data->i2c, CONFIG_ICM20600_I2C_ADDR,
+	if (i2c_reg_read_byte(drv_data->i2c, DT_INST_REG_ADDR(0),
 			      ICM20600_REG_CHIP_ID, &id) < 0) {
 		LOG_ERR("Failed to read chip ID.");
 		return -EIO;
@@ -159,7 +161,7 @@ int icm20600_init(struct device *dev)
 	}
 
 	/* wake up chip */
-	if (i2c_reg_update_byte(drv_data->i2c, CONFIG_ICM20600_I2C_ADDR,
+	if (i2c_reg_update_byte(drv_data->i2c, DT_INST_REG_ADDR(0),
 				ICM20600_REG_PWR_MGMT1, ICM20600_SLEEP_EN,
 				0) < 0) {
 		LOG_ERR("Failed to wake up chip.");
@@ -178,7 +180,7 @@ int icm20600_init(struct device *dev)
 		return -EINVAL;
 	}
 
-	if (i2c_reg_write_byte(drv_data->i2c, CONFIG_ICM20600_I2C_ADDR,
+	if (i2c_reg_write_byte(drv_data->i2c, DT_INST_REG_ADDR(0),
 			       ICM20600_REG_ACCEL_CFG,
 			       i << ICM20600_ACCEL_FS_SHIFT) < 0) {
 		LOG_ERR("Failed to write accel full-scale range.");
@@ -199,7 +201,7 @@ int icm20600_init(struct device *dev)
 		return -EINVAL;
 	}
 
-	if (i2c_reg_write_byte(drv_data->i2c, CONFIG_ICM20600_I2C_ADDR,
+	if (i2c_reg_write_byte(drv_data->i2c, DT_INST_REG_ADDR(0),
 			       ICM20600_REG_GYRO_CFG,
 			       i << ICM20600_GYRO_FS_SHIFT) < 0) {
 		LOG_ERR("Failed to write gyro full-scale range.");
@@ -220,6 +222,6 @@ int icm20600_init(struct device *dev)
 
 struct icm20600_data icm20600_driver;
 
-DEVICE_AND_API_INIT(icm20600, CONFIG_ICM20600_NAME, icm20600_init, &icm20600_driver,
+DEVICE_AND_API_INIT(icm20600, DT_INST_LABEL(0), icm20600_init, &icm20600_driver,
 		    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
 		    &icm20600_driver_api);

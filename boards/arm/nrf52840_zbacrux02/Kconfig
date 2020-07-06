@@ -1,6 +1,6 @@
-# Kconfig - nRF52840 PCA10056 board configuration
+# Kconfig - nRF52840 ZBACRUX board configuration
 #
-# Copyright (c) 2016 Nordic Semiconductor ASA
+# Copyright (c) 2019 ZedBlox Logitech Pvt Ltd
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -11,4 +11,4 @@ config BOARD_ENABLE_DCDC
         select SOC_DCDC_NRF52X
         default y
 
-endif # BOARD_NRF52840_PCA10056
+endif # BOARD_NRF52840_ZBACRUX02

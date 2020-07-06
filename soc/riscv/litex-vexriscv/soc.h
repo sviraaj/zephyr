@@ -11,8 +11,8 @@
 #include <devicetree.h>
 
 /* lib-c hooks required RAM defined variables */
-#define RISCV_RAM_BASE              DT_INST_0_MMIO_SRAM_BASE_ADDRESS
-#define RISCV_RAM_SIZE              DT_INST_0_MMIO_SRAM_SIZE
+#define RISCV_RAM_BASE              DT_REG_ADDR(DT_INST(0, mmio_sram))
+#define RISCV_RAM_SIZE              DT_REG_SIZE(DT_INST(0, mmio_sram))
 
 #ifndef _ASMLANGUAGE
 /* CSR access helpers */
@@ -34,6 +34,18 @@ static inline unsigned int litex_read32(unsigned long addr)
 		| (sys_read8(addr + 0x4) << 16)
 		| (sys_read8(addr + 0x8) << 8)
 		| sys_read8(addr + 0xc);
+}
+
+static inline u64_t litex_read64(unsigned long addr)
+{
+	return (((u64_t)sys_read8(addr)) << 56)
+		| ((u64_t)sys_read8(addr + 0x4) << 48)
+		| ((u64_t)sys_read8(addr + 0x8) << 40)
+		| ((u64_t)sys_read8(addr + 0xc) << 32)
+		| ((u64_t)sys_read8(addr + 0x10) << 24)
+		| ((u64_t)sys_read8(addr + 0x14) << 16)
+		| ((u64_t)sys_read8(addr + 0x18) << 8)
+		| (u64_t)sys_read8(addr + 0x1c);
 }
 
 static inline void litex_write8(unsigned char value, unsigned long addr)

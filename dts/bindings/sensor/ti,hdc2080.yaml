@@ -1,0 +1,8 @@
+# Copyright (c) 2020, ZedBlox logitech Pvt Ltd
+# SPDX-License-Identifier: Apache-2.0
+
+description: HDC2080 sensor
+
+compatible: "ti,hdc2080"
+
+include: i2c-device.yaml

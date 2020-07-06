@@ -77,9 +77,6 @@
 MEMORY
 {
     FLASH     (rx) : ORIGIN = ROM_ADDR, LENGTH = ROM_SIZE
-#ifdef DT_CCM_BASE_ADDRESS
-    CCM       (rw) : ORIGIN = DT_CCM_BASE_ADDRESS, LENGTH = DT_CCM_SIZE * 1K
-#endif
     SRAM      (wx) : ORIGIN = RAM_ADDR, LENGTH = RAM_SIZE
     /* Used by and documented in include/linker/intlist.ld */
     IDT_LIST  (wx) : ORIGIN = (RAM_ADDR + RAM_SIZE), LENGTH = 2K
@@ -132,7 +129,6 @@ SECTIONS
          */
         *(.glue_7t) *(.glue_7) *(.vfp11_veneer) *(.v4_bx)
 
-#include <linker/priv_stacks-text.ld>
 #include <linker/kobject-text.ld>
 
         MMU_ALIGN;
@@ -172,7 +168,7 @@ SECTIONS
 
     SECTION_PROLOGUE(_RODATA_SECTION_NAME,,)
     {
-        KEEP(*(IRQ_VECTOR_TABLE))
+        KEEP(*(_IRQ_VECTOR_TABLE_SECTION_NAME))
 
         KEEP(*(.openocd_dbg))
         KEEP(*(".openocd_dbg.*"))
@@ -194,7 +190,6 @@ SECTIONS
 #include <custom-rodata.ld>
 #endif
 
-#include <linker/priv_stacks-rom.ld>
 #include <linker/kobject-rom.ld>
 
     } GROUP_LINK_IN(ROMABLE_REGION)
@@ -319,11 +314,7 @@ SECTIONS
     __data_rom_start = LOADADDR(_DATA_SECTION_NAME);
 
 #include <linker/common-ram.ld>
-#include <linker/priv_stacks.ld>
 #include <linker/kobject.ld>
-
-#include <linker/priv_stacks-noinit.ld>
-
 #include <linker/cplusplus-ram.ld>
 
     __data_ram_end = .;

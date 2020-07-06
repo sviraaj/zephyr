@@ -535,7 +535,7 @@ static const struct flash_driver_api qspi_flash_api = {
 
 static struct qspi_flash_data qspi_flash_memory_data;
 
-DEVICE_AND_API_INIT(qspi_flash_memory, DT_INST_0_QSPI_MX25RXX_LABEL,
+DEVICE_AND_API_INIT(qspi_flash_memory, DT_INST_0_MACRONIX_MX25RXX_LABEL,
 		    block_dev_qspi_init, &qspi_flash_memory_data, NULL,
 		    POST_KERNEL, CONFIG_QSPI_FLASH_MX25RXX_INIT_PRIORITY,
 		    &qspi_flash_api);

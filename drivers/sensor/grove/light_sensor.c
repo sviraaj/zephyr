@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT grove_light
+
 #include <drivers/adc.h>
 #include <device.h>
 #include <math.h>
@@ -82,7 +84,7 @@ static const struct sensor_driver_api gls_api = {
 static int gls_init(struct device *dev)
 {
 	struct gls_data *drv_data = dev->driver_data;
-	const struct gls_config *cfg = dev->config->config_info;
+	const struct gls_config *cfg = dev->config_info;
 
 	drv_data->adc = device_get_binding(cfg->adc_label);
 
@@ -113,10 +115,10 @@ static int gls_init(struct device *dev)
 
 static struct gls_data gls_data;
 static const struct gls_config gls_cfg = {
-	.adc_label = DT_INST_0_GROVE_LIGHT_IO_CHANNELS_CONTROLLER,
-	.adc_channel = DT_INST_0_GROVE_LIGHT_IO_CHANNELS_INPUT,
+	.adc_label = DT_INST_IO_CHANNELS_LABEL(0),
+	.adc_channel = DT_INST_IO_CHANNELS_INPUT(0),
 };
 
-DEVICE_AND_API_INIT(gls_dev, DT_INST_0_GROVE_LIGHT_LABEL, &gls_init,
+DEVICE_AND_API_INIT(gls_dev, DT_INST_LABEL(0), &gls_init,
 		&gls_data, &gls_cfg, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
 		&gls_api);

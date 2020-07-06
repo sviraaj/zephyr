@@ -1,0 +1,3 @@
+[submodule "nrf_zephyr_zedblox_app_v1.0"]
+	path = nrf_zephyr_zedblox_app_v1.0
+	url = https://github.com/sviraaj/nrf_zephyr_zedblox_app_v1.0
