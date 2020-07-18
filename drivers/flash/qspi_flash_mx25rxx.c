@@ -7,6 +7,8 @@
  * nrf5_sdk/components/libraries/block_dev/qspi
  */
 
+#define DT_DRV_COMPAT macronix_mx25rxx
+
 #include <errno.h>
 
 #include <drivers/flash.h>
@@ -535,7 +537,7 @@ static const struct flash_driver_api qspi_flash_api = {
 
 static struct qspi_flash_data qspi_flash_memory_data;
 
-DEVICE_AND_API_INIT(qspi_flash_memory, DT_INST_0_MACRONIX_MX25RXX_LABEL,
+DEVICE_AND_API_INIT(qspi_flash_memory, DT_INST_LABEL(0),
 		    block_dev_qspi_init, &qspi_flash_memory_data, NULL,
 		    POST_KERNEL, CONFIG_QSPI_FLASH_MX25RXX_INIT_PRIORITY,
 		    &qspi_flash_api);

@@ -3,8 +3,7 @@
 
 / {
 	model = "Nordic ZedBlox Acrux 02";
-	compatible = "nordic,acrux-02", "nordic,nrf52840-qiaa",
-		     "nordic,nrf52840";
+	compatible = "nordic,zbacrux-02";
 
 	chosen {
 		zephyr,console = &uart0;
@@ -105,7 +104,7 @@
 
     a9grda {
         compatible = "rda,a9g";
-	    label = "a9grda";
+	    label = "rda-a9g";
 		mdm-power-gpios = <&gpio1 8 0>;
 		mdm-reset-gpios = <&sx1509b 9 0>;
     };

@@ -39,18 +39,4 @@
 #define AMM_MODE_ONE_HZ       0x5
 #define AMM_MODE_OFFSET       0x1
 
-struct hdc2080_data {
-#ifdef DT_TI_HDC2080_BUS_I2C
-	struct device *i2c_master;
-	u16_t i2c_slave_addr;
-#else
-#error "HDC2080 device type not specified"
-#endif
-	/* Compensated values. */
-	s32_t comp_temp;
-	u32_t comp_humidity;
-
-	u16_t chip_id;
-};
-
 #endif /* ZEPHYR_DRIVERS_SENSOR_HDC2080_HDC2080_H_ */

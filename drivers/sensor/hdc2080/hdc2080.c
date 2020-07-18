@@ -13,7 +13,11 @@
 #include <sys/byteorder.h>
 #include <sys/__assert.h>
 
-#ifdef DT_TI_HDC2080_BUS_I2C
+#define DT_DRV_COMPAT ti_hdc2080
+
+#define HDC2080_BUS_I2C DT_ANY_INST_ON_BUS_STATUS_OKAY(i2c)
+
+#if HDC2080_BUS_I2C
 #include <drivers/i2c.h>
 #endif
 #include <logging/log.h>
@@ -23,6 +27,20 @@
 #define HDC2080_CONFIG_VAL 0x00
 
 LOG_MODULE_REGISTER(HDC2080, CONFIG_SENSOR_LOG_LEVEL);
+
+struct hdc2080_data {
+#if HDC2080_BUS_I2C
+	struct device *i2c_master;
+	u16_t i2c_slave_addr;
+#else
+#error "HDC2080 device type not specified"
+#endif
+	/* Compensated values. */
+	s32_t comp_temp;
+	u32_t comp_humidity;
+
+	u16_t chip_id;
+};
 
 static int hdc2080_reg_read(struct hdc2080_data *data,
 			  u8_t start, u8_t *buf, int size)
@@ -185,38 +203,32 @@ static int hdc2080_chip_init(struct device *dev)
 	return 0;
 }
 
-#define HDC2080_DEVICE(idx)				                                    \
-static int hdc2080_##idx##_init(struct device *dev)			                \
+#define HDC2080_DEVICE(inst)				                                \
+static int hdc2080_##inst##_init(struct device *dev)			            \
 {                                                                           \
-	struct hdc2080_data *data = dev->driver_data;                            \
-	data->i2c_master = device_get_binding(DT_INST_##idx##_TI_HDC2080_BUS_NAME); \
+	struct hdc2080_data *data = dev->driver_data;                           \
+	data->i2c_master = device_get_binding(DT_INST_BUS_LABEL(inst));         \
 	if (!data->i2c_master) {                                                \
 		LOG_INF("i2c master not found: %s",                                 \
-			    DT_INST_##idx##_TI_HDC2080_BUS_NAME);                      \
+			    DT_INST_BUS_LABEL(inst));                                   \
 		return -EINVAL;                                                     \
 	}                                                                       \
-	data->i2c_slave_addr = DT_INST_##idx##_TI_HDC2080_BASE_ADDRESS;        \
-	if (hdc2080_chip_init(dev) < 0) {                                        \
+	data->i2c_slave_addr = DT_INST_REG_ADDR(inst);                          \
+	if (hdc2080_chip_init(dev) < 0) {                                       \
 		return -EINVAL;                                                     \
 	}                                                                       \
     return 0;                                                               \
 }                                                                           \
                                                                             \
-static struct hdc2080_data hdc2080_##idx##_data;                              \
+static struct hdc2080_data hdc2080_##inst##_data;                           \
                                                                             \
-DEVICE_AND_API_INIT(hdc2080_##idx,				                            \
-          DT_INST_##idx##_TI_HDC2080_LABEL,		                        \
-          hdc2080_##idx##_init,					                            \
-          &hdc2080_##idx##_data,				                                \
+DEVICE_AND_API_INIT(hdc2080_##inst,				                            \
+          DT_INST_LABEL(inst),		                                        \
+          hdc2080_##inst##_init,					                        \
+          &hdc2080_##inst##_data,				                            \
           NULL,              				                                \
           POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,		                    \
-          &hdc2080_api_funcs)
+          &hdc2080_api_funcs);
 
 
-#ifdef DT_INST_0_TI_HDC2080_LABEL
-HDC2080_DEVICE(0);
-#endif
-
-#ifdef DT_INST_1_TI_HDC2080_LABEL
-HDC2080_DEVICE(1);
-#endif
+DT_INST_FOREACH_STATUS_OKAY(HDC2080_DEVICE)

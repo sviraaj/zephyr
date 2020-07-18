@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT rda_a9g
+
 #include <logging/log.h>
 LOG_MODULE_REGISTER(modem_a9grda, CONFIG_MODEM_LOG_LEVEL);
 
@@ -24,16 +26,24 @@ enum mdm_control_pins {
 
 static struct modem_pin modem_pins[] = {
 	/* MDM_POWER */
-	MODEM_PIN(DT_INST_0_RDA_A9G_MDM_POWER_GPIOS_CONTROLLER,
-		  DT_INST_0_RDA_A9G_MDM_POWER_GPIOS_PIN, GPIO_DIR_OUT),
+	MODEM_PIN(DT_INST_GPIO_LABEL(0, mdm_power_gpios),
+		  DT_INST_GPIO_PIN(0, mdm_power_gpios),
+		  DT_INST_GPIO_FLAGS(0, mdm_power_gpios) | GPIO_OUTPUT),
 
 	/* MDM_RESET */
-	MODEM_PIN(DT_INST_0_RDA_A9G_MDM_RESET_GPIOS_CONTROLLER,
-		  DT_INST_0_RDA_A9G_MDM_RESET_GPIOS_PIN, GPIO_DIR_OUT),
+	MODEM_PIN(DT_INST_GPIO_LABEL(0, mdm_reset_gpios),
+		  DT_INST_GPIO_PIN(0, mdm_reset_gpios),
+		  DT_INST_GPIO_FLAGS(0, mdm_reset_gpios) | GPIO_OUTPUT),
 
+#if DT_INST_NODE_HAS_PROP(0, mdm_vint_gpios)
+	/* MDM_VINT */
+	MODEM_PIN(DT_INST_GPIO_LABEL(0, mdm_vint_gpios),
+		  DT_INST_GPIO_PIN(0, mdm_vint_gpios),
+		  DT_INST_GPIO_FLAGS(0, mdm_vint_gpios) | GPIO_INPUT),
+#endif
 };
 
-#define MDM_UART_DEV_NAME DT_INST_0_RDA_A9G_BUS_NAME
+#define MDM_UART_DEV_NAME DT_INST_BUS_LABEL(0)
 
 #define MDM_POWER_ENABLE 1
 #define MDM_POWER_DISABLE 0
@@ -747,6 +757,7 @@ MODEM_CMD_DEFINE(on_cmd_socknotifycreg)
 {
 	mdata.ev_creg = ATOI(argv[0], 0, "stat");
 	LOG_INF("CREG:%d", mdata.ev_creg);
+    return 0;
 }
 
 /* RX thread */
@@ -813,7 +824,7 @@ static int pin_init(void)
 	k_sleep(K_SECONDS(1));
 #endif
 
-	modem_pin_config(&mctx, MDM_POWER, GPIO_DIR_IN);
+	modem_pin_config(&mctx, MDM_POWER, false);
 
 	LOG_DBG("... Done!");
 
@@ -1922,11 +1933,13 @@ static int modem_init(struct device *dev)
     /* HACK FIXME */
 #define HIGH_DRIVE_UART_MDM 1
 #if HIGH_DRIVE_UART_MDM
-    gpio_pin_configure(device_get_binding(DT_ALIAS_GPIO_0_LABEL), DT_ALIAS_UART_0_TX_PIN,
-            GPIO_DIR_OUT | GPIO_DS_ALT_LOW | GPIO_DS_ALT_HIGH);
+    gpio_pin_configure(device_get_binding(DT_LABEL(DT_ALIAS(gpio_0))),
+            DT_PROP(DT_ALIAS(uart_0), tx_pin),
+            GPIO_OUTPUT | GPIO_DS_ALT_LOW | GPIO_DS_ALT_HIGH);
 
-    gpio_pin_configure(device_get_binding(DT_ALIAS_GPIO_0_LABEL), DT_ALIAS_UART_0_RX_PIN,
-            GPIO_DIR_OUT | GPIO_DS_ALT_LOW | GPIO_DS_ALT_HIGH);
+    gpio_pin_configure(device_get_binding(DT_LABEL(DT_ALIAS(gpio_0))),
+            DT_PROP(DT_ALIAS(uart_0), rx_pin),
+            GPIO_OUTPUT | GPIO_DS_ALT_LOW | GPIO_DS_ALT_HIGH);
 #endif
 	mdata.iface_data.isr_buf = &mdata.iface_isr_buf[0];
 	mdata.iface_data.isr_buf_len = sizeof(mdata.iface_isr_buf);
@@ -1972,6 +1985,6 @@ error:
 	return ret;
 }
 
-NET_DEVICE_OFFLOAD_INIT(modem_a9g, DT_INST_0_RDA_A9G_LABEL, modem_init,
+NET_DEVICE_OFFLOAD_INIT(modem_a9g, DT_INST_LABEL(0), modem_init,
         device_pm_control_nop, &mdata, NULL, CONFIG_MODEM_A9GRDA_INIT_PRIORITY,
         &api_funcs, MDM_MAX_DATA_LENGTH);
