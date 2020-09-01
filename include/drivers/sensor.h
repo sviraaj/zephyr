@@ -147,6 +147,16 @@ enum sensor_channel {
 	SENSOR_CHAN_GAUGE_MAX_LOAD_CURRENT,
 	/** Gauge temperature  **/
 	SENSOR_CHAN_GAUGE_TEMP,
+	/** Time to full  **/
+	SENSOR_CHAN_GAUGE_TIME_TO_FULL,
+	/** Time to empty  **/
+	SENSOR_CHAN_GAUGE_TIME_TO_EMPTY,
+	/** Cycle count  **/
+	SENSOR_CHAN_GAUGE_CYCLE_COUNT,
+	/** Design capacity  **/
+	SENSOR_CHAN_GAUGE_DESIGN_CAPACITY,
+	/** Gauge flags  **/
+	SENSOR_CHAN_GAUGE_FLAGS,
 	/** State of charge measurement in % **/
 	SENSOR_CHAN_GAUGE_STATE_OF_CHARGE,
 	/** Full Charge Capacity in mAh **/
