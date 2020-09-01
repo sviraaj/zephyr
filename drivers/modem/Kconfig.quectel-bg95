@@ -19,13 +19,13 @@ config MODEM_QUECTEL_BG95_NAME
 
 config MODEM_QUECTEL_BG95_RX_STACK_SIZE
 	int "Stack size for the bg95 rda modem driver RX thread"
-	default 1028
+	default 4096
 	help
 	  This stack is used by the bg95 rda RX thread.
 
 config MODEM_QUECTEL_BG95_RX_WORKQ_STACK_SIZE
 	int "Stack size for the bg95 rda modem driver work queue"
-	default 2048
+	default 4096
 	help
 	  This stack is used by the work queue to pass off net_pkt data
 	  to the rest of the network stack, letting the rx thread continue
@@ -41,7 +41,7 @@ config MODEM_SOCKET_MAX_HST_LEN
 
 config MODEM_MAXIMUM_TR_RC_SIZE
 	int "Maximum uart send or recv buf"
-    default 2048
+    default 4096
     help
         This setting indicated the maximum buffer size used for transmit
         and receive buffers in HTTP tranfers.
@@ -58,7 +58,7 @@ config MODEM_QUECTEL_BG95_INIT_PRIORITY
 	int "bg95 rda driver init priority"
 	default 85
 	help
-	  bg95 rda device driver initialization priority.
+	  bg95 device driver initialization priority.
 	  Do not mess with it unless you know what you are doing.
 	  Note that the priority needs to be lower than the net stack
 	  so that it can start before the networking sub-system.

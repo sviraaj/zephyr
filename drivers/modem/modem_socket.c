@@ -15,6 +15,8 @@
 
 #include "modem_socket.h"
 
+#define MAX_SOCKET_RECV_WAIT_SEC   300
+
 /*
  * Packet Size Support Functions
  */
@@ -262,6 +264,7 @@ int modem_socket_poll(struct modem_socket_config *cfg,
 	struct modem_socket *sock;
 	int ret, i;
 	u8_t found_count = 0;
+    k_timeout_t timeout;
 
 	if (!cfg) {
 		return -EINVAL;
@@ -289,14 +292,20 @@ int modem_socket_poll(struct modem_socket_config *cfg,
 		return found_count;
 	}
 
-	ret = k_sem_take(&cfg->sem_poll, K_MSEC(msecs));
+    timeout =  (msecs == -1) ? K_FOREVER: K_MSEC(msecs);
+
+	ret = k_sem_take(&cfg->sem_poll, timeout);
 	for (i = 0; i < nfds; i++) {
 		sock = modem_socket_from_fd(cfg, fds[i].fd);
 		if (!sock) {
 			continue;
 		}
 
+#ifdef CONFIG_MODEM_QUECTEL_BG95
+		if (fds[i].events & POLLIN) {
+#else
 		if (fds[i].events & POLLIN && sock->packet_sizes[0] > 0U) {
+#endif
 			fds[i].revents |= POLLIN;
 			found_count++;
 		}
@@ -314,14 +323,15 @@ int modem_socket_poll(struct modem_socket_config *cfg,
 	return found_count;
 }
 
-void modem_socket_wait_data(struct modem_socket_config *cfg,
+int modem_socket_wait_data(struct modem_socket_config *cfg,
 			    struct modem_socket *sock)
 {
 	k_sem_take(&cfg->sem_lock, K_FOREVER);
 	sock->is_waiting = true;
 	k_sem_give(&cfg->sem_lock);
 
-	k_sem_take(&sock->sem_data_ready, K_FOREVER);
+	return k_sem_take(&sock->sem_data_ready,
+            K_SECONDS(MAX_SOCKET_RECV_WAIT_SEC));
 }
 
 void modem_socket_data_ready(struct modem_socket_config *cfg,

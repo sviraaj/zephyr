@@ -10,6 +10,11 @@
 #include <net/net_if.h>
 #include <net/net_offload.h>
 #include <net/socket_offload.h>
+#include <net/http_parser.h>
+
+/* uncomment for File operations API */
+#define CONFIG_QUECTEL_BG95_FILE_OPS
+#define CONFIG_QUECTEL_BG95_DFOTA
 
 #define MDM_MANUFACTURER_LENGTH 10
 #define MDM_MODEL_LENGTH 16
@@ -49,6 +54,28 @@ struct usr_gps_cfg {
     int agps_status;
 };
 
+#ifdef CONFIG_QUECTEL_BG95_FILE_OPS
+typedef int (*m_fopen)(struct device *dev,
+                        const char *file);
+typedef int (*m_fread)(struct device *dev,
+                        int fd, u8_t* buf, size_t len);
+typedef int (*m_fwrite)(struct device *dev,
+                        int fd, u8_t* buf, size_t buf_len);
+typedef int (*m_fseek)(struct device *dev,
+                        int fd, size_t off);
+typedef int (*m_fclose)(struct device *dev,
+                        int fd);
+typedef int (*m_fstat)(struct device *dev,
+                        const char* fname, size_t* f_sz);
+typedef int (*m_fdel)(struct device *dev,
+                        const char* fname);
+#endif
+
+#ifdef CONFIG_QUECTEL_BG95_DFOTA
+typedef int (*m_dfota)(struct device *dev,
+                        const char* url);
+#endif
+
 typedef int (*mdm_get_clock)(struct device *dev,
                         char *timeval);
 
@@ -65,8 +92,7 @@ typedef int (*mdm_gps_agps)(struct device *dev,
                         struct usr_gps_cfg *cfg);
 typedef int (*mdm_gps_read)(struct device *dev,
                         struct usr_gps_cfg *cfg);
-typedef int (*mdm_gps_close)(struct device *dev,
-                        struct usr_gps_cfg *cfg);
+typedef int (*mdm_gps_close)(struct device *dev);
 
 typedef int (*mdm_get_ctx)(struct device *dev,
                         struct mdm_ctx *ctx);
@@ -74,6 +100,7 @@ typedef int (*mdm_get_ctx)(struct device *dev,
 typedef void (*mdm_reset)(void);
 
 struct modem_quectel_bg95_net_api {
+    /* Need to be at the top */
 	struct net_if_api net_api;
 
 	/* Driver specific extension api */
@@ -88,15 +115,117 @@ struct modem_quectel_bg95_net_api {
 	mdm_gps_read gps_read;
 	mdm_gps_close gps_close;
 
+#ifdef CONFIG_QUECTEL_BG95_FILE_OPS
+    m_fopen fopen;
+    m_fread fread;
+    m_fwrite fwrite;
+    m_fseek fseek;
+    m_fclose fclose;
+    m_fstat fstat;
+    m_fdel fdel;
+#endif
+
+#ifdef CONFIG_QUECTEL_BG95_FILE_OPS
+    m_dfota dfota;
+#endif
+
 	mdm_get_ctx get_ctx;
 
 	mdm_reset reset;
 };
 
+/*
 enum http_method {
 	HTTP_GET = 0,
 	HTTP_POST,
 };
+*/
+
+#ifdef CONFIG_QUECTEL_BG95_FILE_OPS
+__syscall int mdm_fopen(struct device *dev,
+                const char *file);
+static inline int mdm_fopen(struct device *dev,
+        const char *file)
+{
+	const struct modem_quectel_bg95_net_api *api =
+        (const struct modem_quectel_bg95_net_api *) dev->driver_api;
+	return api->fopen(dev, file);
+}
+
+__syscall int mdm_fread(struct device *dev,
+                int fd, u8_t* buf, size_t len);
+static inline int mdm_fread(struct device *dev,
+        int fd, u8_t* buf, size_t len)
+{
+	const struct modem_quectel_bg95_net_api *api =
+        (const struct modem_quectel_bg95_net_api *) dev->driver_api;
+	return api->fread(dev, fd, buf, len);
+}
+
+__syscall int mdm_fwrite(struct device *dev,
+                int fd, u8_t* buf, size_t buf_len);
+static inline int mdm_fwrite(struct device *dev,
+        int fd, u8_t* buf, size_t buf_len)
+{
+	const struct modem_quectel_bg95_net_api *api =
+        (const struct modem_quectel_bg95_net_api *) dev->driver_api;
+	return api->fwrite(dev, fd, buf, buf_len);
+}
+
+__syscall int mdm_fseek(struct device *dev,
+                int fd, size_t off);
+static inline int mdm_fseek(struct device *dev,
+        int fd, size_t off)
+{
+	const struct modem_quectel_bg95_net_api *api =
+        (const struct modem_quectel_bg95_net_api *) dev->driver_api;
+	return api->fseek(dev, fd, off);
+}
+
+__syscall int mdm_fclose(struct device *dev,
+                int fd);
+static inline int mdm_fclose(struct device *dev,
+        int fd)
+{
+	const struct modem_quectel_bg95_net_api *api =
+        (const struct modem_quectel_bg95_net_api *) dev->driver_api;
+	return api->fclose(dev, fd);
+}
+
+__syscall int mdm_fstat(struct device *dev,
+                const char *fname, size_t* f_sz);
+static inline int mdm_fstat(struct device *dev,
+        const char *fname, size_t* f_sz)
+{
+	const struct modem_quectel_bg95_net_api *api =
+        (const struct modem_quectel_bg95_net_api *) dev->driver_api;
+	return api->fstat(dev, fname, f_sz);
+}
+
+__syscall int mdm_fdel(struct device *dev,
+                const char *fname);
+static inline int mdm_fdel(struct device *dev,
+        const char *fname)
+{
+	const struct modem_quectel_bg95_net_api *api =
+        (const struct modem_quectel_bg95_net_api *) dev->driver_api;
+	return api->fdel(dev, fname);
+}
+
+#endif
+
+#ifdef CONFIG_QUECTEL_BG95_FILE_OPS
+__syscall int mdm_quectel_bg95_dfota(struct device *dev,
+				const char* url);
+
+static inline int mdm_quectel_bg95_dfota(struct device *dev,
+					   const char* url)
+{
+	const struct modem_quectel_bg95_net_api *api =
+        (const struct modem_quectel_bg95_net_api *) dev->driver_api;
+	return api->dfota(dev, url);
+}
+#endif
 
 __syscall int mdm_quectel_bg95_get_clock(struct device *dev,
 				char *timeval);
@@ -175,15 +304,13 @@ static inline int mdm_quectel_bg95_gps_read(struct device *dev,
 	return api->gps_read(dev, cfg);
 }
 
-__syscall int mdm_quectel_bg95_gps_close(struct device *dev,
-				struct usr_gps_cfg *cfg);
+__syscall int mdm_quectel_bg95_gps_close(struct device *dev);
 
-static inline int mdm_quectel_bg95_gps_close(struct device *dev,
-					   struct usr_gps_cfg *cfg)
+static inline int mdm_quectel_bg95_gps_close(struct device *dev)
 {
 	const struct modem_quectel_bg95_net_api *api =
         (const struct modem_quectel_bg95_net_api *) dev->driver_api;
-	return api->gps_close(dev, cfg);
+	return api->gps_close(dev);
 }
 
 __syscall int mdm_quectel_bg95_get_ctx(struct device *dev,
