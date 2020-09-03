@@ -2959,7 +2959,9 @@ static int modem_init(struct device *dev)
 	k_delayed_work_init(&mdata.rssi_query_work, modem_rssi_query_work);
 	k_work_init(&mdata.urc_handle_work, urc_handle_worker);
 
+#ifndef CONFIG_MODEM_QUECTEL_BG95_APP_RESET
 	modem_reset();
+#endif
 
 error:
 	return ret;
