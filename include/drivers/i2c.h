@@ -30,6 +30,9 @@ extern "C" {
  * The following #defines are used to configure the I2C controller.
  */
 
+/** I2C Low Speed */
+#define I2C_SPEED_LOW     		(0x6U)
+
 /** I2C Standard Speed */
 #define I2C_SPEED_STANDARD		(0x1U)
 

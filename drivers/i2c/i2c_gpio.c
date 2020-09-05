@@ -62,6 +62,16 @@ static void i2c_gpio_set_scl(void *io_context, int state)
 	struct i2c_gpio_context *context = io_context;
 
 	gpio_pin_set(context->scl_gpio, context->scl_pin, state);
+
+	if (state) {
+		/* wait for SCL to actually go up, clock stretching */
+		u32_t scl_state = 1;
+
+		do {
+			scl_state = gpio_pin_get(context->scl_gpio,
+                    context->scl_pin);
+		} while (!scl_state);
+	}
 }
 
 static void i2c_gpio_set_sda(void *io_context, int state)
@@ -129,7 +139,12 @@ static int i2c_gpio_init(struct device *dev)
 	}
 
 	err = gpio_config(context->scl_gpio, config->scl_pin,
-			  config->scl_flags | GPIO_OUTPUT_HIGH);
+			  config->scl_flags | GPIO_INPUT | GPIO_OUTPUT_HIGH);
+    if (err == -ENOTSUP) {
+        err = gpio_config(context->scl_gpio, config->scl_pin,
+                  config->scl_flags | GPIO_OUTPUT_HIGH);
+    }
+
 	if (err) {
 		LOG_ERR("failed to configure SCL GPIO pin (err %d)", err);
 		return err;
@@ -142,7 +157,11 @@ static int i2c_gpio_init(struct device *dev)
 	}
 
 	err = gpio_config(context->sda_gpio, config->sda_pin,
-			  config->sda_flags | GPIO_OUTPUT_HIGH);
+                          config->sda_flags | GPIO_INPUT | GPIO_OUTPUT_HIGH);
+    if (err == -ENOTSUP) {
+        err = gpio_config(context->sda_gpio, config->sda_pin,
+                          config->sda_flags | GPIO_OUTPUT_HIGH);
+    }
 	if (err) {
 		LOG_ERR("failed to configure SDA GPIO pin (err %d)", err);
 		return err;
