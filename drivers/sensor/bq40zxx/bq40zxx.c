@@ -20,7 +20,7 @@
 #define MAC_READ_BLOCK_SZ(SZ)    (SZ + 3)
 #define MAC_WRITE_BLOCK_SZ(SZ)   (SZ + 1)
 
-#define READ_BLOCK_SZ(SZ)    (SZ + 1)
+#define READ_BLOCK_SZ(SZ)    (SZ + 0)
 #define WRITE_BLOCK_SZ(SZ)   (SZ + 1)
 
 #define U1    1
@@ -205,18 +205,18 @@ static int bq40zxx_command_reg_read(struct bq40zxx_data *bq40zxx, u8_t command,
 	}
 
     if (val_sz == 1) {
-        LOG_DBG("0x%x", rd_buf[1]);
-        val = rd_buf[1];
+        LOG_DBG("0x%x", rd_buf[0]);
+        *val = rd_buf[0];
     }
     if(val_sz == 2) {
-        LOG_DBG("0x%x, 0x%x", rd_buf[1], rd_buf[2]);
-        *((u16_t* )val) = (rd_buf[1] << 8) | rd_buf[2];
+        LOG_DBG("0x%x, 0x%x", rd_buf[0], rd_buf[1]);
+        *((u16_t* )val) = (rd_buf[1] << 8) | rd_buf[0];
     }
     if(val_sz == 4) {
         LOG_DBG("0x%x, 0x%x, 0x%x, 0x%x", rd_buf[1], rd_buf[2],
                 rd_buf[3], rd_buf[4]);
-        *((u32_t* )val) = (rd_buf[1] << 32) | (rd_buf[2] << 16) |
-            (rd_buf[3] << 8) | rd_buf[4];
+        *((u32_t* )val) = (rd_buf[3] << 32) | (rd_buf[2] << 16) |
+            (rd_buf[1] << 8) | rd_buf[0];
     }
 
     return 0; 
@@ -286,8 +286,8 @@ static int bq40zxx_channel_get(struct device *dev, enum sensor_channel chan,
 		break;
 
 	case SENSOR_CHAN_GAUGE_STATE_OF_HEALTH:
-		val->val1 = (bq40zxx->state_of_health / 1000);
-		val->val2 = ((bq40zxx->state_of_health % 1000) * 1000U);
+		val->val1 = bq40zxx->state_of_health;
+		val->val2 = 0;
 		break;
 
 	case SENSOR_CHAN_GAUGE_FULL_CHARGE_CAPACITY:
@@ -425,9 +425,9 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
 
 	case SENSOR_CHAN_GAUGE_STATE_OF_HEALTH:
 		status = bq40zxx_command_reg_read(bq40zxx, BQ40ZXX_COMMAND_SOH,
-						  &bq40zxx->state_of_health, U4);
+						  &bq40zxx->state_of_health, U2);
 
-		bq40zxx->state_of_health = (bq40zxx->state_of_health >> 16) & 0xFFFF;
+		bq40zxx->state_of_health = bq40zxx->state_of_health;
 
 		if (status < 0) {
 			LOG_ERR("Failed to read state of health");

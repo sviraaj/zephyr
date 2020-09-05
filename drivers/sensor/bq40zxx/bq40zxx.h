@@ -59,11 +59,11 @@ struct bq40zxx_data {
 	u16_t flags;
 	u16_t time_to_empty;
 	u16_t time_to_full;
-	u16_t state_of_charge;
+	u8_t state_of_charge;
 	u16_t cycle_count;
 	u16_t full_charge_capacity;
 	u16_t remaining_charge_capacity;
-	u32_t state_of_health;
+	u16_t state_of_health;
 	u16_t design_capacity;
 	u16_t manufacturer_block_access;
 };
