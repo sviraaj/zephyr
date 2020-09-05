@@ -78,16 +78,15 @@
         label = "MX25RXX";
     };
 
-/*
     gpio_i2c0: gpio_i2c {
         compatible = "gpio-i2c";
         status = "okay";
-        clock-frequency = <I2C_BITRATE_LOW>;
-        //clock-frequency = <I2C_BITRATE_STANDARD>;
-        sda-gpios = <&gpio0 15 (GPIO_OPEN_DRAIN)>;
-        scl-gpios = <&gpio0 7 ((GPIO_OPEN_DRAIN))>;
-        //sda-gpios = <&gpio0 26 (GPIO_OPEN_DRAIN)>;
-        //scl-gpios = <&gpio0 27 (GPIO_OPEN_DRAIN)>;
+        //clock-frequency = <I2C_BITRATE_LOW>;
+        clock-frequency = <I2C_BITRATE_STANDARD>;
+        //sda-gpios = <&gpio0 15 (GPIO_OPEN_DRAIN)>;
+        //scl-gpios = <&gpio0 7 ((GPIO_OPEN_DRAIN))>;
+        sda-gpios = <&gpio0 26 (GPIO_OPEN_DRAIN)>;
+        scl-gpios = <&gpio0 27 (GPIO_OPEN_DRAIN)>;
         label = "GPIO_I2C_0";
         #address-cells = <1>;
         #size-cells = <0>;
@@ -108,7 +107,7 @@
             label = "ICM20600";
         };
     };
-    */
+
 };
 
 &adc {
@@ -156,6 +155,7 @@
 	rx-pin = <30>;
 };
 
+/*
 &i2c0 {
     compatible = "nordic,nrf-twim";
 	status = "okay";
@@ -223,6 +223,7 @@
 		label = "TMP116";
 	};
 };
+*/
 
 &i2c1 {
     compatible = "nordic,nrf-twim";
