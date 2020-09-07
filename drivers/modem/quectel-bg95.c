@@ -69,6 +69,8 @@ static struct modem_pin modem_pins[] = {
 #define MDM_LOCK_TIMEOUT K_SECONDS(1)
 
 #define MDM_MAX_DATA_LENGTH 2048
+/* From the quectel BG95 datasheet */
+#define MDM_MAX_SEND_DATA_LEN  1450U
 #define MDM_RECV_MAX_BUF 30
 #define MDM_RECV_BUF_SIZE 256
 
@@ -1711,11 +1713,11 @@ static ssize_t send_socket_data(struct modem_socket *sock,
 	}
 
 	/*
-	 * Binary and ASCII mode allows sending MDM_MAX_DATA_LENGTH bytes to
+	 * Binary and ASCII mode allows sending MDM_MAX_SEND_DATA_LEN bytes to
 	 * the socket in one command
 	 */
-	if (buf_len > MDM_MAX_DATA_LENGTH) {
-		buf_len = MDM_MAX_DATA_LENGTH;
+	if (buf_len > MDM_MAX_SEND_DATA_LEN) {
+		buf_len = MDM_MAX_SEND_DATA_LEN;
 	}
 
 	/* The number of bytes written will be buf_len */
