@@ -30,6 +30,15 @@ LOG_MODULE_REGISTER(modem_quectel_bg95, CONFIG_MODEM_LOG_LEVEL);
 #define URC_SSL_CLOSED   2
 #define URC_PDP_DEACT    4
 
+#define GPS_PRIORITY   0
+#define WWAN_PRIORITY  1
+/* Start AGPS by default */
+//#define AGPS_DEFAULT
+/* Uncomment if need to close gps everytime WWAN is in use */
+//define GPS_CLOSE_ON_WWAN
+/* Uncomment if BG96 used instead of BG95. FIXME Use config */
+//define QUECTEL_BG96
+
 /* pin settings */
 enum mdm_control_pins {
 	MDM_POWER = 0,
@@ -280,7 +289,7 @@ static int modem_atoi(const char *s, const int err_value, const char *desc,
 /* Handler: OK */
 MODEM_CMD_DEFINE(on_cmd_ok)
 {
-	LOG_INF("%s", __func__);
+	LOG_DBG("%s", __func__);
 	modem_cmd_handler_set_error(data, 0);
 	k_sem_give(&mdata.sem_response);
     return 0;
@@ -289,7 +298,7 @@ MODEM_CMD_DEFINE(on_cmd_ok)
 /* Handler: CONNECT */
 MODEM_CMD_DEFINE(on_cmd_connect_ok)
 {
-	LOG_INF("%s", __func__);
+	LOG_DBG("%s", __func__);
 	modem_cmd_handler_set_error(data, 0);
 	connect_status = MDM_CONNECT_SUCCESS;
 
@@ -302,7 +311,7 @@ MODEM_CMD_DEFINE(on_cmd_connect_ok)
 /* Handler: ERROR */
 MODEM_CMD_DEFINE(on_cmd_error)
 {
-	LOG_INF("%s", __func__);
+	LOG_DBG("%s", __func__);
 	modem_cmd_handler_set_error(data, -EIO);
 	k_sem_give(&mdata.sem_response);
     return 0;
@@ -311,7 +320,7 @@ MODEM_CMD_DEFINE(on_cmd_error)
 /* Handler: SEND FAIL */
 MODEM_CMD_DEFINE(on_cmd_send_fail)
 {
-	LOG_INF("%s", __func__);
+	LOG_DBG("%s", __func__);
 	modem_cmd_handler_set_error(data, -EIO);
 	k_sem_give(&mdata.sem_response);
     return 0;
@@ -319,7 +328,7 @@ MODEM_CMD_DEFINE(on_cmd_send_fail)
 /* Handler: +CME Error: <err>[0] */
 MODEM_CMD_DEFINE(on_cmd_exterror)
 {
-	LOG_INF("%s err %s", __func__, log_strdup(argv[0]));
+	LOG_DBG("%s err %s", __func__, log_strdup(argv[0]));
 	/* TODO: map extended error codes to values */
 	modem_cmd_handler_set_error(data, -EIO);
 	k_sem_give(&mdata.sem_response);
@@ -915,6 +924,23 @@ static void modem_rx(void)
 	}
 }
 
+static void quectel_bg95_rx_priority(u8_t prio)
+{
+    char buf[MAX_HTTP_CMD_SIZE];
+    int ret = 0;
+
+    memset(buf, 0, sizeof(buf));
+    snprintk(buf, sizeof(buf), "AT+QGPSCFG=\"priority\",%d", prio);
+
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
+			     &mdata.sem_response, MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+	}
+
+    /* TODO Check if priority assign successful */
+}
+
 int quectel_bg95_gps_close(struct device *dev);
 
 static int wwan_session_start(void)
@@ -923,11 +949,19 @@ static int wwan_session_start(void)
 
     if (mdata.gps_status == 1)
     {
-        /* FIXME HACK */
+        /* switch to WWAN priority */
+        quectel_bg95_rx_priority(WWAN_PRIORITY);
+
+#ifdef GPS_CLOSE_ON_WWAN
+        /* switch off gps? */
         (void) quectel_bg95_gps_close(NULL);
+#endif
     }
 
-    /* wait 700 msec after gps close */
+    /*
+     * recommended: Delay for GNNS to switch to WWAN mode
+     * wait 700 msec after gps priority
+     */
     k_sleep(K_MSEC(700));
 
     return 0;
@@ -937,6 +971,10 @@ static int wwan_session_start(void)
 static int wwan_session_end(void)
 {
     mdata.wwan_in_session = 0;
+
+    /* switch to GPS priority */
+    quectel_bg95_rx_priority(GPS_PRIORITY);
+
     return 0;
 }
 
@@ -1140,18 +1178,18 @@ static int bg95_sock_close(u8_t sock_id)
 
 static int pin_init(void)
 {
-	LOG_INF("Setting Modem Pins");
+	LOG_DBG("Setting Modem Pins");
 
-	LOG_INF("MDM_POWER_PIN -> DISABLE");
+	LOG_DBG("MDM_POWER_PIN -> DISABLE");
 	modem_pin_write(&mctx, MDM_POWER, MDM_POWER_DISABLE);
 	k_sleep(K_SECONDS(3));
-	LOG_INF("MDM_POWER_PIN -> ENABLE");
+	LOG_DBG("MDM_POWER_PIN -> ENABLE");
 	modem_pin_write(&mctx, MDM_POWER, MDM_POWER_ENABLE);
 	k_sleep(K_SECONDS(1));
 
 	/* make sure module is powered off */
 #if defined(DT_QUECTEL_BG95_0_MDM_VINT_GPIOS_CONTROLLER)
-	LOG_INF("Waiting for MDM_VINT_PIN = 0");
+	LOG_DBG("Waiting for MDM_VINT_PIN = 0");
 
 	do {
 		k_sleep(K_MSEC(100));
@@ -1160,20 +1198,20 @@ static int pin_init(void)
 	k_sleep(K_SECONDS(1));
 #endif
 
-	LOG_INF("MDM_RESET_PIN -> DISABLE");
+	LOG_DBG("MDM_RESET_PIN -> DISABLE");
 
 	unsigned int irq_lock_key = irq_lock();
 
-	LOG_INF("MDM_RESET_PIN -> ASSERTED");
+	LOG_DBG("MDM_RESET_PIN -> ASSERTED");
 	modem_pin_write(&mctx, MDM_RESET, MDM_RESET_ASSERTED);
 	k_sleep(K_SECONDS(1));
-	LOG_INF("MDM_RESET_PIN -> NOT_ASSERTED");
+	LOG_DBG("MDM_RESET_PIN -> NOT_ASSERTED");
 	modem_pin_write(&mctx, MDM_RESET, MDM_RESET_NOT_ASSERTED);
 
 	irq_unlock(irq_lock_key);
 
 #if defined(DT_QUECTEL_BG95_0_MDM_VINT_GPIOS_CONTROLLER)
-	LOG_INF("Waiting for MDM_VINT_PIN = 1");
+	LOG_DBG("Waiting for MDM_VINT_PIN = 1");
 	do {
 		k_sleep(K_MSEC(100));
 	} while (modem_pin_read(&mctx, MDM_VINT) != MDM_VINT_ENABLE);
@@ -1184,7 +1222,7 @@ static int pin_init(void)
     // What for?
 	//modem_pin_config(&mctx, MDM_POWER, GPIO_DIR_IN);
 
-	LOG_INF("... Done!");
+	LOG_DBG("... Done!");
 
 	return 0;
 }
@@ -2236,7 +2274,7 @@ int quectel_bg95_http_execute(struct device *dev, struct usr_http_cfg *cfg)
             goto ret;
         }
 
-        LOG_INF("http resp done");
+        LOG_DBG("http resp done");
         mdata.recv_cfg.http_cfg.http_pending = 0;
 
         /* received data len */
@@ -2294,31 +2332,22 @@ int quectel_bg95_gps_init(struct device *dev, struct usr_gps_cfg *cfg)
 	char buf[64];
 	int ret = 0;
 
-	memset(buf, 0, sizeof(buf));
-    /* TODO */
-
     LOG_DBG("QGPS switching on");
+
+    /* GPS priority */
+    quectel_bg95_rx_priority(GPS_PRIORITY);
 
     k_sem_take(&mdata.mdm_lock, K_FOREVER);
 
-    snprintk(buf, sizeof(buf), "AT+QGPSCFG=\"priority\",0");
-
-	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
-			     &mdata.sem_response, MDM_CMD_TIMEOUT);
-	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
-		goto ret;
-	}
-
-	memset(buf, 0, sizeof(buf));
+    memset(buf, 0, sizeof(buf));
     snprintk(buf, sizeof(buf), "AT+QGPS=1");
 
-	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
-			     &mdata.sem_response, MDM_CMD_TIMEOUT);
-	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
-		goto ret;
-	}
+    ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
+                 &mdata.sem_response, MDM_CMD_TIMEOUT);
+    if (ret < 0) {
+        LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+        goto ret;
+    }
 
     mdata.gps_status = 1;
 
@@ -2328,6 +2357,7 @@ ret:
 	return ret;
 }
 
+#ifdef QUECTEL_BG96
 /* need to call gps_init after agps */
 int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
 {
@@ -2348,20 +2378,10 @@ int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
 		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
-		//goto ret;
+		goto ret;
 	}
 
-	memset(buf, 0, sizeof(buf));
-    snprintk(buf, sizeof(buf), "AT+QGPSCFG=\"priority\",0");
-
-	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
-			     &mdata.sem_response, MDM_CMD_TIMEOUT);
-	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
-		//goto ret;
-	}
-
-	memset(buf, 0, sizeof(buf));
+    memset(buf, 0, sizeof(buf));
 	snprintk(buf, sizeof(buf), "AT+QGPSXTRATIME=0,\"%s\",1,0,5", cfg->utc_time);
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
@@ -2391,7 +2411,10 @@ int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
 		goto ret;
 	}
 
-    cfg->agps_status = 1;
+    if (cfg != NULL)
+    {
+        cfg->agps_status = 1;
+    }
     mdata.agps_status = 1;
 
 ret:
@@ -2399,6 +2422,60 @@ ret:
 
 	return ret;
 }
+#else
+/* need to call gps_init after agps */
+int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
+{
+	char buf[64];
+	int ret = 0;
+
+    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+
+    /* TODO use xtra_info */
+    memset(buf, 0, sizeof(buf));
+	snprintk(buf, sizeof(buf), "AT+QGPSCFG=\"xtra_info\"");
+
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
+			     &mdata.sem_response, MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		goto ret;
+	}
+
+	memset(buf, 0, sizeof(buf));
+	snprintk(buf, sizeof(buf), "AT+QGPSCFG=\"xtrafilesize\"");
+
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
+			     &mdata.sem_response, MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		goto ret;
+	}
+
+	memset(buf, 0, sizeof(buf));
+	snprintk(buf, sizeof(buf), "AT+QGPSXTRA=1");
+
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
+			     &mdata.sem_response, MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		goto ret;
+	}
+
+    if (cfg != NULL)
+    {
+        cfg->agps_status = 1;
+    }
+    mdata.agps_status = 1;
+
+    /* NOTE: Needs modem reboot to start agps. Application needs to care of this. */
+
+ret:
+    k_sem_give(&mdata.mdm_lock);
+
+	return ret;
+}
+#endif
 
 int quectel_bg95_gps_read(struct device *dev, struct usr_gps_cfg *cfg)
 {
@@ -2409,6 +2486,7 @@ int quectel_bg95_gps_read(struct device *dev, struct usr_gps_cfg *cfg)
      * Or use AT+QGPSGNMEA=“GGA” ?
      */
 
+    /* HACK FIXME Check +QGPS? instead of static variable mdata.gps_status */
     /* if wwan in session, the HW is busy */
     if (mdata.gps_status == 0 && mdata.wwan_in_session == 1) {
         return -EBUSY;
@@ -2484,6 +2562,8 @@ int quectel_bg95_get_ctx(struct device *dev, struct mdm_ctx *ctx)
     strcpy(ctx->data_timeval, mdata.mdm_timeval);
     ctx->data_sys_timeval = mctx.data_sys_timeval;
     ctx->data_rssi = mctx.data_rssi;
+
+    /* TODO AT+QENG="neighbourcell" */
 
     return 0;
 }
@@ -2865,9 +2945,7 @@ static int modem_init(struct device *dev)
 {
 	int ret = 0;
 
-	ARG_UNUSED(dev);
-
-    LOG_INF("BG95 driver");
+    LOG_DBG("BG95 Driver");
 
 	k_sem_init(&mdata.sem_response, 0, 1);
 	k_sem_init(&mdata.sem_connect, 0, 1);
@@ -2960,6 +3038,12 @@ static int modem_init(struct device *dev)
 	/* init RSSI query */
 	k_delayed_work_init(&mdata.rssi_query_work, modem_rssi_query_work);
 	k_work_init(&mdata.urc_handle_work, urc_handle_worker);
+
+#ifdef AGPS_DEFAULT
+    (void) quectel_bg95_agps(dev, NULL);
+#else
+    ARG_UNUSED(dev);
+#endif
 
 #ifndef CONFIG_MODEM_QUECTEL_BG95_APP_RESET
 	modem_reset();
