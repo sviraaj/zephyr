@@ -99,6 +99,10 @@ static struct modem_pin modem_pins[] = {
 
 #define HTTP_TIMEOUT_SECS 10 /* FIXME Check this timeout */
 
+static struct mdm_ctx q_ctx;
+
+static u16_t cinfo_idx = 0;
+
 NET_BUF_POOL_DEFINE(mdm_recv_pool, MDM_RECV_MAX_BUF, MDM_RECV_BUF_SIZE, 0,
 		    NULL);
 
@@ -180,13 +184,6 @@ struct modem_data {
 	/* RSSI work */
 	struct k_delayed_work rssi_query_work;
 	struct k_work urc_handle_work;
-
-	/* modem data */
-	char mdm_manufacturer[MDM_MANUFACTURER_LENGTH];
-	char mdm_model[MDM_MODEL_LENGTH];
-	char mdm_revision[MDM_REVISION_LENGTH];
-	char mdm_imei[MDM_IMEI_LENGTH];
-	char mdm_timeval[MDM_TIME_LENGTH];
 
 	/* modem state */
 	int ev_creg;
@@ -370,9 +367,9 @@ MODEM_CMD_DEFINE(on_cmd_gettime)
 
     /* argv[0] + 1 to ensure not to cpy preceding "
      * out_len -1 to ensure not to cpy trailing " */
-	memcpy(mdata.mdm_timeval, argv[0] + 1, out_len - 1);
-	mdata.mdm_timeval[out_len] = '\0';
-	mctx.data_sys_timeval = k_uptime_get_32();
+	memcpy(q_ctx.data_timeval, argv[0] + 1, out_len - 1);
+	q_ctx.data_timeval[out_len] = '\0';
+	q_ctx.data_sys_timeval = k_uptime_get_32();
 
 	memcpy(mdata.time_data, argv[0] + 1, out_len - 1);
 	mdata.time_data[out_len] = '\0';
@@ -393,11 +390,51 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_manufacturer)
 {
 	size_t out_len;
 
-	out_len = net_buf_linearize(mdata.mdm_manufacturer,
-				    sizeof(mdata.mdm_manufacturer) - 1,
+	out_len = net_buf_linearize(q_ctx.data_manufacturer,
+				    sizeof(q_ctx.data_manufacturer) - 1,
 				    data->rx_buf, 0, len);
-	mdata.mdm_manufacturer[out_len] = '\0';
-	LOG_INF("Manufacturer: %s", log_strdup(mdata.mdm_manufacturer));
+	q_ctx.data_manufacturer[out_len] = '\0';
+	LOG_INF("Manufacturer: %s", log_strdup(q_ctx.data_manufacturer));
+    return 0;
+}
+
+/* Handler: <qeng> */
+MODEM_CMD_DEFINE(on_cmd_qeng)
+{
+	size_t out_len;
+    u16_t idx = 0;
+    u8_t found_ch = 0;
+
+    if (cinfo_idx >= (MAX_CELLS_INFO * MAX_CI_BUF_SIZE))
+    {
+        LOG_ERR("cinfo_idx cnt exceeded");
+        return 0;
+    }
+
+    /* HACK FIXME strlen("\"neighbourcell\",") */
+	out_len = net_buf_linearize(q_ctx.data_cellinfo + cinfo_idx,
+				    MAX_CI_BUF_SIZE - 1,
+				    data->rx_buf, strlen("\"neighbourcell\","),
+                    len - strlen("\"neighbourcell\","));
+	*(q_ctx.data_cellinfo + cinfo_idx + out_len) = ';';
+
+    /* Hack FIXME Replace " with * */
+    while(idx < out_len && found_ch < 2)
+    {
+        /* LIMITED to 2 " */
+        if (*(q_ctx.data_cellinfo + cinfo_idx + idx) == '\"')
+        {
+            *(q_ctx.data_cellinfo + cinfo_idx + idx) = '*';
+            found_ch++;
+        }
+        idx++;
+    }
+
+	LOG_DBG("CINFO: %s", log_strdup(q_ctx.data_cellinfo +
+                cinfo_idx));
+
+    cinfo_idx += (out_len + 1); //+1 for ";"
+
     return 0;
 }
 
@@ -407,10 +444,10 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_model)
 	size_t out_len;
 
 	out_len =
-		net_buf_linearize(mdata.mdm_model, sizeof(mdata.mdm_model) - 1,
+		net_buf_linearize(q_ctx.data_model, sizeof(q_ctx.data_model) - 1,
 				  data->rx_buf, 0, len);
-	mdata.mdm_model[out_len] = '\0';
-	LOG_INF("Model: %s", log_strdup(mdata.mdm_model));
+	q_ctx.data_model[out_len] = '\0';
+	LOG_INF("Model: %s", log_strdup(q_ctx.data_model));
     return 0;
 }
 
@@ -419,11 +456,11 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_revision)
 {
 	size_t out_len;
 
-	out_len = net_buf_linearize(mdata.mdm_revision,
-				    sizeof(mdata.mdm_revision) - 1,
+	out_len = net_buf_linearize(q_ctx.data_revision,
+				    sizeof(q_ctx.data_revision) - 1,
 				    data->rx_buf, 0, len);
-	mdata.mdm_revision[out_len] = '\0';
-	LOG_INF("Revision: %s", log_strdup(mdata.mdm_revision));
+	q_ctx.data_revision[out_len] = '\0';
+	LOG_INF("Revision: %s", log_strdup(q_ctx.data_revision));
     return 0;
 }
 
@@ -433,9 +470,9 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_imei)
 	size_t out_len;
 
 	out_len = strlen(argv[0]);
-	memcpy(mdata.mdm_imei, argv[0], out_len);
-	mdata.mdm_imei[out_len] = '\0';
-	LOG_INF("IMEI: %s", log_strdup(mdata.mdm_imei));
+	memcpy(q_ctx.data_imei, argv[0], out_len);
+	q_ctx.data_imei[out_len] = '\0';
+	LOG_INF("IMEI: %s", log_strdup(q_ctx.data_imei));
     return 0;
 }
 
@@ -445,10 +482,10 @@ MODEM_CMD_DEFINE(on_cmd_timezoneval)
 	size_t out_len;
 
 	out_len = strlen(argv[0]);
-	memcpy(mdata.mdm_timeval, argv[0], out_len);
-	mdata.mdm_timeval[out_len] = '\0';
-	mctx.data_sys_timeval = k_uptime_get_32();
-	LOG_INF("TIME: %s, %u", log_strdup(mdata.mdm_timeval), mctx.data_sys_timeval);
+	memcpy(q_ctx.data_timeval, argv[0], out_len);
+	q_ctx.data_timeval[out_len] = '\0';
+	q_ctx.data_sys_timeval = k_uptime_get_32();
+	LOG_INF("TIME: %s, %u", log_strdup(q_ctx.data_timeval), q_ctx.data_sys_timeval);
     return 0;
 }
 
@@ -460,15 +497,15 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_rssi_csq)
 	rssi = ATOI(argv[0], 0, "qual");
 	LOG_INF("rssi: %d", rssi);
 	if (rssi == 31) {
-		mctx.data_rssi = -46;
+		q_ctx.data_rssi = -46;
 	} else if (rssi >= 0 && rssi <= 31) {
 		/* FIXME: This value depends on the RAT */
-		mctx.data_rssi = -110 + ((rssi * 2) + 1);
+		q_ctx.data_rssi = -110 + ((rssi * 2) + 1);
 	} else {
-		mctx.data_rssi = -1000;
+		q_ctx.data_rssi = -1000;
 	}
 
-	LOG_INF("QUAL: %d", mctx.data_rssi);
+	LOG_INF("QUAL: %d", q_ctx.data_rssi);
     return 0;
 }
 
@@ -1396,12 +1433,12 @@ restart:
 	counter = 0;
 	/* wait for RSSI < 0 and > -1000 */
 	while (counter++ < MDM_WAIT_FOR_RSSI_COUNT &&
-	       (mctx.data_rssi >= 0 || mctx.data_rssi <= -1000)) {
+	       (q_ctx.data_rssi >= 0 || q_ctx.data_rssi <= -1000)) {
 		modem_rssi_query_work(NULL);
 		k_sleep(MDM_WAIT_FOR_RSSI_DELAY);
 	}
 
-	if (mctx.data_rssi >= 0 || mctx.data_rssi <= -1000) {
+	if (q_ctx.data_rssi >= 0 || q_ctx.data_rssi <= -1000) {
 		retry_count++;
 		if (retry_count >= MDM_NETWORK_RETRY_COUNT) {
 			LOG_ERR("Failed network init.  Too many attempts!");
@@ -1409,7 +1446,7 @@ restart:
 			goto error;
 		}
 
-		LOG_ERR("Failed network init.  Restarting process. %d", mctx.data_rssi);
+		LOG_ERR("Failed network init.  Restarting process. %d", q_ctx.data_rssi);
 		goto restart;
 	}
 
@@ -2551,21 +2588,66 @@ ret:
 	return ret;
 }
 
-int quectel_bg95_get_ctx(struct device *dev, struct mdm_ctx *ctx)
+int quectel_bg95_get_cell_info(struct device *dev, char **cell_info)
 {
-    struct modem_context *mdm_ctx = modem_context_from_id(0);
+    struct modem_cmd cmd =
+		MODEM_CMD("+QENG: ", on_cmd_qeng, 0U, "");
+    char buf[sizeof("AT+QENG=\"neighbourcell\"****")];
+	int ret = 0;
 
-    strcpy(ctx->data_manufacturer, mdata.mdm_manufacturer);
-    strcpy(ctx->data_model, mdata.mdm_model);
-    strcpy(ctx->data_revision, mdata.mdm_revision);
-    strcpy(ctx->data_imei, mdata.mdm_imei);
-    strcpy(ctx->data_timeval, mdata.mdm_timeval);
-    ctx->data_sys_timeval = mctx.data_sys_timeval;
-    ctx->data_rssi = mctx.data_rssi;
+    /* AT+QENG="neighbourcell" */
+	memset(buf, 0, sizeof(buf));
+	snprintk(buf, sizeof(buf), "AT+QENG=\"neighbourcell\"");
 
-    /* TODO AT+QENG="neighbourcell" */
+    /* reset cell info idx */
+    cinfo_idx = 0;
 
-    return 0;
+    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
+                buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		goto ret;
+	}
+ 
+    /* q_ctx has the context */
+    *cell_info = &q_ctx.data_cellinfo;
+ret:
+    k_sem_give(&mdata.mdm_lock);
+
+    return ret;
+}
+
+int quectel_bg95_get_ctx(struct device *dev, struct mdm_ctx **ctx)
+{
+    struct modem_cmd cmd =
+		MODEM_CMD("+QENG: ", on_cmd_qeng, 0U, "");
+    char buf[sizeof("AT+QENG=\"neighbourcell\"****")];
+	int ret = 0;
+
+    /* AT+QENG="neighbourcell" */
+	memset(buf, 0, sizeof(buf));
+	snprintk(buf, sizeof(buf), "AT+QENG=\"neighbourcell\"");
+
+    /* reset cell info idx */
+    cinfo_idx = 0;
+
+    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
+                buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		goto ret;
+	}
+ 
+    /* q_ctx has the context */
+    *ctx = &q_ctx;
+ret:
+    k_sem_give(&mdata.mdm_lock);
+
+    return ret;
 }
 
 #define HASH_MULTIPLIER 37
@@ -2590,7 +2672,7 @@ static inline u8_t *modem_get_mac(struct device *dev)
 	data->mac_addr[1] = 0x10;
 
 	/* use IMEI for mac_addr */
-	hash_value = hash32(mdata.mdm_imei, strlen(mdata.mdm_imei));
+	hash_value = hash32(q_ctx.data_imei, strlen(q_ctx.data_imei));
 
 	UNALIGNED_PUT(hash_value, (u32_t *)(data->mac_addr + 2));
 
@@ -2897,6 +2979,7 @@ static struct modem_quectel_bg95_net_api api_funcs = {
 	.gps_read = quectel_bg95_gps_read,
 	.gps_close = quectel_bg95_gps_close,
 	.get_ctx = quectel_bg95_get_ctx,
+	.get_cell_info = quectel_bg95_get_cell_info,
 #ifdef CONFIG_QUECTEL_BG95_FILE_OPS
     .fopen = quectel_bg95_fopen,
     .fread = quectel_bg95_fread,
@@ -3010,12 +3093,13 @@ static int modem_init(struct device *dev)
 		goto error;
 	}
 
-	/* modem data storage */
-	mctx.data_manufacturer = mdata.mdm_manufacturer;
-	mctx.data_model = mdata.mdm_model;
-	mctx.data_revision = mdata.mdm_revision;
-	mctx.data_imei = mdata.mdm_imei;
-	mctx.data_timeval = mdata.mdm_timeval;
+    /* modem data storage */
+	mctx.data_manufacturer = q_ctx.data_manufacturer;
+	mctx.data_model = q_ctx.data_model;
+	mctx.data_revision = q_ctx.data_revision;
+	mctx.data_imei = q_ctx.data_imei;
+	mctx.data_timeval = q_ctx.data_timeval;
+    mctx.data_cellinfo = q_ctx.data_cellinfo;
 
 	/* pin setup */
 	mctx.pins = modem_pins;

@@ -21,6 +21,8 @@
 #define MDM_REVISION_LENGTH 64
 #define MDM_IMEI_LENGTH 16
 #define MDM_TIME_LENGTH 32
+#define MAX_CI_BUF_SIZE   64U
+#define MAX_CELLS_INFO    6U
 
 struct usr_http_cfg {
 	char *url;
@@ -41,8 +43,9 @@ struct mdm_ctx {
 	char data_revision[MDM_REVISION_LENGTH];
 	char data_imei[MDM_IMEI_LENGTH];
 	char data_timeval[MDM_TIME_LENGTH];
+    char data_cellinfo[MAX_CI_BUF_SIZE * MAX_CELLS_INFO];
     uint32_t data_sys_timeval;
-	int   data_rssi;
+	int32_t   data_rssi;
 };
 
 struct usr_gps_cfg {
@@ -95,7 +98,10 @@ typedef int (*mdm_gps_read)(struct device *dev,
 typedef int (*mdm_gps_close)(struct device *dev);
 
 typedef int (*mdm_get_ctx)(struct device *dev,
-                        struct mdm_ctx *ctx);
+                        struct mdm_ctx **ctx);
+
+typedef int (*mdm_get_cell_info)(struct device *dev,
+                        char **cell_info);
 
 typedef void (*mdm_reset)(void);
 
@@ -130,6 +136,8 @@ struct modem_quectel_bg95_net_api {
 #endif
 
 	mdm_get_ctx get_ctx;
+
+    mdm_get_cell_info get_cell_info;
 
 	mdm_reset reset;
 };
@@ -314,16 +322,26 @@ static inline int mdm_quectel_bg95_gps_close(struct device *dev)
 }
 
 __syscall int mdm_quectel_bg95_get_ctx(struct device *dev,
-				struct mdm_ctx *ctx);
+				struct mdm_ctx **ctx);
 
 static inline int mdm_quectel_bg95_get_ctx(struct device *dev,
-					   struct mdm_ctx *ctx)
+					   struct mdm_ctx **ctx)
 {
 	const struct modem_quectel_bg95_net_api *api =
         (const struct modem_quectel_bg95_net_api *) dev->driver_api;
 	return api->get_ctx(dev, ctx);
 }
 
+__syscall int mdm_quectel_bg95_get_cell_info(struct device *dev,
+				char **cell_info);
+
+static inline int mdm_quectel_bg95_get_cell_info(struct device *dev,
+					   char **cell_info)
+{
+	const struct modem_quectel_bg95_net_api *api =
+        (const struct modem_quectel_bg95_net_api *) dev->driver_api;
+	return api->get_cell_info(dev, cell_info);
+}
 __syscall void mdm_quectel_bg95_reset(struct device *dev);
 
 static inline void mdm_quectel_bg95_reset(struct device *dev)
