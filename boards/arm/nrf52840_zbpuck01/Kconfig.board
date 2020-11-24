@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config  BOARD_NRF52840_ZBPUCK01
+	bool "NRF52840 ZBPUCK01"
+	depends on SOC_NRF52840_QIAA
