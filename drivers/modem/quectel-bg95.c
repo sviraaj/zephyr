@@ -74,10 +74,11 @@ static struct modem_pin modem_pins[] = {
 #define MDM_CMD_TIMEOUT K_SECONDS(20)
 #define MDM_DNS_TIMEOUT K_SECONDS(120)
 #define MDM_REGISTRATION_TIMEOUT K_SECONDS(240)
+#define MDM_NETWORK_REG_TIMEOUT K_SECONDS(30)
 #define MDM_PROMPT_CMD_DELAY K_MSEC(75)
 #define MDM_LOCK_TIMEOUT K_SECONDS(1)
 
-#define MDM_MAX_DATA_LENGTH 2048
+#define MDM_MAX_DATA_LENGTH 1024U
 /* From the quectel BG95 datasheet */
 #define MDM_MAX_SEND_DATA_LEN  1450U
 #define MDM_RECV_MAX_BUF 30
@@ -405,7 +406,7 @@ MODEM_CMD_DEFINE(on_cmd_qeng)
     u16_t idx = 0;
     u8_t found_ch = 0;
 
-    if (cinfo_idx >= (MAX_CELLS_INFO * MAX_CI_BUF_SIZE))
+    if (cinfo_idx >= (MAX_CI_BUF_SIZE))
     {
         LOG_ERR("cinfo_idx cnt exceeded");
         return 0;
@@ -413,10 +414,12 @@ MODEM_CMD_DEFINE(on_cmd_qeng)
 
     /* HACK FIXME strlen("\"neighbourcell\",") */
 	out_len = net_buf_linearize(q_ctx.data_cellinfo + cinfo_idx,
-				    MAX_CI_BUF_SIZE - 1,
+				    MAX_CI_BUF_SIZE - cinfo_idx - 1,
 				    data->rx_buf, strlen("\"neighbourcell\","),
                     len - strlen("\"neighbourcell\","));
+
 	*(q_ctx.data_cellinfo + cinfo_idx + out_len) = ';';
+	*(q_ctx.data_cellinfo + cinfo_idx + out_len + 1) = '\0';
 
     /* Hack FIXME Replace " with * */
     while(idx < out_len && found_ch < 2)
@@ -969,11 +972,15 @@ static void quectel_bg95_rx_priority(u8_t prio)
     memset(buf, 0, sizeof(buf));
     snprintk(buf, sizeof(buf), "AT+QGPSCFG=\"priority\",%d", prio);
 
+    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
 		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
 	}
+
+    k_sem_give(&mdata.mdm_lock);
 
     /* TODO Check if priority assign successful */
 }
@@ -1191,6 +1198,9 @@ static int bg95_sock_close(u8_t sock_id)
     int ret = 0;
     struct modem_socket *sock;
 
+	memset(buf, 0, sizeof(buf));
+    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+
     snprintk(buf, sizeof(buf), "AT+QSSLCLOSE=%d", sock_id);
 
     ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
@@ -1199,6 +1209,8 @@ static int bg95_sock_close(u8_t sock_id)
     if (ret < 0) {
         LOG_ERR("%s ret:%d", log_strdup(buf), ret);
     }
+
+    k_sem_give(&mdata.mdm_lock);
 
     /* session over */
     wwan_session_end();
@@ -1333,10 +1345,10 @@ static void modem_reset(void)
 		SETUP_CMD_NOHANDLE("ATE0"),
 		/* stop functionality */
 		//SETUP_CMD_NOHANDLE("AT+CFUN=0"),
-		/* UNC messages for registration. Enable loc info as well */
-		SETUP_CMD_NOHANDLE("AT+CREG=2"),
 		/* extended error numbers */
 		SETUP_CMD_NOHANDLE("AT+CMEE=1"),
+		/* UNC messages for registration. Enable loc info as well */
+		SETUP_CMD_NOHANDLE("AT+CREG=2"),
 		/* HEX receive data mode */
 		//SETUP_CMD_NOHANDLE("AT+UDCONF=1,1"),
 		/* query modem info */
@@ -1392,6 +1404,7 @@ restart:
 	}
 
     k_sleep(K_SECONDS(5));
+#if 0
     /* register operator automatically */
     ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
                  NULL, 0, "AT+COPS=0",
@@ -1401,6 +1414,7 @@ restart:
 		LOG_ERR("AT+COPS ret:%d", ret);
 		goto error;
 	}
+#endif
 
 	LOG_INF("Waiting for network");
 
@@ -1415,9 +1429,10 @@ restart:
         k_sleep(K_SECONDS(5));
         ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0,
                      "AT+CREG?", &mdata.sem_response,
-                     MDM_REGISTRATION_TIMEOUT);
+                     MDM_NETWORK_REG_TIMEOUT);
         if (ret < 0) {
             LOG_ERR("AT+CREG ret:%d", ret);
+            /* give semaphore */
             k_sem_give(&mdata.mdm_lock);
             goto error;
         }
@@ -1746,6 +1761,8 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 			     cmd, ARRAY_SIZE(cmd), sendbuf, &mdata.sem_response,
 			     MDM_CMD_TIMEOUT);
 	if (ret < 0) {
+        /* TODO Check why this is needed for error*/
+        mdata.urc_status &= ~URC_SSL_RECV;
 		errno = -ret;
 		ret = -1;
 		goto exit;
@@ -2602,7 +2619,11 @@ int quectel_bg95_get_cell_info(struct device *dev, char **cell_info)
     /* reset cell info idx */
     cinfo_idx = 0;
 
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    ret = k_sem_take(&mdata.mdm_lock, MDM_LOCK_TIMEOUT);
+    if (ret != 0)
+    {
+        return ret;
+    }
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
                 buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
@@ -2633,7 +2654,11 @@ int quectel_bg95_get_ctx(struct device *dev, struct mdm_ctx **ctx)
     /* reset cell info idx */
     cinfo_idx = 0;
 
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    ret = k_sem_take(&mdata.mdm_lock, MDM_LOCK_TIMEOUT);
+    if (ret != 0)
+    {
+        return ret;
+    }
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
                 buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
@@ -3013,7 +3038,7 @@ static struct modem_cmd unsol_cmds[] = {
     MODEM_CMD("+QIURC: ", on_cmd_socknotifyurc, 2U, ", "),
 #endif
     /* 4 parameters for CREG=2 */
-	MODEM_CMD("+CREG: ", on_cmd_socknotifycreg, 4U, ","),
+	MODEM_CMD("+CREG: ", on_cmd_socknotifycreg, 2U, ","),
 	MODEM_CMD("+CTZV: ", on_cmd_timezoneval, 1U, ""),
 	MODEM_CMD("+QHTTPGET: ", on_cmd_http_response, 1U, ","),
 	MODEM_CMD("+QHTTPPOST: ", on_cmd_http_response, 1U, ","),

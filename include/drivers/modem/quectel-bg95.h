@@ -21,8 +21,7 @@
 #define MDM_REVISION_LENGTH 64
 #define MDM_IMEI_LENGTH 16
 #define MDM_TIME_LENGTH 32
-#define MAX_CI_BUF_SIZE   64U
-#define MAX_CELLS_INFO    6U
+#define MAX_CI_BUF_SIZE   (64U * 6U)
 
 struct usr_http_cfg {
 	char *url;
@@ -43,7 +42,7 @@ struct mdm_ctx {
 	char data_revision[MDM_REVISION_LENGTH];
 	char data_imei[MDM_IMEI_LENGTH];
 	char data_timeval[MDM_TIME_LENGTH];
-    char data_cellinfo[MAX_CI_BUF_SIZE * MAX_CELLS_INFO];
+    char data_cellinfo[MAX_CI_BUF_SIZE];
     uint32_t data_sys_timeval;
 	int32_t   data_rssi;
 };
