@@ -991,7 +991,7 @@ static int wwan_session_start(void)
 {
     mdata.wwan_in_session = 1;
 
-    if (mdata.gps_status == 1)
+    //if (mdata.gps_status == 1)
     {
         /* switch to WWAN priority */
         quectel_bg95_rx_priority(WWAN_PRIORITY);
@@ -1004,9 +1004,9 @@ static int wwan_session_start(void)
 
     /*
      * recommended: Delay for GNNS to switch to WWAN mode
-     * wait 700 msec after gps priority
+     * wait 700 msec after gps priority. Extend till 2s for safety
      */
-    k_sleep(K_MSEC(700));
+    k_sleep(K_MSEC(2000));
 
     return 0;
 }
@@ -1111,30 +1111,6 @@ ret:
     return ret;
 }
 
-static int activate_pdp_ctx(void)
-{
-	char buf[MAX_HTTP_CMD_SIZE];
-    int ret = 0;
-
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
-
-    memset(buf, 0, sizeof(buf));
-	snprintk(buf, sizeof(buf), "AT+QIACT=%d", 1);
-
-	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
-			     &mdata.sem_response, MDM_REGISTRATION_TIMEOUT);
-	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
-		goto ret;
-	}
-
-    mdata.pdp_ctx = 1;
-ret:
-    k_sem_give(&mdata.mdm_lock);
-
-    return ret;
-}
-
 static int deactivate_pdp_ctx(void)
 {
 	char buf[MAX_HTTP_CMD_SIZE];
@@ -1159,6 +1135,39 @@ ret:
     return ret;
 }
 
+static int activate_pdp_ctx(void)
+{
+	char buf[MAX_HTTP_CMD_SIZE];
+    int ret = 0;
+
+    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+
+    memset(buf, 0, sizeof(buf));
+	snprintk(buf, sizeof(buf), "AT+QIACT=%d", 1);
+
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
+			     &mdata.sem_response, MDM_REGISTRATION_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		goto ret;
+	}
+
+    mdata.pdp_ctx = 1;
+ret:
+    k_sem_give(&mdata.mdm_lock);
+
+    /* HACK CHECK */
+    check_pdp_ctx();
+
+    if (ret < 0)
+    {
+        deactivate_pdp_ctx();
+        check_pdp_ctx();
+    }
+
+    return ret;
+}
+
 /* ssl pdp ctx init of needed */
 static int ssl_init_seq(void)
 {
@@ -1167,9 +1176,13 @@ static int ssl_init_seq(void)
     {
         ret = activate_pdp_ctx();
         if (ret < 0) {
-            LOG_ERR("activate pdp ctx, ret:%d", ret);
-            errno = -ret;
-            goto ret;
+            LOG_ERR("activate pdp ctx retrying, ret:%d", ret);
+            ret = activate_pdp_ctx();
+            if (ret < 0) {
+                LOG_ERR("activate pdp ctx, ret:%d", ret);
+                errno = -ret;
+                goto ret;
+            }
         }
 
 #if 0
@@ -1497,6 +1510,16 @@ restart:
     }
 
 	LOG_INF("Network is ready.");
+
+#if 0
+    ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0,
+                 "AT+QNVFC=\"/nv/item_files/gsm/l1/l1_debug\",01000060",
+                 &mdata.sem_response,
+                 MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("AT+QNVFC ret:%d", ret);
+	}
+#endif
 
 	/* start RSSI query */
 	k_delayed_work_submit_to_queue(&modem_workq, &mdata.rssi_query_work,
