@@ -701,7 +701,7 @@ static const struct flash_driver_api qspi_nor_api = {
 #if defined(CONFIG_FLASH_PAGE_LAYOUT)
 	.page_layout = qspi_nor_pages_layout,
 #endif
-	.write_block_size = 1,
+	.write_block_size = 4,
 };
 
 
