@@ -29,6 +29,9 @@ struct i2c_nrfx_twim_config {
 	nrfx_twim_config_t config;
 };
 
+static int init_twim(struct device *dev);
+static int i2c_nrfx_twim_configure(struct device *dev, u32_t dev_config);
+
 static inline struct i2c_nrfx_twim_data *get_dev_data(struct device *dev)
 {
 	return dev->driver_data;
@@ -94,6 +97,14 @@ static int i2c_nrfx_twim_transfer(struct device *dev, struct i2c_msg *msgs,
 			 * reinit nrfx twim.
 			 */
 			LOG_ERR("Error on I2C line occurred for message %d", i);
+            /* restart driver */
+            nrfx_twim_uninit(&get_dev_config(dev)->twim);
+            init_twim(dev);
+            if (get_dev_data(dev)->dev_config) {
+                i2c_nrfx_twim_configure(
+                    dev,
+                    get_dev_data(dev)->dev_config);
+            }
 			ret = -EIO;
 			break;
 		}
