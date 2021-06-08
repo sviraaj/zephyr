@@ -500,10 +500,10 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_rssi_csq)
 	rssi = ATOI(argv[0], 0, "qual");
 	LOG_INF("rssi: %d", rssi);
 	if (rssi == 31) {
-		q_ctx.data_rssi = -46;
+		q_ctx.data_rssi = -51;
 	} else if (rssi >= 0 && rssi <= 31) {
 		/* FIXME: This value depends on the RAT */
-		q_ctx.data_rssi = -110 + ((rssi * 2) + 1);
+		q_ctx.data_rssi = -114 + ((rssi * 2) + 1);
 	} else {
 		q_ctx.data_rssi = -1000;
 	}
@@ -1356,8 +1356,7 @@ static void modem_reset(void)
 	static struct setup_cmd setup_cmds[] = {
 		/* turn off echo */
 		SETUP_CMD_NOHANDLE("ATE0"),
-		/* stop functionality */
-		//SETUP_CMD_NOHANDLE("AT+CFUN=0"),
+		SETUP_CMD_NOHANDLE("ATH"),
 		/* extended error numbers */
 		SETUP_CMD_NOHANDLE("AT+CMEE=1"),
 		/* UNC messages for registration. Enable loc info as well */
@@ -1369,11 +1368,6 @@ static void modem_reset(void)
 		SETUP_CMD("AT+CGMM", "", on_cmd_atcmdinfo_model, 0U, ""),
 		SETUP_CMD("AT+QGMR", "", on_cmd_atcmdinfo_revision, 0U, ""),
 		SETUP_CMD("AT+CGSN", "", on_cmd_atcmdinfo_imei, 1U, ""),
-		/* setup PDP context definition */
-		SETUP_CMD_NOHANDLE(
-			"AT+CGDCONT=1,\"IP\",\"" CONFIG_MODEM_QUECTEL_BG95_APN "\""),
-		/* start functionality */
-		SETUP_CMD_NOHANDLE("AT+CFUN=1"),
 	};
 
 restart:
@@ -1416,11 +1410,23 @@ restart:
 		goto error;
 	}
 
+    k_sem_give(&mdata.mdm_lock);
+
+    /* configure pdp ctx */
+    ret = configure_pdp_ctx();
+    if (ret < 0) {
+        LOG_ERR("failed to configure pdp ctx!");
+        goto error;
+    }
+
+    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+
     k_sleep(K_SECONDS(5));
+
 #if 0
     /* register operator automatically */
     ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler,
-                 NULL, 0, "AT+COPS=0",
+                 NULL, 0, "AT+COPS=0,0",
                  &mdata.sem_response,
                  MDM_REGISTRATION_TIMEOUT);
 	if (ret < 0) {
@@ -1439,7 +1445,7 @@ restart:
 	/* wait for +CREG: 1(normal) or 5(roaming) */
 	counter = 0;
     do {
-        k_sleep(K_SECONDS(5));
+        k_sleep(K_SECONDS(20));
         ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0,
                      "AT+CREG?", &mdata.sem_response,
                      MDM_NETWORK_REG_TIMEOUT);
@@ -1501,13 +1507,6 @@ restart:
 
 
     /* **************************************************** */
-
-    /* configure pdp ctx */
-    ret = configure_pdp_ctx();
-    if (ret < 0) {
-        LOG_ERR("failed to configure pdp ctx!");
-        goto error;
-    }
 
 	LOG_INF("Network is ready.");
 
