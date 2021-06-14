@@ -972,7 +972,10 @@ static void quectel_bg95_rx_priority(u8_t prio)
     memset(buf, 0, sizeof(buf));
     snprintk(buf, sizeof(buf), "AT+QGPSCFG=\"priority\",%d", prio);
 
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    if (k_sem_take(&mdata.mdm_lock, MDM_CMD_TIMEOUT) != 0) {
+        LOG_ERR("rx prio sem fail");
+        return -1;
+    }
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
@@ -1073,7 +1076,10 @@ static int check_pdp_ctx(void)
 	static char* send_cmd = "AT+QIACT?";
     int ret = 0;
 
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    if (k_sem_take(&mdata.mdm_lock, MDM_CMD_TIMEOUT) != 0) {
+        LOG_ERR("check pdp sem fail");
+        return -1;
+    }
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
                 send_cmd, &mdata.sem_response, MDM_CMD_TIMEOUT);
@@ -1116,7 +1122,10 @@ static int deactivate_pdp_ctx(void)
 	char buf[MAX_HTTP_CMD_SIZE];
     int ret = 0;
 
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    if (k_sem_take(&mdata.mdm_lock, MDM_CMD_TIMEOUT) != 0) {
+        LOG_ERR("deactivate pdp sem fail");
+        return -1;
+    }
 
     memset(buf, 0, sizeof(buf));
 	snprintk(buf, sizeof(buf), "AT+QIDEACT=%d", 1);
@@ -1140,7 +1149,10 @@ static int activate_pdp_ctx(void)
 	char buf[MAX_HTTP_CMD_SIZE];
     int ret = 0;
 
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    if (k_sem_take(&mdata.mdm_lock, MDM_CMD_TIMEOUT) != 0) {
+        LOG_ERR("activate pdp sem fail");
+        return -1;
+    }
 
     memset(buf, 0, sizeof(buf));
 	snprintk(buf, sizeof(buf), "AT+QIACT=%d", 1);
@@ -1159,8 +1171,7 @@ ret:
     /* HACK CHECK */
     check_pdp_ctx();
 
-    if (ret < 0)
-    {
+    if (ret < 0) {
         deactivate_pdp_ctx();
         check_pdp_ctx();
     }
@@ -1212,7 +1223,11 @@ static int bg95_sock_close(u8_t sock_id)
     struct modem_socket *sock;
 
 	memset(buf, 0, sizeof(buf));
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+
+    if (k_sem_take(&mdata.mdm_lock, MDM_CMD_TIMEOUT) != 0) {
+        LOG_ERR("sock close sem fail");
+        return -1;
+    }
 
     snprintk(buf, sizeof(buf), "AT+QSSLCLOSE=%d", sock_id);
 
@@ -1331,7 +1346,10 @@ static void modem_rssi_query_work(struct k_work *work)
 	static char *send_cmd = "AT+CSQ";
 	int ret;
 
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    if (k_sem_take(&mdata.mdm_lock, MDM_CMD_TIMEOUT) != 0) {
+        LOG_ERR("RSSI fail");
+        return;
+    }
 
 	/* query modem RSSI */
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U, send_cmd,
