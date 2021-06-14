@@ -483,7 +483,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 	status = bq40zxx_get_device_type(bq40zxx, &id);
 	if (status < 0) {
 		LOG_ERR("Unable to get device ID");
-		return -EIO;
+		//return -EIO;
 	}
 
 	if (id != BQ40ZXX_DEVICE_ID) {
@@ -495,9 +495,11 @@ static int bq40zxx_gauge_init(struct device *dev)
     status = bq40zxx_print_fw_ver(bq40zxx);
 	if (status < 0) {
 		LOG_ERR("Unable to print firmware version");
-		return -EIO;
+        /* FIXME Hack */
+		//return -EIO;
 	}
 
+#if 0
 	/** Unseal the battery control register **/
 	status = bq40zxx_control_reg_write(bq40zxx, BQ40ZXX_UNSEAL_KEY_1);
 	if (status < 0) {
@@ -510,6 +512,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 		LOG_ERR("Unable to unseal the battery");
 		return -EIO;
 	}
+#endif
 
 #if 0
 	/** Step to place the Gauge into CONFIG UPDATE Mode **/
@@ -708,12 +711,14 @@ static int bq40zxx_gauge_init(struct device *dev)
 	} while ((flags & 0x0010));
 #endif
 
+#if 0
 	/* Seal the gauge */
 	status = bq40zxx_control_reg_write(bq40zxx, BQ40ZXX_CONTROL_SEALED);
 	if (status < 0) {
 		LOG_ERR("Failed to seal the gauge");
 		return -EIO;
 	}
+#endif
 
 	return 0;
 }
