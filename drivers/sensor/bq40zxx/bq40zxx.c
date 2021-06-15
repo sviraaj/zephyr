@@ -43,7 +43,7 @@ static int smbus_block_read(struct bq40zxx_data *bq40zxx, u8_t reg_addr,
     int status = i2c_burst_read(bq40zxx->i2c, DT_INST_REG_ADDR(0),
             reg_addr, rd_buf, rd_sz);
 	if (status < 0) {
-		LOG_ERR("Unable to read register");
+		LOG_DBG("Unable to read register");
 		return -EIO;
 	}
     return status;
@@ -58,7 +58,7 @@ static int smbus_block_write(struct bq40zxx_data *bq40zxx, u8_t reg_addr,
 	int status = i2c_burst_write(bq40zxx->i2c, DT_INST_REG_ADDR(0),
                     reg_addr, wr_buf, wr_sz);
 	if (status < 0) {
-		LOG_ERR("Failed to write into block access register: %d", status);
+		LOG_DBG("Failed to write into block access register: %d", status);
 		return -EIO;
 	}
     return status;
@@ -79,7 +79,7 @@ static int bq40zxx_control_reg_write(struct bq40zxx_data *bq40zxx,
             BQ40ZXX_COMMAND_MANUFACTURER_BLOCK_ACCESS,
 			buf, sizeof(buf));
 	if (status < 0) {
-		LOG_ERR("Failed to write into block access register");
+		LOG_DBG("Failed to write into block access register");
 		return -EIO;
 	}
 
@@ -99,7 +99,7 @@ static int bq40zxx_read_data_block(struct bq40zxx_data *bq40zxx, u8_t offset,
 	status = i2c_burst_read(bq40zxx->i2c, DT_INST_REG_ADDR(0), rd_buf,
 				data, bytes);
 	if (status < 0) {
-		LOG_ERR("Failed to read block");
+		LOG_DBG("Failed to read block");
 		return -EIO;
 	}
 
@@ -119,7 +119,7 @@ static int bq40zxx_write_data_block(struct bq40zxx_data *bq40zxx, u8_t offset,
 	status = i2c_burst_write(bq40zxx->i2c, DT_INST_REG_ADDR(0), rd_buf,
 				data, bytes);
 	if (status < 0) {
-		LOG_ERR("Failed to read block");
+		LOG_DBG("Failed to read block");
 		return -EIO;
 	}
 
@@ -140,7 +140,7 @@ static int bq40zxx_get_device_type(struct bq40zxx_data *bq40zxx,
 	status = bq40zxx_control_reg_write(bq40zxx,
             BQ40ZXX_CONTROL_DEVICE_TYPE);
 	if (status < 0) {
-		LOG_ERR("Unable to write control register");
+		LOG_DBG("Unable to write control register");
 		return -EIO;
 	}
 
@@ -148,7 +148,7 @@ static int bq40zxx_get_device_type(struct bq40zxx_data *bq40zxx,
             BQ40ZXX_COMMAND_MANUFACTURER_BLOCK_ACCESS,
             rd_buf, sizeof(rd_buf));
 	if (status < 0) {
-		LOG_ERR("Unable to read register");
+		LOG_DBG("Unable to read register");
 		return -EIO;
 	}
 
@@ -167,7 +167,7 @@ static int bq40zxx_print_fw_ver(struct bq40zxx_data *bq40zxx)
 	status = bq40zxx_control_reg_write(bq40zxx,
             BQ40ZXX_CONTROL_FW_VERSION);
 	if (status < 0) {
-		LOG_ERR("Unable to write control register");
+		LOG_DBG("Unable to write control register");
 		return -EIO;
 	}
 
@@ -175,7 +175,7 @@ static int bq40zxx_print_fw_ver(struct bq40zxx_data *bq40zxx)
             BQ40ZXX_COMMAND_MANUFACTURER_BLOCK_ACCESS,
             buf, 14);
 	if (status < 0) {
-		LOG_ERR("Failed to read from block access register");
+		LOG_DBG("Failed to read from block access register");
 		return -EIO;
 	}
 
@@ -200,7 +200,7 @@ static int bq40zxx_command_reg_read(struct bq40zxx_data *bq40zxx, u8_t command,
     status = smbus_block_read(bq40zxx, command,
                 rd_buf, sizeof(rd_buf));
 	if (status < 0) {
-		LOG_ERR("Failed to read from command register");
+		LOG_DBG("Failed to read from command register");
 		return -EIO;
 	}
 
@@ -234,7 +234,7 @@ static int bq40zxx_command_reg_write(struct bq40zxx_data *bq40zxx, u8_t command,
 	status = i2c_reg_write_byte(bq40zxx->i2c, DT_INST_REG_ADDR(0),
             reg_addr, rd_buf);
 	if (status < 0) {
-		LOG_ERR("Failed to write into control register");
+		LOG_DBG("Failed to write into control register");
 		return -EIO;
 	}
 
