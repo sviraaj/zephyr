@@ -80,6 +80,7 @@ typedef int (*m_dfota)(struct device *dev,
 
 typedef int (*mdm_get_clock)(struct device *dev,
                         char *timeval);
+typedef int (*mdm_get_ntp_time)(struct device *dev);
 
 typedef int (*mdm_http_init)(struct device *dev,
                         struct usr_http_cfg *cfg);
@@ -110,6 +111,7 @@ struct modem_quectel_bg95_net_api {
 
 	/* Driver specific extension api */
     mdm_get_clock  get_clock;
+    mdm_get_ntp_time get_ntp_time;
 
 	mdm_http_init http_init;
 	mdm_http_execute http_execute;
@@ -233,6 +235,15 @@ static inline int mdm_quectel_bg95_dfota(struct device *dev,
 	return api->dfota(dev, url);
 }
 #endif
+
+__syscall int mdm_quectel_bg95_get_ntp_time(struct device *dev);
+
+static inline int mdm_quectel_bg95_get_ntp_time(struct device *dev)
+{
+	const struct modem_quectel_bg95_net_api *api =
+        (const struct modem_quectel_bg95_net_api *) dev->driver_api;
+	return api->get_ntp_time(dev);
+}
 
 __syscall int mdm_quectel_bg95_get_clock(struct device *dev,
 				char *timeval);

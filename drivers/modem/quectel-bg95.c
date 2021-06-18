@@ -2126,6 +2126,36 @@ static struct net_offload modem_net_offload = {
 	.get = net_offload_dummy_get,
 };
 
+int quectel_bg95_get_ntp_time(struct device *dev)
+{
+	char buf[sizeof("AT+QNTP=1\r") + 128];
+	int ret = 0;
+
+	memset(buf, 0, sizeof(buf));
+	snprintk(buf, sizeof(buf), "AT+QNTP=1,\"%s\",%d", "time.google.com", 123);
+
+    /* FIXME Find a common solution for all locks */
+    ret = k_sem_take(&mdata.mdm_lock, MDM_LOCK_TIMEOUT);
+    if (ret != 0)
+    {
+        return ret;
+    }
+
+	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
+			     &mdata.sem_response, MDM_CMD_TIMEOUT);
+	if (ret < 0) {
+		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		goto ret;
+	}
+
+    /* NTP  TODO */
+ret:
+    k_sem_give(&mdata.mdm_lock);
+
+	return ret;
+}
+
+
 int quectel_bg95_get_clock(struct device *dev, char *timeval)
 {
 	char buf[sizeof("AT+CCLK?\r")];
@@ -3036,6 +3066,7 @@ static struct modem_quectel_bg95_net_api api_funcs = {
 			.init = modem_net_iface_init,
 		},
 	.get_clock = quectel_bg95_get_clock,
+	.get_ntp_time = quectel_bg95_get_ntp_time,
 	.http_init = quectel_bg95_http_init,
 	.http_execute = quectel_bg95_http_execute,
 	.http_term = quectel_bg95_http_term,
