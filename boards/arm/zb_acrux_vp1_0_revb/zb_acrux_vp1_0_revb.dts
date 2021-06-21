@@ -228,8 +228,8 @@
 &pwm0 {
 	status = "okay";
 	//ch0-pin = <24>;
-    ch1-pin = <28>;
-    ch2-pin = <35>;
+    //ch1-pin = <28>;
+    ch2-pin = <46>;
 };
 
 &spi2 {
