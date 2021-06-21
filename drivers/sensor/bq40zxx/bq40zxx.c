@@ -328,7 +328,7 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
 		status = bq40zxx_command_reg_read(bq40zxx,
                 BQ40ZXX_COMMAND_VOLTAGE, &bq40zxx->voltage, U2);
 		if (status < 0) {
-			LOG_ERR("Failed to read voltage");
+			LOG_DBG("Failed to read voltage");
 			return -EIO;
 		}
 		break;
@@ -338,7 +338,7 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
 						  BQ40ZXX_COMMAND_AVG_CURRENT,
 						  &bq40zxx->avg_current, I2);
 		if (status < 0) {
-			LOG_ERR("Failed to read average current ");
+			LOG_DBG("Failed to read average current ");
 			return -EIO;
 		}
 		break;
@@ -348,7 +348,7 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
 			bq40zxx, BQ40ZXX_COMMAND_TEMP,
 			&bq40zxx->internal_temperature, U2);
 		if (status < 0) {
-			LOG_ERR("Failed to read internal temperature");
+			LOG_DBG("Failed to read internal temperature");
 			return -EIO;
 		}
 		break;
@@ -358,7 +358,7 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
 						  BQ40ZXX_COMMAND_FLAGS,
 						  &bq40zxx->flags, U2);
 		if (status < 0) {
-			LOG_ERR("Failed to read flags");
+			LOG_DBG("Failed to read flags");
 			return -EIO;
 		}
 		break;
@@ -368,7 +368,7 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
 						  BQ40ZXX_COMMAND_TIME_TO_EMPTY,
 						  &bq40zxx->time_to_empty, U2);
 		if (status < 0) {
-			LOG_ERR("Failed to read time to empty");
+			LOG_DBG("Failed to read time to empty");
 			return -EIO;
 		}
 		break;
@@ -378,7 +378,7 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
 						  BQ40ZXX_COMMAND_TIME_TO_FULL,
 						  &bq40zxx->time_to_full, U2);
 		if (status < 0) {
-			LOG_ERR("Failed to read time to full");
+			LOG_DBG("Failed to read time to full");
 			return -EIO;
 		}
 		break;
@@ -388,7 +388,7 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
                           BQ40ZXX_COMMAND_SOC,
 						  &bq40zxx->state_of_charge, U1);
 		if (status < 0) {
-			LOG_ERR("Failed to read state of charge");
+			LOG_DBG("Failed to read state of charge");
 			return -EIO;
 		}
 		break;
@@ -398,7 +398,7 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
                           BQ40ZXX_COMMAND_CYCLE_COUNT,
 						  &bq40zxx->cycle_count, U2);
 		if (status < 0) {
-			LOG_ERR("Failed to read cycle count");
+			LOG_DBG("Failed to read cycle count");
 			return -EIO;
 		}
 		break;
@@ -408,7 +408,7 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
 			bq40zxx, BQ40ZXX_COMMAND_FULL_CAPACITY,
 			&bq40zxx->full_charge_capacity, U2);
 		if (status < 0) {
-			LOG_ERR("Failed to read full charge capacity");
+			LOG_DBG("Failed to read full charge capacity");
 			return -EIO;
 		}
 		break;
@@ -418,7 +418,7 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
 			bq40zxx, BQ40ZXX_COMMAND_REM_CAPACITY,
 			&bq40zxx->remaining_charge_capacity, U2);
 		if (status < 0) {
-			LOG_ERR("Failed to read remaining charge capacity");
+			LOG_DBG("Failed to read remaining charge capacity");
 			return -EIO;
 		}
 		break;
@@ -430,7 +430,7 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
 		bq40zxx->state_of_health = bq40zxx->state_of_health;
 
 		if (status < 0) {
-			LOG_ERR("Failed to read state of health");
+			LOG_DBG("Failed to read state of health");
 			return -EIO;
 		}
 		break;
@@ -440,7 +440,7 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
                           BQ40ZXX_COMMAND_DESIGN_CAPACITY,
 						  &bq40zxx->design_capacity, U2);
 		if (status < 0) {
-			LOG_ERR("Failed to read design capacity");
+			LOG_DBG("Failed to read design capacity");
 			return -EIO;
 		}
 		break;
@@ -475,26 +475,26 @@ static int bq40zxx_gauge_init(struct device *dev)
 
 	bq40zxx->i2c = device_get_binding(config->bus_name);
 	if (bq40zxx == NULL) {
-		LOG_ERR("Could not get pointer to %s device.",
+		LOG_DBG("Could not get pointer to %s device.",
 			config->bus_name);
 		return -EINVAL;
 	}
 
 	status = bq40zxx_get_device_type(bq40zxx, &id);
 	if (status < 0) {
-		LOG_ERR("Unable to get device ID");
+		LOG_DBG("Unable to get device ID");
 		//return -EIO;
 	}
 
 	if (id != BQ40ZXX_DEVICE_ID) {
-		LOG_ERR("Invalid Device 0x%x", id);
+		LOG_DBG("Invalid Device 0x%x", id);
 		//return -EINVAL;
 	}
 
 	/** Print firmware version **/
     status = bq40zxx_print_fw_ver(bq40zxx);
 	if (status < 0) {
-		LOG_ERR("Unable to print firmware version");
+		LOG_DBG("Unable to print firmware version");
         /* FIXME Hack */
 		//return -EIO;
 	}
@@ -503,13 +503,13 @@ static int bq40zxx_gauge_init(struct device *dev)
 	/** Unseal the battery control register **/
 	status = bq40zxx_control_reg_write(bq40zxx, BQ40ZXX_UNSEAL_KEY_1);
 	if (status < 0) {
-		LOG_ERR("Unable to unseal the battery");
+		LOG_DBG("Unable to unseal the battery");
 		return -EIO;
 	}
 
 	status = bq40zxx_control_reg_write(bq40zxx, BQ40ZXX_UNSEAL_KEY_2);
 	if (status < 0) {
-		LOG_ERR("Unable to unseal the battery");
+		LOG_DBG("Unable to unseal the battery");
 		return -EIO;
 	}
 #endif
@@ -520,7 +520,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 		status = bq40zxx_command_reg_read(
 			bq40zxx, BQ40ZXX_COMMAND_FLAGS, &flags);
 		if (status < 0) {
-			LOG_ERR("Unable to read flags");
+			LOG_DBG("Unable to read flags");
 			return -EIO;
 		}
 
@@ -533,7 +533,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 	status = bq40zxx_command_reg_write(bq40zxx,
 					   BQ40ZXX_EXTENDED_DATA_CONTROL, 0x00);
 	if (status < 0) {
-		LOG_ERR("Failed to enable block data memory");
+		LOG_DBG("Failed to enable block data memory");
 		return -EIO;
 	}
 
@@ -541,7 +541,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 	status = bq40zxx_command_reg_write(bq40zxx, BQ40ZXX_EXTENDED_DATA_CLASS,
 					   0x52);
 	if (status < 0) {
-		LOG_ERR("Failed to update state subclass");
+		LOG_DBG("Failed to update state subclass");
 		return -EIO;
 	}
 
@@ -549,7 +549,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 	status = bq40zxx_command_reg_write(bq40zxx, BQ40ZXX_EXTENDED_DATA_BLOCK,
 					   0x00);
 	if (status < 0) {
-		LOG_ERR("Failed to update block offset");
+		LOG_DBG("Failed to update block offset");
 		return -EIO;
 	}
 
@@ -559,7 +559,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 
 	status = bq40zxx_read_data_block(bq40zxx, 0x00, block, 32);
 	if (status < 0) {
-		LOG_ERR("Unable to read block data");
+		LOG_DBG("Unable to read block data");
 		return -EIO;
 	}
 
@@ -573,7 +573,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 	status = i2c_reg_read_byte(bq40zxx->i2c, DT_INST_REG_ADDR(0),
 				   BQ40ZXX_EXTENDED_CHECKSUM, &checksum_old);
 	if (status < 0) {
-		LOG_ERR("Unable to read block checksum");
+		LOG_DBG("Unable to read block checksum");
 		return -EIO;
 	}
 
@@ -590,7 +590,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 				    BQ40ZXX_EXTENDED_BLOCKDATA_DESIGN_CAP_HIGH,
 				    designcap_msb);
 	if (status < 0) {
-		LOG_ERR("Failed to write designCAP MSB");
+		LOG_DBG("Failed to write designCAP MSB");
 		return -EIO;
 	}
 
@@ -598,7 +598,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 				    BQ40ZXX_EXTENDED_BLOCKDATA_DESIGN_CAP_LOW,
 				    designcap_lsb);
 	if (status < 0) {
-		LOG_ERR("Failed to erite designCAP LSB");
+		LOG_DBG("Failed to erite designCAP LSB");
 		return -EIO;
 	}
 
@@ -606,7 +606,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 				    BQ40ZXX_EXTENDED_BLOCKDATA_DESIGN_ENR_HIGH,
 				    designenergy_msb);
 	if (status < 0) {
-		LOG_ERR("Failed to write designEnergy MSB");
+		LOG_DBG("Failed to write designEnergy MSB");
 		return -EIO;
 	}
 
@@ -614,7 +614,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 				    BQ40ZXX_EXTENDED_BLOCKDATA_DESIGN_ENR_LOW,
 				    designenergy_lsb);
 	if (status < 0) {
-		LOG_ERR("Failed to erite designEnergy LSB");
+		LOG_DBG("Failed to erite designEnergy LSB");
 		return -EIO;
 	}
 
@@ -623,7 +623,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 		BQ40ZXX_EXTENDED_BLOCKDATA_TERMINATE_VOLT_HIGH,
 		terminatevolt_msb);
 	if (status < 0) {
-		LOG_ERR("Failed to write terminateVolt MSB");
+		LOG_DBG("Failed to write terminateVolt MSB");
 		return -EIO;
 	}
 
@@ -632,7 +632,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 		BQ40ZXX_EXTENDED_BLOCKDATA_TERMINATE_VOLT_LOW,
 		terminatevolt_lsb);
 	if (status < 0) {
-		LOG_ERR("Failed to write terminateVolt LSB");
+		LOG_DBG("Failed to write terminateVolt LSB");
 		return -EIO;
 	}
 
@@ -640,7 +640,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 				    BQ40ZXX_EXTENDED_BLOCKDATA_TAPERRATE_HIGH,
 				    taperrate_msb);
 	if (status < 0) {
-		LOG_ERR("Failed to write taperRate MSB");
+		LOG_DBG("Failed to write taperRate MSB");
 		return -EIO;
 	}
 
@@ -648,7 +648,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 				    BQ40ZXX_EXTENDED_BLOCKDATA_TAPERRATE_LOW,
 				    taperrate_lsb);
 	if (status < 0) {
-		LOG_ERR("Failed to erite taperRate LSB");
+		LOG_DBG("Failed to erite taperRate LSB");
 		return -EIO;
 	}
 
@@ -658,7 +658,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 
 	status = bq40zxx_read_data_block(bq40zxx, 0x00, block, 32);
 	if (status < 0) {
-		LOG_ERR("Unable to read block data");
+		LOG_DBG("Unable to read block data");
 		return -EIO;
 	}
 
@@ -671,7 +671,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 	status = bq40zxx_command_reg_write(bq40zxx, BQ40ZXX_EXTENDED_CHECKSUM,
 					   checksum_new);
 	if (status < 0) {
-		LOG_ERR("Failed to update new checksum");
+		LOG_DBG("Failed to update new checksum");
 		return -EIO;
 	}
 
@@ -679,19 +679,19 @@ static int bq40zxx_gauge_init(struct device *dev)
 	status = i2c_reg_read_byte(bq40zxx->i2c, DT_INST_REG_ADDR(0),
 				   BQ40ZXX_EXTENDED_CHECKSUM, &tmp_checksum);
 	if (status < 0) {
-		LOG_ERR("Failed to read checksum");
+		LOG_DBG("Failed to read checksum");
 		return -EIO;
 	}
 
 	status = bq40zxx_control_reg_write(bq40zxx, BQ40ZXX_CONTROL_BAT_INSERT);
 	if (status < 0) {
-		LOG_ERR("Unable to configure BAT Detect");
+		LOG_DBG("Unable to configure BAT Detect");
 		return -EIO;
 	}
 
 	status = bq40zxx_control_reg_write(bq40zxx, BQ40ZXX_CONTROL_SOFT_RESET);
 	if (status < 0) {
-		LOG_ERR("Failed to soft reset the gauge");
+		LOG_DBG("Failed to soft reset the gauge");
 		return -EIO;
 	}
 
@@ -701,7 +701,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 		status = bq40zxx_command_reg_read(
 			bq40zxx, BQ40ZXX_COMMAND_FLAGS, &flags);
 		if (status < 0) {
-			LOG_ERR("Unable to read flags");
+			LOG_DBG("Unable to read flags");
 			return -EIO;
 		}
 
@@ -715,7 +715,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 	/* Seal the gauge */
 	status = bq40zxx_control_reg_write(bq40zxx, BQ40ZXX_CONTROL_SEALED);
 	if (status < 0) {
-		LOG_ERR("Failed to seal the gauge");
+		LOG_DBG("Failed to seal the gauge");
 		return -EIO;
 	}
 #endif
