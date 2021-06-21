@@ -353,6 +353,41 @@ MODEM_CMD_DEFINE(on_cmd_gps_read)
     return 0;
 }
 
+/* Handler: +QNTP: <err_code>,"..." */
+MODEM_CMD_DEFINE(on_cmd_ntptime)
+{
+    uint8_t buf[8];
+    uint8_t t_off = 0;
+	uint16_t ntp_err;
+
+	memset(buf, 0, sizeof(buf));
+    LOG_INF("TIME NTP: %s", log_strdup(argv[0]));
+
+    while ((argv[0][t_off] != ',' && argv[0][t_off] != '\0')
+            && t_off < MIN(7, strlen(argv[0])+1)) {
+        buf[t_off] = argv[0][t_off];
+        t_off++;
+    }
+    buf[t_off] = '\0';
+
+	ntp_err = ATOI(buf, 0, "ntp");
+
+    LOG_INF("NTP err: %d", ntp_err);
+
+    if (ntp_err != 0) {
+        LOG_ERR("ntp server time not fetched");
+        return 0; /* not returning error */
+    }
+
+    t_off++;
+    if (argv[0][t_off] != '\"')
+    {
+        LOG_ERR("Time format +QNTP wrong %s, %c", log_strdup(argv[0]), argv[0][t_off]);
+    }
+    /* OK before this, so no OK after */
+    return 0;
+}
+
 /* Handler: +CCLK: "..." */
 MODEM_CMD_DEFINE(on_cmd_gettime)
 {
@@ -974,7 +1009,7 @@ static void quectel_bg95_rx_priority(u8_t prio)
 
     if (k_sem_take(&mdata.mdm_lock, MDM_CMD_TIMEOUT) != 0) {
         LOG_ERR("rx prio sem fail");
-        return -1;
+        return;
     }
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
@@ -2128,7 +2163,12 @@ static struct net_offload modem_net_offload = {
 
 int quectel_bg95_get_ntp_time(struct device *dev)
 {
-	char buf[sizeof("AT+QNTP=1\r") + 128];
+    if (mdata.pdp_ctx == 0) {
+        LOG_ERR("ctx not yet activated");
+        return -1;
+    }
+
+	char buf[sizeof("AT+QNTP=1\r") + 64];
 	int ret = 0;
 
 	memset(buf, 0, sizeof(buf));
@@ -3100,6 +3140,7 @@ static struct modem_cmd response_cmds[] = {
 	MODEM_CMD("+QGPSGNMEA:", on_cmd_gps_read, 0U, ""),
 	MODEM_CMD("+QGPSLOC: ", on_cmd_gps_read, 0U, ""),
 	MODEM_CMD("+CCLK: ", on_cmd_gettime, 1U, ""),
+	MODEM_CMD("+QNTP: ", on_cmd_ntptime, 1U, ""),
 };
 
 static struct modem_cmd unsol_cmds[] = {
