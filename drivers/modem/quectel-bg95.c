@@ -709,18 +709,18 @@ MODEM_CMD_DEFINE(on_cmd_sockreadfrom)
 
 	buf_len = net_buf_linearize(buf,
 				    len + 7, data->rx_buf, 0, len + 7);
-    buf[len + 8] = '\0';
+    buf[len + 7] = '\0';
 
-    while((buf[i] != '\r') && (i < (len + 8))) {
+    while((buf[i] != '\r') && (i < (len + 7))) {
         i++;
     }
-
-    buf[i] = '\0';
 
     if (i >= (len + 7)) {
         LOG_ERR("Wrong format in QSSLRECV");
         return -EINVAL; /* FIXME */
     }
+
+    buf[i] = '\0';
 
     socket_id = current_sock_rd_id;
 
@@ -730,7 +730,7 @@ MODEM_CMD_DEFINE(on_cmd_sockreadfrom)
         LOG_DBG("no more data");
         /* TODO redundant logic? No more data left */
         mdata.urc_status &= ~URC_SSL_RECV;
-        return 0;
+        return i;
     }
 
     cur_len = net_buf_frags_len(data->rx_buf);
