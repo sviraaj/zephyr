@@ -17,6 +17,7 @@
 
 #define BQ40ZXX_SUBCLASS_DELAY 5 /* subclass 64 & 82 needs 5ms delay */
 
+#define MAC_READ_OVERHEAD  2
 #define MAC_READ_BLOCK_SZ(SZ)    (SZ + 3)
 #define MAC_WRITE_BLOCK_SZ(SZ)   (SZ + 1)
 
@@ -159,6 +160,49 @@ static int bq40zxx_get_device_type(struct bq40zxx_data *bq40zxx,
 	return 0;
 }
 
+static int bq40zxx_command_block_read(struct bq40zxx_data *bq40zxx,
+        u16_t mac_sub_command, u32_t* val, size_t val_sz)
+{
+	int status;
+    u8_t rd_buf[MAC_READ_BLOCK_SZ(val_sz)];
+
+	status = bq40zxx_control_reg_write(bq40zxx,
+            mac_sub_command);
+	if (status < 0) {
+		LOG_DBG("Unable to write control register");
+		return -EIO;
+	}
+
+    status = smbus_block_read(bq40zxx,
+            BQ40ZXX_COMMAND_MANUFACTURER_BLOCK_ACCESS,
+            rd_buf, sizeof(rd_buf));
+	if (status < 0) {
+		LOG_DBG("Unable to read register");
+		return -EIO;
+	}
+
+    LOG_DBG("0x%x, 0x%x, 0x%x, 0x%x, 0x%x, 0x%x, 0%x", rd_buf[0], rd_buf[1],
+            rd_buf[2], rd_buf[3], rd_buf[4], rd_buf[5], rd_buf[6]);
+
+    if ((rd_buf[0] - MAC_READ_OVERHEAD) == 4) {
+        *((u32_t* )val) = (rd_buf[6] << 24) | (rd_buf[5] << 16) |
+            (rd_buf[4] << 8) | rd_buf[3];
+    }
+    else if ((rd_buf[0] - MAC_READ_OVERHEAD) == 3) {
+        *((u32_t* )val) = (rd_buf[5] << 16) |
+            (rd_buf[4] << 8) | rd_buf[3];
+    }
+    else if ((rd_buf[0] - MAC_READ_OVERHEAD) == 2) {
+        *((u32_t* )val) = (rd_buf[4] << 8) | rd_buf[3];
+    }
+    else if ((rd_buf[0] - MAC_READ_OVERHEAD) == 1) {
+        *((u32_t* )val) = rd_buf[3];
+    }
+
+	return 0;
+
+}
+
 static int bq40zxx_print_fw_ver(struct bq40zxx_data *bq40zxx)
 {
 	int status;
@@ -197,6 +241,7 @@ static int bq40zxx_command_reg_read(struct bq40zxx_data *bq40zxx, u8_t command,
 	int status;
     u8_t rd_buf[READ_BLOCK_SZ(val_sz)];
 
+    //memset(rd_buf, 0, READ_BLOCK_SZ(val_sz));
     status = smbus_block_read(bq40zxx, command,
                 rd_buf, sizeof(rd_buf));
 	if (status < 0) {
@@ -205,20 +250,13 @@ static int bq40zxx_command_reg_read(struct bq40zxx_data *bq40zxx, u8_t command,
 	}
 
     if (val_sz == 1) {
-        LOG_DBG("0x%x", rd_buf[0]);
+        LOG_INF("0x%x", rd_buf[0]);
         *val = rd_buf[0];
     }
     if(val_sz == 2) {
-        LOG_DBG("0x%x, 0x%x", rd_buf[0], rd_buf[1]);
+        LOG_INF("0x%x, 0x%x", rd_buf[0], rd_buf[1]);
         *((u16_t* )val) = (rd_buf[1] << 8) | rd_buf[0];
     }
-    if(val_sz == 4) {
-        LOG_DBG("0x%x, 0x%x, 0x%x, 0x%x", rd_buf[1], rd_buf[2],
-                rd_buf[3], rd_buf[4]);
-        *((u32_t* )val) = (rd_buf[3] << 32) | (rd_buf[2] << 16) |
-            (rd_buf[1] << 8) | rd_buf[0];
-    }
-
     return 0; 
 }
 
@@ -302,13 +340,53 @@ static int bq40zxx_channel_get(struct device *dev, enum sensor_channel chan,
 		break;
 
 	case SENSOR_CHAN_GAUGE_CYCLE_COUNT:
-		val->val1 = (bq40zxx->cycle_count / 1000);
-		val->val2 = ((bq40zxx->cycle_count % 1000) * 1000U);
+		val->val1 = bq40zxx->cycle_count;
+		val->val2 = 0;
 		break;
 
 	case SENSOR_CHAN_GAUGE_DESIGN_CAPACITY:
 		val->val1 = (bq40zxx->design_capacity / 1000);
 		val->val2 = ((bq40zxx->design_capacity % 1000) * 1000U);
+		break;
+
+	case SENSOR_CHAN_GAUGE_SAFETY_ALERT:
+		val->val1 = bq40zxx->safety_alert;
+		val->val2 = 0;
+		break;
+
+	case SENSOR_CHAN_GAUGE_SAFETY_STATUS:
+		val->val1 = bq40zxx->safety_status;
+		val->val2 = 0;
+		break;
+
+	case SENSOR_CHAN_GAUGE_PF_ALERT:
+		val->val1 = bq40zxx->pf_alert;
+		val->val2 = 0;
+		break;
+
+	case SENSOR_CHAN_GAUGE_PF_STATUS:
+		val->val1 = bq40zxx->pf_status;
+		val->val2 = 0;
+		break;
+
+	case SENSOR_CHAN_GAUGE_GAUGING_STATUS:
+		val->val1 = bq40zxx->gauging_status;
+		val->val2 = 0;
+		break;
+
+	case SENSOR_CHAN_GAUGE_CHARGING_STATUS:
+		val->val1 = bq40zxx->ch_status;
+		val->val2 = 0;
+		break;
+
+	case SENSOR_CHAN_GAUGE_OPERATING_STATUS:
+		val->val1 = bq40zxx->op_status;
+		val->val2 = 0;
+		break;
+
+	case SENSOR_CHAN_GAUGE_MANUFACTURING_STATUS:
+		val->val1 = bq40zxx->mfg_status;
+		val->val2 = 0;
 		break;
 
 	default:
@@ -445,6 +523,86 @@ static int bq40zxx_sample_fetch(struct device *dev, enum sensor_channel chan)
 		}
 		break;
 
+    case SENSOR_CHAN_GAUGE_SAFETY_ALERT:
+		status = bq40zxx_command_block_read(bq40zxx,
+                          BQ40ZXX_COMMAND_SAFETY_ALERT,
+						  &bq40zxx->safety_alert, U4);
+		if (status < 0) {
+			LOG_DBG("Failed to read safety alert");
+			return -EIO;
+		}
+		break;
+
+    case SENSOR_CHAN_GAUGE_SAFETY_STATUS:
+		status = bq40zxx_command_block_read(bq40zxx,
+                          BQ40ZXX_COMMAND_SAFETY_STATUS,
+						  &bq40zxx->safety_status, U4);
+		if (status < 0) {
+			LOG_DBG("Failed to read safety status");
+			return -EIO;
+		}
+		break;
+
+    case SENSOR_CHAN_GAUGE_PF_ALERT:
+		status = bq40zxx_command_block_read(bq40zxx,
+                          BQ40ZXX_COMMAND_PF_ALERT,
+						  &bq40zxx->pf_alert, U4);
+		if (status < 0) {
+			LOG_DBG("Failed to read pf alert");
+			return -EIO;
+		}
+		break;
+
+    case SENSOR_CHAN_GAUGE_PF_STATUS:
+		status = bq40zxx_command_block_read(bq40zxx,
+                          BQ40ZXX_COMMAND_PF_STATUS,
+						  &bq40zxx->pf_status, U4);
+		if (status < 0) {
+			LOG_DBG("Failed to read pf status");
+			return -EIO;
+		}
+		break;
+
+    case SENSOR_CHAN_GAUGE_OPERATING_STATUS:
+		status = bq40zxx_command_block_read(bq40zxx,
+                          BQ40ZXX_COMMAND_OPERATION_STATUS,
+						  &bq40zxx->op_status, U4);
+		if (status < 0) {
+			LOG_DBG("Failed to read op status");
+			return -EIO;
+		}
+		break;
+
+    case SENSOR_CHAN_GAUGE_GAUGING_STATUS:
+		status = bq40zxx_command_block_read(bq40zxx,
+                          BQ40ZXX_COMMAND_GAUGING_STATUS,
+						  &bq40zxx->gauging_status, U4);
+		if (status < 0) {
+			LOG_DBG("Failed to read gauging status");
+			return -EIO;
+		}
+		break;
+
+    case SENSOR_CHAN_GAUGE_CHARGING_STATUS:
+		status = bq40zxx_command_block_read(bq40zxx,
+                          BQ40ZXX_COMMAND_CHARGING_STATUS,
+						  &bq40zxx->ch_status, U4);
+		if (status < 0) {
+			LOG_DBG("Failed to read charging status");
+			return -EIO;
+		}
+		break;
+
+    case SENSOR_CHAN_GAUGE_MANUFACTURING_STATUS:
+		status = bq40zxx_command_block_read(bq40zxx,
+                          BQ40ZXX_COMMAND_MANUFACTURING_STATUS,
+						  &bq40zxx->mfg_status, U4);
+		if (status < 0) {
+			LOG_DBG("Failed to read mfg status");
+			return -EIO;
+		}
+		break;
+
 	default:
 		return -ENOTSUP;
 	}
@@ -463,7 +621,7 @@ static int bq40zxx_gauge_init(struct device *dev)
 	const struct bq40zxx_config *const config = dev->config_info;
 	int status = 0;
 	u8_t tmp_checksum = 0, checksum_old = 0, checksum_new = 0;
-	u16_t flags = 0, designenergy_mwh = 0, taperrate = 0, id;
+	u16_t flags = 0, designenergy_mwh = 0, taperrate = 0, id = 0;
 	u8_t designcap_msb, designcap_lsb, designenergy_msb, designenergy_lsb,
 		terminatevolt_msb, terminatevolt_lsb, taperrate_msb,
 		taperrate_lsb;

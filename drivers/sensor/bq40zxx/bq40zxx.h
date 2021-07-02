@@ -33,6 +33,15 @@ LOG_MODULE_REGISTER(bq40zxx, CONFIG_SENSOR_LOG_LEVEL);
 #define BQ40ZXX_COMMAND_SOC 0x0D /* StateOfCharge() */
 #define BQ40ZXX_COMMAND_SOH 0x4F /* StateOfHealth() */
 #define BQ40ZXX_COMMAND_DESIGN_CAPACITY 0x18 /* DesignCapacity() */
+
+#define BQ40ZXX_COMMAND_SAFETY_ALERT 0x50 /* SafetyAlert() */
+#define BQ40ZXX_COMMAND_SAFETY_STATUS 0x51 /* SafetyStatus() */
+#define BQ40ZXX_COMMAND_PF_ALERT 0x52 /* PFAlert() */
+#define BQ40ZXX_COMMAND_PF_STATUS 0x53 /* PFStatus() */
+#define BQ40ZXX_COMMAND_OPERATION_STATUS 0x54 /* OperationStatus() */
+#define BQ40ZXX_COMMAND_CHARGING_STATUS 0x55 /* ChargingStatus() */
+#define BQ40ZXX_COMMAND_GAUGING_STATUS 0x56 /* GaugingStatus() */
+#define BQ40ZXX_COMMAND_MANUFACTURING_STATUS 0x57 /* ManufacturingStatus() */
 #define BQ40ZXX_COMMAND_MANUFACTURER_BLOCK_ACCESS 0x44 /* ManufacturerBlockAccess() */
 
 /*** Control Sub-Commands ***/
@@ -66,6 +75,14 @@ struct bq40zxx_data {
 	u16_t state_of_health;
 	u16_t design_capacity;
 	u16_t manufacturer_block_access;
+	u32_t safety_alert;
+	u32_t safety_status;
+	u32_t pf_alert;
+	u32_t pf_status;
+	u32_t op_status;
+	u32_t gauging_status;
+	u32_t ch_status;
+	u32_t mfg_status;
 };
 
 struct bq40zxx_config {
