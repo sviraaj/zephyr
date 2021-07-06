@@ -1421,6 +1421,10 @@ static void modem_reset(void)
 		SETUP_CMD("AT+CGMM", "", on_cmd_atcmdinfo_model, 0U, ""),
 		SETUP_CMD("AT+QGMR", "", on_cmd_atcmdinfo_revision, 0U, ""),
 		SETUP_CMD("AT+CGSN", "", on_cmd_atcmdinfo_imei, 1U, ""),
+        /* Disable automatic NITZ updates
+         * Interfering with CCLK set by QNTP?
+         */
+		SETUP_CMD_NOHANDLE("AT+CTZU=0"),
 	};
 
 restart:
