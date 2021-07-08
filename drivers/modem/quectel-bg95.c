@@ -2176,7 +2176,8 @@ int quectel_bg95_get_ntp_time(struct device *dev)
 	int ret = 0;
 
 	memset(buf, 0, sizeof(buf));
-	snprintk(buf, sizeof(buf), "AT+QNTP=1,\"%s\",%d", "time.google.com", 123);
+    // IP addr time.google.com : "216.239.35.0"
+	snprintk(buf, sizeof(buf), "AT+QNTP=1,\"%s\",%d", "216.239.35.0", 123);
 
     /* FIXME Find a common solution for all locks */
     ret = k_sem_take(&mdata.mdm_lock, MDM_LOCK_TIMEOUT);
