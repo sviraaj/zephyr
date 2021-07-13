@@ -198,6 +198,9 @@ struct modem_data {
     u8_t urc_status;
     int urc_close;
 
+    /* ntp status */
+    int ntp_status;
+
     /* file ops */
     struct fileops_data fops;
 
@@ -376,7 +379,7 @@ MODEM_CMD_DEFINE(on_cmd_ntptime)
 
     if (ntp_err != 0) {
         LOG_ERR("ntp server time not fetched");
-        return 0; /* not returning error */
+        goto ret; /* not returning error */
     }
 
     t_off++;
@@ -384,7 +387,13 @@ MODEM_CMD_DEFINE(on_cmd_ntptime)
     {
         LOG_ERR("Time format +QNTP wrong %s, %c", log_strdup(argv[0]), argv[0][t_off]);
     }
+
+ret:
+    mdata.ntp_status = ntp_err;
+
     /* OK before this, so no OK after */
+	k_sem_give(&mdata.sem_reply);
+
     return 0;
 }
 
@@ -2177,7 +2186,7 @@ int quectel_bg95_get_ntp_time(struct device *dev)
 
 	memset(buf, 0, sizeof(buf));
     // IP addr time.google.com : "216.239.35.0"
-	snprintk(buf, sizeof(buf), "AT+QNTP=1,\"%s\",%d", "216.239.35.0", 123);
+	snprintk(buf, sizeof(buf), "AT+QNTP=1,\"%s\",%d", "time.google.com", 123);
 
     /* FIXME Find a common solution for all locks */
     ret = k_sem_take(&mdata.mdm_lock, MDM_LOCK_TIMEOUT);
@@ -2186,6 +2195,9 @@ int quectel_bg95_get_ntp_time(struct device *dev)
         return ret;
     }
 
+    /* reset sem_reply so that previous spurious gives dont affect this */
+    k_sem_reset(&mdata.sem_reply);
+
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
@@ -2193,7 +2205,17 @@ int quectel_bg95_get_ntp_time(struct device *dev)
 		goto ret;
 	}
 
-    /* NTP  TODO */
+    if (k_sem_take(&mdata.sem_reply, MDM_CMD_CONN_TIMEOUT) != 0) {
+        LOG_ERR("sem_reply ntp timed out");
+        goto ret;
+    }
+
+    /* Restart pdp ctx on DNS error */
+    if (mdata.ntp_status == 565) {
+        deactivate_pdp_ctx();
+        activate_pdp_ctx();
+    }
+
 ret:
     k_sem_give(&mdata.mdm_lock);
 
