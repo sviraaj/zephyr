@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 Nordic Semiconductor ASA
+ * Copyright (c) 2017-2020 Nordic Semiconductor ASA
  * Copyright (c) 2015 Runtime Inc
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -57,18 +57,20 @@ fcb_append_to_scratch(struct fcb *fcb)
 }
 
 int
-fcb_append(struct fcb *fcb, u16_t len, struct fcb_entry *append_loc)
+fcb_append(struct fcb *fcb, uint16_t len, struct fcb_entry *append_loc)
 {
 	struct flash_sector *sector;
 	struct fcb_entry *active;
 	int cnt;
+	int meta_info_len;
 	int rc;
-	u8_t tmp_str[8];
+	uint8_t tmp_str[8];
 
 	cnt = fcb_put_len(tmp_str, len);
 	if (cnt < 0) {
 		return cnt;
 	}
+	meta_info_len = fcb_len_in_flash(fcb, META_INFO_LEN);
 	cnt = fcb_len_in_flash(fcb, cnt);
 	len = fcb_len_in_flash(fcb, len) + fcb_len_in_flash(fcb, FCB_CRC_SZ);
 
@@ -79,10 +81,10 @@ fcb_append(struct fcb *fcb, u16_t len, struct fcb_entry *append_loc)
 		return -EINVAL;
 	}
 	active = &fcb->f_active;
-	if (active->fe_elem_off + len + cnt > active->fe_sector->fs_size) {
+	if (active->fe_elem_off + len + meta_info_len + cnt > active->fe_sector->fs_size) {
 		sector = fcb_new_sector(fcb, fcb->f_scratch_cnt);
 		if (!sector || (sector->fs_size <
-			sizeof(struct fcb_disk_area) + len + cnt)) {
+			sizeof(struct fcb_disk_area) + len + meta_info_len + cnt)) {
 			rc = -ENOSPC;
 			goto err;
 		}
@@ -102,7 +104,7 @@ fcb_append(struct fcb *fcb, u16_t len, struct fcb_entry *append_loc)
 	}
 	append_loc->fe_sector = active->fe_sector;
 	append_loc->fe_elem_off = active->fe_elem_off;
-	append_loc->fe_data_off = active->fe_elem_off + cnt;
+	append_loc->fe_data_off = active->fe_elem_off + cnt + meta_info_len;
 
 	active->fe_elem_off = append_loc->fe_data_off + len;
 
@@ -118,7 +120,7 @@ int
 fcb_append_finish(struct fcb *fcb, struct fcb_entry *loc)
 {
 	int rc;
-	u8_t crc8[fcb->f_align];
+	uint8_t crc8[fcb->f_align];
 	off_t off;
 
 	(void)memset(crc8, 0xFF, sizeof(crc8));
