@@ -1722,6 +1722,8 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
 		return 0;
 	}
 
+    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+
     /* reset sem_reply so that previous spurious gives dont affect this */
     k_sem_reset(&mdata.sem_reply);
 
@@ -1735,24 +1737,29 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
 	if (ret < 0) {
 		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
 		errno = -ret;
-		return -1;
+        ret = -1;
+		goto re;
 	}
 
     if (k_sem_take(&mdata.sem_reply, MDM_CMD_CONN_TIMEOUT) != 0) {
         ret = -ETIMEDOUT;
         errno = -ret;
-        return ret;
+        goto re;
     }
 
     if (open_sock_err != 0) {
         ret = -EIO;
         errno = -ret;
-        return ret;
+        goto re;
     }
 
 	sock->is_connected = true;
 	errno = 0;
-	return 0;
+    ret = 0;
+
+re:
+    k_sem_give(&mdata.mdm_lock);
+	return ret;
 }
 
 /* support for POLLIN only for now. */
@@ -1835,6 +1842,8 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 	snprintk(sendbuf, sizeof(sendbuf), "AT+QSSLRECV=%d,%d",
             sock->id, rd_len);
 
+    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+
 	/* socket read settings */
 	(void)memset(&sock_data, 0, sizeof(sock_data));
 	sock_data.recv_buf = buf;
@@ -1872,6 +1881,8 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 	ret = sock_data.recv_read_len;
 
 exit:
+    k_sem_give(&mdata.mdm_lock);
+
 	/* clear socket data */
 	sock->data = NULL;
 	return ret;
@@ -1983,13 +1994,18 @@ static ssize_t offload_sendto(void *obj, const void *buf, size_t len,
 		to = &sock->dst;
 	}
 
+    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+
 	ret = send_socket_data(sock, to, cmd, ARRAY_SIZE(cmd), buf, len,
 			       MDM_CMD_TIMEOUT);
 	if (ret < 0) {
 		errno = -ret;
-		return -1;
+        ret = -1;
+		goto exit;
 	}
 
+exit:
+    k_sem_give(&mdata.mdm_lock);
 	errno = 0;
 	return ret;
 }
@@ -2210,14 +2226,18 @@ int quectel_bg95_get_ntp_time(struct device *dev)
         goto ret;
     }
 
-    /* Restart pdp ctx on DNS error */
-    if (mdata.ntp_status == 565) {
-        deactivate_pdp_ctx();
-        activate_pdp_ctx();
-    }
-
 ret:
     k_sem_give(&mdata.mdm_lock);
+
+    LOG_INF("ntp stat: %d", mdata.ntp_status);
+    /* Restart pdp ctx on DNS error */
+    if (mdata.ntp_status == 565) {
+        LOG_INF("pdp ctx re-activate");
+        deactivate_pdp_ctx();
+        activate_pdp_ctx();
+        /* reset ntp status */
+        mdata.ntp_status = 0;
+    }
 
 	return ret;
 }
@@ -2239,7 +2259,7 @@ int quectel_bg95_get_clock(struct device *dev, char *timeval)
     }
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
-			     &mdata.sem_response, MDM_CMD_TIMEOUT);
+			     &mdata.sem_response, MDM_LOCK_TIMEOUT);
 	if (ret < 0) {
 		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
 		goto ret;
@@ -2528,7 +2548,12 @@ int quectel_bg95_gps_init(struct device *dev, struct usr_gps_cfg *cfg)
     /* GPS priority */
     quectel_bg95_rx_priority(GPS_PRIORITY);
 
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    ret = k_sem_take(&mdata.mdm_lock, MDM_LOCK_TIMEOUT);
+    if (ret != 0)
+    {
+        /* init lock timeout */
+        return ret;
+    }
 
     memset(buf, 0, sizeof(buf));
     snprintk(buf, sizeof(buf), "AT+QGPS=1");
@@ -2560,7 +2585,11 @@ int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
         return -EINVAL;
     }
 
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    ret = k_sem_take(&mdata.mdm_lock, MDM_LOCK_TIMEOUT);
+    if (ret != 0)
+    {
+        return ret;
+    }
 
 	memset(buf, 0, sizeof(buf));
 	snprintk(buf, sizeof(buf), "AT+QGPSXTRA=1");
@@ -2620,7 +2649,11 @@ int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
 	char buf[64];
 	int ret = 0;
 
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    ret = k_sem_take(&mdata.mdm_lock, MDM_LOCK_TIMEOUT);
+    if (ret != 0)
+    {
+        return ret;
+    }
 
     /* TODO use xtra_info */
     memset(buf, 0, sizeof(buf));
@@ -2686,6 +2719,7 @@ int quectel_bg95_gps_read(struct device *dev, struct usr_gps_cfg *cfg)
         /* open gps */
         ret = quectel_bg95_gps_init(dev, cfg);
         if (ret < 0) {
+            LOG_ERR("GPS init: %d", ret);
             goto ret;
         }
     }
@@ -2725,7 +2759,11 @@ int quectel_bg95_gps_close(struct device *dev)
 	memset(buf, 0, sizeof(buf));
 	snprintk(buf, sizeof(buf), "AT+QGPSEND");
 
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    ret = k_sem_take(&mdata.mdm_lock, MDM_LOCK_TIMEOUT);
+    if (ret != 0)
+    {
+        return ret;
+    }
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
@@ -2763,7 +2801,7 @@ int quectel_bg95_get_cell_info(struct device *dev, char **cell_info)
     }
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
-                buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
+                buf, &mdata.sem_response, MDM_LOCK_TIMEOUT);
 	if (ret < 0) {
 		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
 		goto ret;
@@ -2798,7 +2836,7 @@ int quectel_bg95_get_ctx(struct device *dev, struct mdm_ctx **ctx)
     }
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
-                buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
+                buf, &mdata.sem_response, MDM_LOCK_TIMEOUT);
 	if (ret < 0) {
 		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
 		goto ret;

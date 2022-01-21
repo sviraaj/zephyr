@@ -250,11 +250,11 @@ static int bq40zxx_command_reg_read(struct bq40zxx_data *bq40zxx, u8_t command,
 	}
 
     if (val_sz == 1) {
-        LOG_INF("0x%x", rd_buf[0]);
+        //LOG_INF("0x%x", rd_buf[0]);
         *val = rd_buf[0];
     }
     if(val_sz == 2) {
-        LOG_INF("0x%x, 0x%x", rd_buf[0], rd_buf[1]);
+        //LOG_INF("0x%x, 0x%x", rd_buf[0], rd_buf[1]);
         *((u16_t* )val) = (rd_buf[1] << 8) | rd_buf[0];
     }
     return 0; 
