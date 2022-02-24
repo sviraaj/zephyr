@@ -1,0 +1,22 @@
+description: >
+    This is a representation of the rda a9g modem.
+
+compatible: "quectel,bg95"
+
+include: uart-device.yaml
+
+properties:
+    label:
+      required: true
+
+    mdm-power-gpios:
+      type: phandle-array
+      required: true
+
+    mdm-reset-gpios:
+      type: phandle-array
+      required: true
+
+    mdm-vint-gpios:
+      type: phandle-array
+      required: false

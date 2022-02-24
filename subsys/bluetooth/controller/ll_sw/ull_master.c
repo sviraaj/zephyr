@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 Nordic Semiconductor ASA
+ * Copyright (c) 2018-2020 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -51,7 +51,8 @@
 
 static void ticker_op_stop_scan_cb(u32_t status, void *params);
 static void ticker_op_cb(u32_t status, void *params);
-static void access_addr_get(u8_t access_addr[]);
+static inline void access_addr_get(u8_t access_addr[]);
+static inline void conn_release(struct ll_scan_set *scan);
 
 u8_t ll_create_connection(u16_t scan_interval, u16_t scan_window,
 			  u8_t filter_policy, u8_t peer_addr_type,
@@ -66,6 +67,7 @@ u8_t ll_create_connection(u16_t scan_interval, u16_t scan_window,
 	memq_link_t *link;
 	u8_t access_addr[4];
 	u8_t hop;
+	int err;
 
 	scan = ull_scan_is_disabled_get(0);
 	if (!scan) {
@@ -127,8 +129,8 @@ u8_t ll_create_connection(u16_t scan_interval, u16_t scan_window,
 	conn_lll->max_rx_octets = PDU_DC_PAYLOAD_SIZE_MIN;
 
 #if defined(CONFIG_BT_CTLR_PHY)
-	conn_lll->max_tx_time = PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, 0);
-	conn_lll->max_rx_time = PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, 0);
+	conn_lll->max_tx_time = PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, PHY_1M);
+	conn_lll->max_rx_time = PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, PHY_1M);
 #endif /* CONFIG_BT_CTLR_PHY */
 #endif /* CONFIG_BT_CTLR_DATA_LENGTH */
 
@@ -141,8 +143,10 @@ u8_t ll_create_connection(u16_t scan_interval, u16_t scan_window,
 
 #if defined(CONFIG_BT_CTLR_CONN_RSSI)
 	conn_lll->rssi_latest = 0x7F;
+#if defined(CONFIG_BT_CTLR_CONN_RSSI_EVENT)
 	conn_lll->rssi_reported = 0x7F;
 	conn_lll->rssi_sample_count = 0;
+#endif /* CONFIG_BT_CTLR_CONN_RSSI_EVENT */
 #endif /* CONFIG_BT_CTLR_CONN_RSSI */
 
 #if defined(CONFIG_BT_CTLR_TX_PWR_DYNAMIC_CONTROL)
@@ -197,7 +201,8 @@ u8_t ll_create_connection(u16_t scan_interval, u16_t scan_window,
 	conn->llcp_rx = NULL;
 	conn->llcp_cu.req = conn->llcp_cu.ack = 0;
 	conn->llcp_feature.req = conn->llcp_feature.ack = 0;
-	conn->llcp_feature.features = LL_FEAT;
+	conn->llcp_feature.features_conn = LL_FEAT;
+	conn->llcp_feature.features_peer = 0;
 	conn->llcp_version.req = conn->llcp_version.ack = 0;
 	conn->llcp_version.tx = conn->llcp_version.rx = 0U;
 	conn->llcp_terminate.reason_peer = 0U;
@@ -221,6 +226,7 @@ u8_t ll_create_connection(u16_t scan_interval, u16_t scan_window,
 
 #if defined(CONFIG_BT_CTLR_DATA_LENGTH)
 	conn->llcp_length.req = conn->llcp_length.ack = 0U;
+	conn->llcp_length.disabled = 0U;
 	conn->llcp_length.cache.tx_octets = 0U;
 	conn->default_tx_octets = ull_conn_default_tx_octets_get();
 
@@ -231,6 +237,7 @@ u8_t ll_create_connection(u16_t scan_interval, u16_t scan_window,
 
 #if defined(CONFIG_BT_CTLR_PHY)
 	conn->llcp_phy.req = conn->llcp_phy.ack = 0U;
+	conn->llcp_phy.disabled = 0U;
 	conn->llcp_phy.pause_tx = 0U;
 	conn->phy_pref_tx = ull_conn_default_phy_tx_get();
 	conn->phy_pref_rx = ull_conn_default_phy_rx_get();
@@ -269,7 +276,12 @@ u8_t ll_create_connection(u16_t scan_interval, u16_t scan_window,
 	scan->own_addr_type = own_addr_type;
 
 	/* wait for stable clocks */
-	lll_clock_wait();
+	err = lll_clock_wait();
+	if (err) {
+		conn_release(scan);
+
+		return BT_HCI_ERR_HW_FAILURE;
+	}
 
 	return ull_scan_enable(scan);
 }
@@ -447,13 +459,6 @@ void ull_master_setup(memq_link_t *link, struct node_rx_hdr *rx,
 
 	pdu_tx = (void *)((struct node_rx_pdu *)rx)->pdu;
 
-#if defined(CONFIG_BT_CTLR_PRIVACY)
-	u8_t own_addr_type = pdu_tx->tx_addr;
-	u8_t own_addr[BDADDR_SIZE];
-	u8_t rl_idx = ftr->rl_idx;
-
-	memcpy(own_addr, &pdu_tx->connect_ind.init_addr[0], BDADDR_SIZE);
-#endif
 	peer_addr_type = pdu_tx->rx_addr;
 	memcpy(peer_addr, &pdu_tx->connect_ind.adv_addr[0], BDADDR_SIZE);
 
@@ -465,11 +470,16 @@ void ull_master_setup(memq_link_t *link, struct node_rx_hdr *rx,
 	cc->role = 0U;
 
 #if defined(CONFIG_BT_CTLR_PRIVACY)
-	cc->own_addr_type = own_addr_type;
-	memcpy(&cc->own_addr[0], &own_addr[0], BDADDR_SIZE);
+	u8_t rl_idx = ftr->rl_idx;
+
+	if (ftr->lrpa_used) {
+		memcpy(&cc->local_rpa[0], &pdu_tx->connect_ind.init_addr[0],
+		       BDADDR_SIZE);
+	} else {
+		memset(&cc->local_rpa[0], 0x0, BDADDR_SIZE);
+	}
 
 	if (rl_idx != FILTER_IDX_NONE) {
-		/* TODO: store rl_idx instead if safe */
 		/* Store identity address */
 		ll_rl_id_addr_get(rl_idx, &cc->peer_addr_type,
 				  &cc->peer_addr[0]);
@@ -697,7 +707,7 @@ static void ticker_op_cb(u32_t status, void *params)
  * - It shall have no more than eleven transitions in the least significant 16
  *   bits.
  */
-static void access_addr_get(u8_t access_addr[])
+static inline void access_addr_get(u8_t access_addr[])
 {
 #if defined(CONFIG_BT_CTLR_PHY_CODED)
 	u8_t transitions_lsb16;
@@ -847,4 +857,28 @@ again:
 	}
 
 	sys_put_le32(aa, access_addr);
+}
+
+static inline void conn_release(struct ll_scan_set *scan)
+{
+	struct lll_conn *lll = scan->lll.conn;
+	struct node_rx_pdu *cc;
+	struct ll_conn *conn;
+	memq_link_t *link;
+
+	LL_ASSERT(!lll->link_tx_free);
+	link = memq_deinit(&lll->memq_tx.head, &lll->memq_tx.tail);
+	LL_ASSERT(link);
+	lll->link_tx_free = link;
+
+	conn = (void *)HDR_LLL2EVT(lll);
+
+	cc = (void *)&conn->llcp_terminate.node_rx;
+	link = cc->hdr.link;
+	LL_ASSERT(link);
+
+	ll_rx_link_release(link);
+
+	ll_conn_release(conn);
+	scan->lll.conn = NULL;
 }

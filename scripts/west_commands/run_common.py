@@ -8,7 +8,9 @@
 import argparse
 import logging
 from os import close, getcwd, path
+from pathlib import Path
 from subprocess import CalledProcessError
+import sys
 import tempfile
 import textwrap
 import traceback
@@ -125,28 +127,29 @@ def desc_common(command_name):
       west {command_name} --context -d BUILD_DIR
     ''')
 
-def do_run_common(command, args, unknown_args):
+def do_run_common(command, user_args, user_runner_args):
     # This is the main routine for all the "west flash", "west debug",
     # etc. commands.
 
-    if args.context:
-        dump_context(command, args, unknown_args)
+    if user_args.context:
+        dump_context(command, user_args, user_runner_args)
         return
 
     command_name = command.name
-    build_dir = get_build_dir(args)
-    cache = load_cmake_cache(build_dir, args)
+    build_dir = get_build_dir(user_args)
+    cache = load_cmake_cache(build_dir, user_args)
     board = cache['CACHED_BOARD']
-    if not args.skip_rebuild:
-        rebuild(command, build_dir, args)
+    if not user_args.skip_rebuild:
+        rebuild(command, build_dir, user_args)
 
     # Load runners.yaml.
     runners_yaml = runners_yaml_path(cache)
-    runner_config = load_runners_yaml(runners_yaml, args)
+    runner_config = load_runners_yaml(runners_yaml, user_args)
 
     # Get a concrete ZephyrBinaryRunner subclass to use based on
     # runners.yaml and command line arguments.
-    runner_cls = use_runner_cls(command, board, args, runner_config)
+    runner_cls = use_runner_cls(command, board, user_args, runner_config,
+                                cache)
     runner_name = runner_cls.name()
 
     # Set up runner logging to delegate to west.log commands.
@@ -156,7 +159,7 @@ def do_run_common(command, args, unknown_args):
 
     # If the user passed -- to force the parent argument parser to stop
     # parsing, it will show up here, and needs to be filtered out.
-    runner_args = [arg for arg in unknown_args if arg != '--']
+    runner_args = [arg for arg in user_runner_args if arg != '--']
 
     # Arguments are provided in this order to allow the specific to
     # override the general:
@@ -168,22 +171,36 @@ def do_run_common(command, args, unknown_args):
                   runner_config['args'][runner_name] +
                   runner_args)
 
-    # At this point, 'args' contains parsed arguments which are both:
+    # 'user_args' contains parsed arguments which are:
     #
-    # 1. provided on the command line
-    # 2. handled by add_parser_common()
+    # 1. provided on the command line, and
+    # 2. handled by add_parser_common(), and
+    # 3. *not* runner-specific
     #
-    # This doesn't include runner specific arguments on the command line or
-    # anything from runners.yaml.
+    # 'final_argv' contains unparsed arguments from either:
     #
-    # We therefore have to re-parse now that we know everything,
-    # including the final runner.
+    # 1. runners.yaml, or
+    # 2. the command line
+    #
+    # We next have to:
+    #
+    # - parse 'final_argv' now that we have all the command line
+    #   arguments
+    # - create a RunnerConfig using 'user_args' and the result
+    #   of parsing 'final_argv'
     parser = argparse.ArgumentParser(prog=runner_name)
     add_parser_common(command, parser=parser)
     runner_cls.add_parser(parser)
-    final_args, unknown = parser.parse_known_args(args=final_argv)
+    args, unknown = parser.parse_known_args(args=final_argv)
     if unknown:
         log.die(f'runner {runner_name} received unknown arguments: {unknown}')
+
+    # Override args with any user_args. The latter must take
+    # precedence, or e.g. --hex-file on the command line would be
+    # ignored in favor of a board.cmake setting.
+    for a, v in vars(user_args).items():
+        if v is not None:
+            setattr(args, a, v)
 
     # Create the RunnerConfig from the values assigned to common
     # arguments. This is a hacky way to go about this; probably
@@ -193,9 +210,7 @@ def do_run_common(command, args, unknown_args):
     #
     # Use that RunnerConfig to create the ZephyrBinaryRunner instance
     # and call its run().
-    runner = runner_cls.create(runner_cfg_from_args(final_args,
-                                                    build_dir),
-                               final_args)
+    runner = runner_cls.create(runner_cfg_from_args(args, build_dir), args)
     try:
         runner.run(command_name)
     except ValueError as ve:
@@ -206,7 +221,7 @@ def do_run_common(command, args, unknown_args):
         log.die('required program', e.filename,
                 'not found; install it or add its location to PATH')
     except RuntimeError as re:
-        if not args.verbose:
+        if not user_args.verbose:
             log.die(re)
         else:
             log.err('verbose mode enabled, dumping stack:', fatal=True)
@@ -277,7 +292,7 @@ def load_runners_yaml(path, args):
 
     return config
 
-def use_runner_cls(command, board, args, runner_config):
+def use_runner_cls(command, board, args, runner_config, cache):
     # Get the ZephyrBinaryRunner class from its name, and make sure it
     # supports the command. Print a message about the choice, and
     # return the class.
@@ -291,8 +306,14 @@ def use_runner_cls(command, board, args, runner_config):
 
     available = runner_config.get('runners', [])
     if runner not in available:
-        log.wrn(f'runner {runner} is not configured for use with {board}, '
-                'this may not work')
+        if 'BOARD_DIR' in cache:
+            board_cmake = Path(cache['BOARD_DIR']) / 'board.cmake'
+        else:
+            board_cmake = 'board.cmake'
+        log.err(f'board {board} does not support runner {runner}',
+                fatal=True)
+        log.inf(f'To fix, configure this runner in {board_cmake} and rebuild.')
+        sys.exit(1)
     runner_cls = get_runner_cls(runner)
     if command.name not in runner_cls.capabilities().commands:
         log.die(f'runner {runner} does not support command {command.name}')

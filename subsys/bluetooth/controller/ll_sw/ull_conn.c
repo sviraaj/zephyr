@@ -275,7 +275,7 @@ u8_t ll_conn_update(u16_t handle, u8_t cmd, u8_t status, u16_t interval_min,
 #if defined(CONFIG_BT_CTLR_CONN_PARAM_REQ)
 		if (!conn->llcp_conn_param.disabled &&
 		    (!conn->common.fex_valid ||
-		     (conn->llcp_feature.features &
+		     (conn->llcp_feature.features_conn &
 		      BIT(BT_LE_FEAT_BIT_CONN_PARAM_REQ)))) {
 			cmd++;
 		} else if (conn->lll.role) {
@@ -425,6 +425,12 @@ u32_t ll_length_req_send(u16_t handle, u16_t tx_octets, u16_t tx_time)
 		return BT_HCI_ERR_UNKNOWN_CONN_ID;
 	}
 
+	if (conn->llcp_length.disabled ||
+	    (conn->common.fex_valid &&
+	     !(conn->llcp_feature.features_conn & BIT(BT_LE_FEAT_BIT_DLE)))) {
+		return BT_HCI_ERR_UNSUPP_REMOTE_FEATURE;
+	}
+
 	if (conn->llcp_length.req != conn->llcp_length.ack) {
 		switch (conn->llcp_length.state) {
 		case LLCP_LENGTH_STATE_RSP_ACK_WAIT:
@@ -480,12 +486,12 @@ void ll_length_max_get(u16_t *max_tx_octets, u16_t *max_tx_time,
 	*max_tx_octets = LL_LENGTH_OCTETS_RX_MAX;
 	*max_rx_octets = LL_LENGTH_OCTETS_RX_MAX;
 #if defined(CONFIG_BT_CTLR_PHY)
-	*max_tx_time = PKT_US(LL_LENGTH_OCTETS_RX_MAX, BIT(2));
-	*max_rx_time = PKT_US(LL_LENGTH_OCTETS_RX_MAX, BIT(2));
+	*max_tx_time = PKT_US(LL_LENGTH_OCTETS_RX_MAX, PHY_CODED);
+	*max_rx_time = PKT_US(LL_LENGTH_OCTETS_RX_MAX, PHY_CODED);
 #else /* !CONFIG_BT_CTLR_PHY */
 	/* Default is 1M packet timing */
-	*max_tx_time = PKT_US(LL_LENGTH_OCTETS_RX_MAX, 0);
-	*max_rx_time = PKT_US(LL_LENGTH_OCTETS_RX_MAX, 0);
+	*max_tx_time = PKT_US(LL_LENGTH_OCTETS_RX_MAX, PHY_1M);
+	*max_rx_time = PKT_US(LL_LENGTH_OCTETS_RX_MAX, PHY_1M);
 #endif /* !CONFIG_BT_CTLR_PHY */
 }
 #endif /* CONFIG_BT_CTLR_DATA_LENGTH */
@@ -524,6 +530,14 @@ u8_t ll_phy_req_send(u16_t handle, u8_t tx, u8_t flags, u8_t rx)
 	conn = ll_connected_get(handle);
 	if (!conn) {
 		return BT_HCI_ERR_UNKNOWN_CONN_ID;
+	}
+
+	if (conn->llcp_phy.disabled ||
+	    (conn->common.fex_valid &&
+	     !(conn->llcp_feature.features_conn & BIT(BT_LE_FEAT_BIT_PHY_2M)) &&
+	     !(conn->llcp_feature.features_conn &
+	       BIT(BT_LE_FEAT_BIT_PHY_CODED)))) {
+		return BT_HCI_ERR_UNSUPP_REMOTE_FEATURE;
 	}
 
 	if ((conn->llcp_req != conn->llcp_ack) ||
@@ -593,7 +607,7 @@ int ull_conn_init(void)
 {
 	int err;
 
-	entropy = device_get_binding(CONFIG_ENTROPY_NAME);
+	entropy = device_get_binding(DT_CHOSEN_ZEPHYR_ENTROPY_LABEL);
 	if (!entropy) {
 		return -ENODEV;
 	}
@@ -1045,6 +1059,10 @@ void ull_conn_done(struct node_rx_event_done *done)
 			ull_slave_done(done, &ticks_drift_plus,
 				       &ticks_drift_minus);
 
+			if (!conn->tx_head) {
+				ull_conn_tx_demux(UINT8_MAX);
+			}
+
 			if (conn->tx_head || memq_peek(lll->memq_tx.head,
 						       lll->memq_tx.tail,
 						       NULL)) {
@@ -1182,7 +1200,7 @@ void ull_conn_done(struct node_rx_event_done *done)
 	}
 #endif /* CONFIG_BT_CTLR_LE_PING */
 
-#if defined(CONFIG_BT_CTLR_CONN_RSSI)
+#if defined(CONFIG_BT_CTLR_CONN_RSSI_EVENT)
 	/* generate RSSI event */
 	if (lll->rssi_sample_count == 0) {
 		struct node_rx_pdu *rx;
@@ -1206,12 +1224,13 @@ void ull_conn_done(struct node_rx_event_done *done)
 			ll_rx_sched();
 		}
 	}
-#endif /* CONFIG_BT_CTLR_CONN_RSSI */
+#endif /* CONFIG_BT_CTLR_CONN_RSSI_EVENT */
 
 	/* break latency based on ctrl procedure pending */
-	if ((((conn->llcp_req - conn->llcp_ack) & 0x03) == 0x02) &&
-	    ((conn->llcp_type == LLCP_CONN_UPD) ||
-	     (conn->llcp_type == LLCP_CHAN_MAP))) {
+	if (((((conn->llcp_req - conn->llcp_ack) & 0x03) == 0x02) &&
+	     ((conn->llcp_type == LLCP_CONN_UPD) ||
+	      (conn->llcp_type == LLCP_CHAN_MAP))) ||
+	    (conn->llcp_cu.req != conn->llcp_cu.ack)) {
 		lll->latency_event = 0;
 	}
 
@@ -1583,7 +1602,7 @@ static int init_reset(void)
 #if defined(CONFIG_BT_CTLR_DATA_LENGTH)
 	/* Initialize the DLE defaults */
 	default_tx_octets = PDU_DC_PAYLOAD_SIZE_MIN;
-	default_tx_time = PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, 0);
+	default_tx_time = PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, PHY_1M);
 #endif /* CONFIG_BT_CTLR_DATA_LENGTH */
 
 #if defined(CONFIG_BT_CTLR_PHY)
@@ -2494,7 +2513,8 @@ static inline void event_enc_reject_prep(struct ll_conn *conn,
 	pdu->ll_id = PDU_DATA_LLID_CTRL;
 
 	if (conn->common.fex_valid &&
-	    (conn->llcp_feature.features & BIT(BT_LE_FEAT_BIT_EXT_REJ_IND))) {
+	    (conn->llcp_feature.features_conn &
+	     BIT(BT_LE_FEAT_BIT_EXT_REJ_IND))) {
 		struct pdu_data_llctrl_reject_ext_ind *p;
 
 		pdu->llctrl.opcode = PDU_DATA_LLCTRL_TYPE_REJECT_EXT_IND;
@@ -2722,7 +2742,7 @@ static inline void event_fex_prep(struct ll_conn *conn)
 		pdu->llctrl.opcode = PDU_DATA_LLCTRL_TYPE_FEATURE_RSP;
 		(void)memset(&pdu->llctrl.feature_rsp.features[0], 0x00,
 			sizeof(pdu->llctrl.feature_rsp.features));
-		sys_put_le24(conn->llcp_feature.features,
+		sys_put_le24(conn->llcp_feature.features_peer,
 			     pdu->llctrl.feature_req.features);
 
 		/* enqueue feature rsp structure into rx queue */
@@ -2740,7 +2760,7 @@ static inline void event_fex_prep(struct ll_conn *conn)
 		conn->llcp_feature.ack--;
 
 		/* use initial feature bitmap */
-		conn->llcp_feature.features = LL_FEAT;
+		conn->llcp_feature.features_conn = LL_FEAT;
 
 		/* place the feature exchange req packet as next in tx queue */
 		pdu->ll_id = PDU_DATA_LLID_CTRL;
@@ -2752,7 +2772,7 @@ static inline void event_fex_prep(struct ll_conn *conn)
 		(void)memset(&pdu->llctrl.feature_req.features[0],
 			     0x00,
 			     sizeof(pdu->llctrl.feature_req.features));
-		sys_put_le24(conn->llcp_feature.features,
+		sys_put_le24(conn->llcp_feature.features_conn,
 			     pdu->llctrl.feature_req.features);
 
 		ctrl_tx_enqueue(conn, tx);
@@ -3157,14 +3177,14 @@ static inline void dle_max_time_get(const struct ll_conn *conn,
 
 #if defined(CONFIG_BT_CTLR_PHY)
 #if defined(CONFIG_BT_CTLR_PHY_CODED)
-	feature_coded_phy = (conn->llcp_feature.features &
+	feature_coded_phy = (conn->llcp_feature.features_conn &
 			     BIT(BT_LE_FEAT_BIT_PHY_CODED));
 #else
 	feature_coded_phy = 0;
 #endif
 
 #if defined(CONFIG_BT_CTLR_PHY_2M)
-	feature_phy_2m = (conn->llcp_feature.features &
+	feature_phy_2m = (conn->llcp_feature.features_conn &
 			  BIT(BT_LE_FEAT_BIT_PHY_2M));
 #else
 	feature_phy_2m = 0;
@@ -3176,31 +3196,31 @@ static inline void dle_max_time_get(const struct ll_conn *conn,
 
 	if (!conn->common.fex_valid ||
 	    (!feature_coded_phy && !feature_phy_2m)) {
-		rx_time = PKT_US(LL_LENGTH_OCTETS_RX_MAX, 0);
+		rx_time = PKT_US(LL_LENGTH_OCTETS_RX_MAX, PHY_1M);
 #if defined(CONFIG_BT_CTLR_PHY)
-		tx_time = MAX(MIN(PKT_US(LL_LENGTH_OCTETS_RX_MAX, 0),
+		tx_time = MAX(MIN(PKT_US(LL_LENGTH_OCTETS_RX_MAX, PHY_1M),
 				  conn->default_tx_time),
-			      PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, 0));
+			      PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, PHY_1M));
 #else /* !CONFIG_BT_CTLR_PHY */
-		tx_time = PKT_US(conn->default_tx_octets, 0);
+		tx_time = PKT_US(conn->default_tx_octets, PHY_1M);
 #endif /* !CONFIG_BT_CTLR_PHY */
 
 #if defined(CONFIG_BT_CTLR_PHY)
 #if defined(CONFIG_BT_CTLR_PHY_CODED)
 	} else if (feature_coded_phy) {
-		rx_time = MAX(PKT_US(LL_LENGTH_OCTETS_RX_MAX, BIT(2)),
-			      PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, BIT(2)));
-		tx_time = MIN(PKT_US(LL_LENGTH_OCTETS_RX_MAX, BIT(2)),
+		rx_time = MAX(PKT_US(LL_LENGTH_OCTETS_RX_MAX, PHY_CODED),
+			      PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, PHY_CODED));
+		tx_time = MIN(PKT_US(LL_LENGTH_OCTETS_RX_MAX, PHY_CODED),
 			      conn->default_tx_time);
-		tx_time = MAX(PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, 0), tx_time);
+		tx_time = MAX(PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, PHY_1M), tx_time);
 #endif /* CONFIG_BT_CTLR_PHY_CODED */
 
 #if defined(CONFIG_BT_CTLR_PHY_2M)
 	} else if (feature_phy_2m) {
-		rx_time = MAX(PKT_US(LL_LENGTH_OCTETS_RX_MAX, BIT(1)),
-			      PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, BIT(1)));
-		tx_time = MAX(PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, 0),
-			      MIN(PKT_US(LL_LENGTH_OCTETS_RX_MAX, BIT(1)),
+		rx_time = MAX(PKT_US(LL_LENGTH_OCTETS_RX_MAX, PHY_2M),
+			      PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, PHY_2M));
+		tx_time = MAX(PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, PHY_1M),
+			      MIN(PKT_US(LL_LENGTH_OCTETS_RX_MAX, PHY_2M),
 				  conn->default_tx_time));
 #endif /* CONFIG_BT_CTLR_PHY_2M */
 #endif /* CONFIG_BT_CTLR_PHY */
@@ -3342,8 +3362,8 @@ static inline void event_len_prep(struct ll_conn *conn)
 		lr->max_tx_octets = sys_cpu_to_le16(tx_octets);
 #if !defined(CONFIG_BT_CTLR_PHY)
 		lr->max_rx_time =
-			sys_cpu_to_le16(PKT_US(lll->max_rx_octets, 0));
-		lr->max_tx_time = sys_cpu_to_le16(PKT_US(tx_octets, 0));
+			sys_cpu_to_le16(PKT_US(lll->max_rx_octets, PHY_1M));
+		lr->max_tx_time = sys_cpu_to_le16(PKT_US(tx_octets, PHY_1M));
 #else /* CONFIG_BT_CTLR_PHY */
 		lr->max_rx_time = sys_cpu_to_le16(lll->max_rx_time);
 		lr->max_tx_time = sys_cpu_to_le16(tx_time);
@@ -4002,12 +4022,28 @@ static inline u32_t feat_get(u8_t *features)
 	return feat;
 }
 
+/*
+ * Perform a logical and on octet0 and keep the remaining bits of the
+ * first input parameter
+ */
+static inline u32_t feat_land_octet0(u32_t feat_to_keep, u32_t feat_octet0)
+{
+	u32_t feat_result;
+
+	feat_result = feat_to_keep & feat_octet0;
+	feat_result &= 0xFF;
+	feat_result |= feat_to_keep & LL_FEAT_FILTER_OCTET0;
+
+	return feat_result;
+}
+
 static int feature_rsp_send(struct ll_conn *conn, struct node_rx_pdu *rx,
 			    struct pdu_data *pdu_rx)
 {
 	struct pdu_data_llctrl_feature_req *req;
 	struct node_tx *tx;
 	struct pdu_data *pdu_tx;
+	u32_t feat;
 
 	/* acquire tx mem */
 	tx = mem_acquire(&mem_conn_tx_ctrl.free);
@@ -4017,7 +4053,14 @@ static int feature_rsp_send(struct ll_conn *conn, struct node_rx_pdu *rx,
 
 	/* AND the feature set to get Feature USED */
 	req = &pdu_rx->llctrl.feature_req;
-	conn->llcp_feature.features &= feat_get(&req->features[0]);
+	conn->llcp_feature.features_conn &= feat_get(&req->features[0]);
+	/*
+	 * Get all the features of peer, except octet 0.
+	 * Octet 0 is the actual features used on the link
+	 * See BTCore V5.2, Vol. 6, Part B, chapter 5.1.4
+	 */
+	conn->llcp_feature.features_peer =
+		feat_land_octet0(feat_get(&req->features[0]), LL_FEAT);
 
 	/* features exchanged */
 	conn->common.fex_valid = 1U;
@@ -4026,12 +4069,16 @@ static int feature_rsp_send(struct ll_conn *conn, struct node_rx_pdu *rx,
 	pdu_tx = (void *)tx->pdu;
 	pdu_tx->ll_id = PDU_DATA_LLID_CTRL;
 	pdu_tx->len = offsetof(struct pdu_data_llctrl, feature_rsp) +
-		      sizeof(struct pdu_data_llctrl_feature_rsp);
+		sizeof(struct pdu_data_llctrl_feature_rsp);
 	pdu_tx->llctrl.opcode = PDU_DATA_LLCTRL_TYPE_FEATURE_RSP;
 	(void)memset(&pdu_tx->llctrl.feature_rsp.features[0], 0x00,
 		     sizeof(pdu_tx->llctrl.feature_rsp.features));
-	sys_put_le24(conn->llcp_feature.features,
-		     pdu_tx->llctrl.feature_req.features);
+	/*
+	 * On feature response we send the local supported features.
+	 * See BTCore V5.2 VOl 6 Part B, chapter 5.1.4
+	 */
+	feat = feat_land_octet0(LL_FEAT, conn->llcp_feature.features_conn);
+	sys_put_le24(feat, pdu_tx->llctrl.feature_rsp.features);
 
 	ctrl_tx_sec_enqueue(conn, tx);
 
@@ -4048,7 +4095,14 @@ static void feature_rsp_recv(struct ll_conn *conn, struct pdu_data *pdu_rx)
 	rsp = &pdu_rx->llctrl.feature_rsp;
 
 	/* AND the feature set to get Feature USED */
-	conn->llcp_feature.features &= feat_get(&rsp->features[0]);
+	conn->llcp_feature.features_conn &= feat_get(&rsp->features[0]);
+	/*
+	 * Get all the features of peer, except octet 0.
+	 * Octet 0 is the actual features used on the link
+	 * See BTCore V5.2, Vol. 6, Part B, chapter 5.1.4
+	 */
+	conn->llcp_feature.features_peer =
+		feat_land_octet0(feat_get(&rsp->features[0]), LL_FEAT);
 
 	/* features exchanged */
 	conn->common.fex_valid = 1U;
@@ -4290,9 +4344,9 @@ static inline int reject_ind_dle_recv(struct ll_conn *conn,
 	lr->max_tx_octets = sys_cpu_to_le16(conn->lll.max_tx_octets);
 #if !defined(CONFIG_BT_CTLR_PHY)
 	lr->max_rx_time =
-		sys_cpu_to_le16(PKT_US(conn->lll.max_rx_octets, 0));
+		sys_cpu_to_le16(PKT_US(conn->lll.max_rx_octets, PHY_1M));
 	lr->max_tx_time =
-		sys_cpu_to_le16(PKT_US(conn->lll.max_tx_octets, 0));
+		sys_cpu_to_le16(PKT_US(conn->lll.max_tx_octets, PHY_1M));
 #else /* CONFIG_BT_CTLR_PHY */
 	lr->max_rx_time = sys_cpu_to_le16(conn->lll.max_rx_time);
 	lr->max_tx_time = sys_cpu_to_le16(conn->lll.max_tx_time);
@@ -4446,9 +4500,9 @@ static void length_resp_send(struct ll_conn *conn, struct node_tx *tx,
 
 #if !defined(CONFIG_BT_CTLR_PHY)
 	pdu_tx->llctrl.length_rsp.max_rx_time =
-		sys_cpu_to_le16(PKT_US(eff_rx_octets, 0));
+		sys_cpu_to_le16(PKT_US(eff_rx_octets, PHY_1M));
 	pdu_tx->llctrl.length_rsp.max_tx_time =
-		sys_cpu_to_le16(PKT_US(eff_tx_octets, 0));
+		sys_cpu_to_le16(PKT_US(eff_tx_octets, PHY_1M));
 #else /* CONFIG_BT_CTLR_PHY */
 	pdu_tx->llctrl.length_rsp.max_rx_time = sys_cpu_to_le16(eff_rx_time);
 	pdu_tx->llctrl.length_rsp.max_tx_time = sys_cpu_to_le16(eff_tx_time);
@@ -4488,8 +4542,7 @@ static inline int length_req_rsp_recv(struct ll_conn *conn, memq_link_t *link,
 	if (/* Local idle, and Peer request then complete the Peer procedure
 	     * with response.
 	     */
-	    ((conn->llcp_length.req == conn->llcp_length.ack) &&
-	     (pdu_rx->llctrl.opcode == PDU_DATA_LLCTRL_TYPE_LENGTH_REQ)) ||
+	    ((conn->llcp_length.req == conn->llcp_length.ack) && tx) ||
 	    /* or Local has active... */
 	    ((conn->llcp_length.req != conn->llcp_length.ack) &&
 	     /* with Local requested and Peer request then complete the
@@ -4497,17 +4550,12 @@ static inline int length_req_rsp_recv(struct ll_conn *conn, memq_link_t *link,
 	      */
 	     ((((conn->llcp_length.state == LLCP_LENGTH_STATE_REQ) ||
 		(conn->llcp_length.state == LLCP_LENGTH_STATE_REQ_ACK_WAIT)) &&
-	       (pdu_rx->llctrl.opcode ==
-		PDU_DATA_LLCTRL_TYPE_LENGTH_REQ)) ||
+	       tx) ||
 	      /* with Local waiting for response, and Peer response then
 	       * complete the Local procedure or Peer request then complete the
 	       * Peer procedure with response.
 	       */
-	      ((conn->llcp_length.state == LLCP_LENGTH_STATE_RSP_WAIT) &&
-	       ((pdu_rx->llctrl.opcode ==
-		 PDU_DATA_LLCTRL_TYPE_LENGTH_RSP) ||
-		(pdu_rx->llctrl.opcode ==
-		 PDU_DATA_LLCTRL_TYPE_LENGTH_REQ)))))) {
+	      (conn->llcp_length.state == LLCP_LENGTH_STATE_RSP_WAIT)))) {
 		struct pdu_data_llctrl_length_req *lr;
 		u16_t max_rx_octets;
 		u16_t max_tx_octets;
@@ -4546,7 +4594,7 @@ static inline int length_req_rsp_recv(struct ll_conn *conn, memq_link_t *link,
 		lr_rx_time = sys_le16_to_cpu(lr->max_rx_time);
 		lr_tx_time = sys_le16_to_cpu(lr->max_tx_time);
 
-		if (lr_rx_time >= PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, 0)) {
+		if (lr_rx_time >= PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, PHY_1M)) {
 			eff_tx_time = MIN(lr_rx_time, max_tx_time);
 #if defined(CONFIG_BT_CTLR_PHY_CODED)
 			eff_tx_time = MAX(eff_tx_time,
@@ -4558,7 +4606,7 @@ static inline int length_req_rsp_recv(struct ll_conn *conn, memq_link_t *link,
 		/* use the minimal of our max supported and
 		 * peer max_tx_time
 		 */
-		if (lr_tx_time >= PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, 0)) {
+		if (lr_tx_time >= PKT_US(PDU_DC_PAYLOAD_SIZE_MIN, PHY_1M)) {
 			eff_rx_time = MIN(lr_tx_time, max_rx_time);
 #if defined(CONFIG_BT_CTLR_PHY_CODED)
 			eff_rx_time = MAX(eff_rx_time,
@@ -4662,18 +4710,29 @@ static inline int length_req_rsp_recv(struct ll_conn *conn, memq_link_t *link,
 
 #if !defined(CONFIG_BT_CTLR_PHY)
 			lr->max_rx_time =
-				sys_cpu_to_le16(PKT_US(eff_rx_octets, 0));
+				sys_cpu_to_le16(PKT_US(eff_rx_octets, PHY_1M));
 			lr->max_tx_time =
-				sys_cpu_to_le16(PKT_US(eff_tx_octets, 0));
+				sys_cpu_to_le16(PKT_US(eff_tx_octets, PHY_1M));
 #else /* CONFIG_BT_CTLR_PHY */
 			lr->max_rx_time = sys_cpu_to_le16(eff_rx_time);
 			lr->max_tx_time = sys_cpu_to_le16(eff_tx_time);
 #endif /* CONFIG_BT_CTLR_PHY */
 		}
 	} else {
-		/* Drop response with no Local initiated request. */
-		LL_ASSERT(pdu_rx->llctrl.opcode ==
-			  PDU_DATA_LLCTRL_TYPE_LENGTH_RSP);
+		/* Drop response with no Local initiated request and duplicate
+		 * requests.
+		 */
+		if (pdu_rx->llctrl.opcode != PDU_DATA_LLCTRL_TYPE_LENGTH_RSP) {
+			mem_release(tx, &mem_conn_tx_ctrl.free);
+
+			/* Defer new request if previous in resize state */
+			if (conn->llcp_length.state ==
+			    LLCP_LENGTH_STATE_RESIZE) {
+				return -EBUSY;
+			}
+		}
+
+		return 0;
 	}
 
 send_length_resp:
@@ -5394,7 +5453,9 @@ static inline int ctrl_rx(memq_link_t *link, struct node_rx_pdu **rx,
 #endif /* CONFIG_BT_CTLR_SLAVE_FEAT_REQ */
 
 	case PDU_DATA_LLCTRL_TYPE_FEATURE_RSP:
-		if (!pdu_len_cmp(PDU_DATA_LLCTRL_TYPE_FEATURE_RSP,
+		if ((!IS_ENABLED(CONFIG_BT_CTLR_SLAVE_FEAT_REQ) &&
+		     conn->lll.role) ||
+		    !pdu_len_cmp(PDU_DATA_LLCTRL_TYPE_FEATURE_RSP,
 				 pdu_rx->len)) {
 			goto ull_conn_rx_unknown_rsp_send;
 		}
@@ -5878,6 +5939,9 @@ static inline int ctrl_rx(memq_link_t *link, struct node_rx_pdu **rx,
 
 #if defined(CONFIG_BT_CTLR_DATA_LENGTH)
 		} else if (conn->llcp_length.req != conn->llcp_length.ack) {
+			/* Mark length update as unsupported */
+			conn->llcp_length.disabled = 1U;
+
 			/* Procedure complete */
 			conn->llcp_length.ack = conn->llcp_length.req;
 
@@ -5890,6 +5954,9 @@ static inline int ctrl_rx(memq_link_t *link, struct node_rx_pdu **rx,
 		} else if (conn->llcp_phy.req !=
 			   conn->llcp_phy.ack) {
 			struct lll_conn *lll = &conn->lll;
+
+			/* Mark phy update as unsupported */
+			conn->llcp_phy.disabled = 1U;
 
 			/* Procedure complete */
 			conn->llcp_phy.ack = conn->llcp_phy.req;

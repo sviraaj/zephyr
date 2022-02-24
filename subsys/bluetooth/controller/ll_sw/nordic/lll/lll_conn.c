@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 Nordic Semiconductor ASA
+ * Copyright (c) 2018-2020 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -22,6 +22,7 @@
 #include "pdu.h"
 
 #include "lll.h"
+#include "lll_clock.h"
 #include "lll_conn.h"
 
 #include "lll_internal.h"
@@ -125,7 +126,7 @@ void lll_conn_abort_cb(struct lll_prepare_param *prepare_param, void *param)
 	/* NOTE: Else clean the top half preparations of the aborted event
 	 * currently in preparation pipeline.
 	 */
-	err = lll_clk_off();
+	err = lll_hfclock_off();
 	LL_ASSERT(!err || err == -EBUSY);
 
 	lll_done(param);
@@ -307,6 +308,20 @@ lll_conn_isr_rx_exit:
 	}
 
 	if (is_rx_enqueue) {
+#if defined(CONFIG_SOC_COMPATIBLE_NRF52832) && \
+	defined(CONFIG_BT_CTLR_LE_ENC) && \
+	(!defined(CONFIG_BT_CTLR_DATA_LENGTH_MAX) || \
+	 (CONFIG_BT_CTLR_DATA_LENGTH_MAX < (HAL_RADIO_PDU_LEN_MAX - 4)))
+		if (lll->enc_rx) {
+			u8_t *pkt_decrypt_data;
+
+			pkt_decrypt_data = (u8_t *)radio_pkt_decrypt_get() +
+					   offsetof(struct pdu_data, lldata);
+			memcpy((void *)pdu_data_rx->lldata,
+			       (void *)pkt_decrypt_data, pdu_data_rx->len);
+		}
+#endif
+
 		ull_pdu_rx_alloc();
 
 		node_rx->hdr.type = NODE_RX_TYPE_DC_PDU;
@@ -327,6 +342,7 @@ lll_conn_isr_rx_exit:
 
 		lll->rssi_latest = rssi;
 
+#if defined(CONFIG_BT_CTLR_CONN_RSSI_EVENT)
 		if (((lll->rssi_reported - rssi) & 0xFF) >
 		    LLL_CONN_RSSI_THRESHOLD) {
 			if (lll->rssi_sample_count) {
@@ -335,6 +351,7 @@ lll_conn_isr_rx_exit:
 		} else {
 			lll->rssi_sample_count = LLL_CONN_RSSI_SAMPLE_COUNT;
 		}
+#endif /* CONFIG_BT_CTLR_CONN_RSSI_EVENT */
 	}
 #else /* !CONFIG_BT_CTLR_CONN_RSSI */
 	ARG_UNUSED(rssi_ready);
@@ -464,8 +481,15 @@ void lll_conn_rx_pkt_set(struct lll_conn *lll)
 	} else if (lll->enc_rx) {
 		radio_pkt_configure(8, (max_rx_octets + 4), (phy << 1) | 0x01);
 
+#if defined(CONFIG_SOC_COMPATIBLE_NRF52832) && \
+	(!defined(CONFIG_BT_CTLR_DATA_LENGTH_MAX) || \
+	 (CONFIG_BT_CTLR_DATA_LENGTH_MAX < (HAL_RADIO_PDU_LEN_MAX - 4)))
+		radio_pkt_rx_set(radio_ccm_rx_pkt_set(&lll->ccm_rx, phy,
+						      radio_pkt_decrypt_get()));
+#else
 		radio_pkt_rx_set(radio_ccm_rx_pkt_set(&lll->ccm_rx, phy,
 						      node_rx->pdu));
+#endif
 #endif /* CONFIG_BT_CTLR_LE_ENC */
 	} else {
 		radio_pkt_configure(8, max_rx_octets, (phy << 1) | 0x01);
@@ -638,7 +662,7 @@ static void isr_cleanup(void *param)
 
 	radio_tmr_stop();
 
-	err = lll_clk_off();
+	err = lll_hfclock_off();
 	LL_ASSERT(!err || err == -EBUSY);
 
 	lll_done(NULL);
@@ -660,6 +684,19 @@ static inline bool ctrl_pdu_len_check(u8_t len)
 static int isr_rx_pdu(struct lll_conn *lll, struct pdu_data *pdu_data_rx,
 		      struct node_tx **tx_release, u8_t *is_rx_enqueue)
 {
+#if defined(CONFIG_SOC_COMPATIBLE_NRF52832) && \
+	defined(CONFIG_BT_CTLR_LE_ENC) && \
+	(!defined(CONFIG_BT_CTLR_DATA_LENGTH_MAX) || \
+	 (CONFIG_BT_CTLR_DATA_LENGTH_MAX < (HAL_RADIO_PDU_LEN_MAX - 4)))
+	if (lll->enc_rx) {
+		u8_t *pkt_decrypt;
+
+		pkt_decrypt = radio_pkt_decrypt_get();
+		memcpy((void *)pdu_data_rx, (void *)pkt_decrypt,
+		       offsetof(struct pdu_data, lldata));
+	}
+#endif
+
 	/* Ack for tx-ed data */
 	if (pdu_data_rx->nesn != lll->sn) {
 		struct node_tx *tx;
@@ -688,6 +725,7 @@ static int isr_rx_pdu(struct lll_conn *lll, struct pdu_data *pdu_data_rx,
 		if (link) {
 			struct pdu_data *pdu_data_tx;
 			u8_t pdu_data_tx_len;
+			u8_t offset;
 
 			pdu_data_tx = (void *)(tx->pdu +
 					       lll->packet_tx_head_offset);
@@ -702,9 +740,10 @@ static int isr_rx_pdu(struct lll_conn *lll, struct pdu_data *pdu_data_rx,
 			}
 #endif /* CONFIG_BT_CTLR_LE_ENC */
 
-			lll->packet_tx_head_offset += pdu_data_tx_len;
-			if (lll->packet_tx_head_offset ==
-			    lll->packet_tx_head_len) {
+			offset = lll->packet_tx_head_offset + pdu_data_tx_len;
+			if (offset < lll->packet_tx_head_len) {
+				lll->packet_tx_head_offset = offset;
+			} else if (offset == lll->packet_tx_head_len) {
 				lll->packet_tx_head_len = 0;
 				lll->packet_tx_head_offset = 0;
 

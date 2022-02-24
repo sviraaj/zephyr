@@ -54,7 +54,6 @@ static struct addrinfo *haddr;
 #endif
 
 static K_SEM_DEFINE(mqtt_start, 0, 1);
-static K_SEM_DEFINE(publish_msg, 0, 1);
 
 /* Application TLS configuration details */
 #define TLS_SNI_HOSTNAME CONFIG_SAMPLE_CLOUD_AZURE_HOSTNAME
@@ -63,6 +62,10 @@ static K_SEM_DEFINE(publish_msg, 0, 1);
 static sec_tag_t m_sec_tags[] = {
 	APP_CA_CERT_TAG,
 };
+
+static u8_t topic[] = "devices/" MQTT_CLIENTID "/messages/devicebound/#";
+static struct mqtt_topic subs_topic;
+static struct mqtt_subscription_list subs_list;
 
 static void mqtt_event_handler(struct mqtt_client *const client,
 			       const struct mqtt_evt *evt);
@@ -193,7 +196,20 @@ static void client_init(struct mqtt_client *client)
 static void mqtt_event_handler(struct mqtt_client *const client,
 			       const struct mqtt_evt *evt)
 {
+	struct mqtt_puback_param puback;
+	u8_t data[33];
+	int len;
+	int bytes_read;
+
 	switch (evt->type) {
+	case MQTT_EVT_SUBACK:
+		LOG_INF("SUBACK packet id: %u", evt->param.suback.message_id);
+		break;
+
+	case MQTT_EVT_UNSUBACK:
+		LOG_INF("UNSUBACK packet id: %u", evt->param.suback.message_id);
+		break;
+
 	case MQTT_EVT_CONNACK:
 		if (evt->result) {
 			LOG_ERR("MQTT connect failed %d", evt->result);
@@ -220,9 +236,52 @@ static void mqtt_event_handler(struct mqtt_client *const client,
 		LOG_DBG("PUBACK packet id: %u\n", evt->param.puback.message_id);
 		break;
 
+	case MQTT_EVT_PUBLISH:
+		len = evt->param.publish.message.payload.len;
+
+		LOG_INF("MQTT publish received %d, %d bytes", evt->result, len);
+		LOG_INF(" id: %d, qos: %d", evt->param.publish.message_id,
+			evt->param.publish.message.topic.qos);
+
+		while (len) {
+			bytes_read = mqtt_read_publish_payload(&client_ctx,
+					data,
+					len >= sizeof(data) - 1 ?
+					sizeof(data) - 1 : len);
+			if (bytes_read < 0 && bytes_read != -EAGAIN) {
+				LOG_ERR("failure to read payload");
+				break;
+			}
+
+			data[bytes_read] = '\0';
+			LOG_INF("   payload: %s", log_strdup(data));
+			len -= bytes_read;
+		}
+
+		puback.message_id = evt->param.publish.message_id;
+		mqtt_publish_qos1_ack(&client_ctx, &puback);
+		break;
+
 	default:
 		LOG_DBG("Unhandled MQTT event %d", evt->type);
 		break;
+	}
+}
+
+static void subscribe(struct mqtt_client *client)
+{
+	int err;
+
+	/* subscribe */
+	subs_topic.topic.utf8 = topic;
+	subs_topic.topic.size = strlen(topic);
+	subs_list.list = &subs_topic;
+	subs_list.list_count = 1U;
+	subs_list.message_id = 1U;
+
+	err = mqtt_subscribe(client, &subs_list);
+	if (err) {
+		LOG_ERR("Failed on topic %s", topic);
 	}
 }
 
@@ -245,6 +304,18 @@ static int publish(struct mqtt_client *client, enum mqtt_qos qos)
 	return mqtt_publish(client, &param);
 }
 
+static void poll_mqtt(void)
+{
+	int rc;
+
+	while (mqtt_connected) {
+		rc = wait(SYS_FOREVER_MS);
+		if (rc > 0) {
+			mqtt_input(&client_ctx);
+		}
+	}
+}
+
 /* Random time between 10 - 15 seconds
  * If you prefer to have this value more than CONFIG_MQTT_KEEPALIVE,
  * then keep the application connection live by calling mqtt_live()
@@ -257,34 +328,21 @@ static u8_t timeout_for_publish(void)
 
 static void publish_timeout(struct k_work *work)
 {
-	k_sem_give(&publish_msg);
-}
+	int rc;
 
-static void publish_message(void)
-{
-	while (mqtt_connected) {
-		int rc;
-
-		rc = publish(&client_ctx, MQTT_QOS_1_AT_LEAST_ONCE);
-		if (rc) {
-			LOG_ERR("mqtt_publish ERROR");
-			goto end;
-		}
-
-		LOG_DBG("mqtt_publish OK");
-
-		rc = wait(APP_SLEEP_MSECS);
-		if (rc <= 0) {
-			goto end;
-		}
-
-		mqtt_input(&client_ctx);
-
-end:
-		k_delayed_work_submit(&pub_message,
-				      MSEC_PER_SEC * timeout_for_publish());
-		k_sem_take(&publish_msg, K_FOREVER);
+	if (!mqtt_connected) {
+		return;
 	}
+
+	rc = publish(&client_ctx, MQTT_QOS_1_AT_LEAST_ONCE);
+	if (rc) {
+		LOG_ERR("mqtt_publish ERROR");
+		goto end;
+	}
+
+	LOG_DBG("mqtt_publish OK");
+end:
+	k_delayed_work_submit(&pub_message, K_SECONDS(timeout_for_publish()));
 }
 
 static int try_to_connect(struct mqtt_client *client)
@@ -314,6 +372,9 @@ static int try_to_connect(struct mqtt_client *client)
 		mqtt_input(client);
 
 		if (mqtt_connected) {
+			subscribe(client);
+			k_delayed_work_submit(&pub_message,
+					      K_SECONDS(timeout_for_publish()));
 			return 0;
 		}
 
@@ -374,7 +435,7 @@ static void connect_to_cloud_and_publish(void)
 			return;
 		}
 
-		publish_message();
+		poll_mqtt();
 #if defined(CONFIG_NET_DHCPV4)
 	}
 #endif
@@ -409,7 +470,7 @@ static void check_network_connection(struct k_work *work)
 	LOG_INF("waiting for DHCP to acquire addr");
 
 end:
-	k_delayed_work_submit(&check_network_conn, 3 * MSEC_PER_SEC);
+	k_delayed_work_submit(&check_network_conn, K_SECONDS(3));
 }
 #endif
 
@@ -432,13 +493,12 @@ static void l4_event_handler(struct net_mgmt_event_callback *cb,
 
 	if (mgmt_event == NET_EVENT_L4_CONNECTED) {
 		/* Wait for DHCP to be back in BOUND state */
-		k_delayed_work_submit(&check_network_conn, 3 * MSEC_PER_SEC);
+		k_delayed_work_submit(&check_network_conn, K_SECONDS(3));
 
 		return;
 	}
 
 	if (mgmt_event == NET_EVENT_L4_DISCONNECTED) {
-		k_sem_give(&publish_msg);
 		abort_mqtt_connection();
 		k_delayed_work_cancel(&check_network_conn);
 

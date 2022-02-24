@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT worldsemi_ws2812_gpio
+
 #include <drivers/led_strip.h>
 
 #include <string.h>
@@ -37,7 +39,7 @@ static struct ws2812_gpio_data *dev_data(struct device *dev)
 
 static const struct ws2812_gpio_cfg *dev_cfg(struct device *dev)
 {
-	return dev->config->config_info;
+	return dev->config_info;
 }
 
 /*
@@ -146,7 +148,7 @@ static int send_buf(struct device *dev, u8_t *buf, size_t len)
 static int ws2812_gpio_update_rgb(struct device *dev, struct led_rgb *pixels,
 				  size_t num_pixels)
 {
-	const struct ws2812_gpio_cfg *config = dev->config->config_info;
+	const struct ws2812_gpio_cfg *config = dev->config_info;
 	const bool has_white = config->has_white;
 	u8_t *ptr = (u8_t *)pixels;
 	size_t i;
@@ -181,22 +183,22 @@ static const struct led_strip_driver_api ws2812_gpio_api = {
 };
 
 #define WS2812_GPIO_LABEL(idx) \
-	(DT_INST_##idx##_WORLDSEMI_WS2812_GPIO_LABEL)
+	(DT_INST_LABEL(idx))
 #define WS2812_GPIO_HAS_WHITE(idx) \
-	(DT_INST_##idx##_WORLDSEMI_WS2812_GPIO_HAS_WHITE_CHANNEL == 1)
+	(DT_INST_PROP(idx, has_white_channel) == 1)
 #define WS2812_GPIO_DEV(idx) \
-	(DT_INST_##idx##_WORLDSEMI_WS2812_GPIO_IN_GPIOS_CONTROLLER)
+	(DT_INST_GPIO_LABEL(idx, in_gpios))
 #define WS2812_GPIO_PIN(idx) \
-	(DT_INST_##idx##_WORLDSEMI_WS2812_GPIO_IN_GPIOS_PIN)
+	(DT_INST_GPIO_PIN(idx, in_gpios))
 #define WS2812_GPIO_FLAGS(idx) \
-	(DT_INST_##idx##_WORLDSEMI_WS2812_GPIO_IN_GPIOS_FLAGS)
+	(DT_INST_GPIO_FLAGS(idx, in_gpios))
 /*
  * The inline assembly above is designed to work on nRF51 devices with
  * the 16 MHz clock enabled.
  *
  * TODO: try to make this portable, or at least port to more devices.
  */
-#define WS2812_GPIO_CLK(idx) DT_INST_0_NORDIC_NRF_CLOCK_LABEL
+#define WS2812_GPIO_CLK(idx) DT_LABEL(DT_INST(0, nordic_nrf_clock))
 
 #define WS2812_GPIO_DEVICE(idx)					\
 									\
@@ -236,12 +238,6 @@ static const struct led_strip_driver_api ws2812_gpio_api = {
 			    &ws2812_gpio_##idx##_data,			\
 			    &ws2812_gpio_##idx##_cfg, POST_KERNEL,	\
 			    CONFIG_LED_STRIP_INIT_PRIORITY,		\
-			    &ws2812_gpio_api)
+			    &ws2812_gpio_api);
 
-#ifdef DT_INST_0_WORLDSEMI_WS2812_GPIO_LABEL
-WS2812_GPIO_DEVICE(0);
-#endif
-
-#ifdef DT_INST_1_WORLDSEMI_WS2812_GPIO_LABEL
-WS2812_GPIO_DEVICE(1);
-#endif
+DT_INST_FOREACH_STATUS_OKAY(WS2812_GPIO_DEVICE)

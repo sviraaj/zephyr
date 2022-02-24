@@ -35,6 +35,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <net/lldp.h>
 
 #include "eth_native_posix_priv.h"
+#include "eth.h"
 
 #define NET_BUF_TIMEOUT K_MSEC(100)
 
@@ -64,9 +65,7 @@ struct eth_context {
 #endif
 };
 
-NET_STACK_DEFINE(RX_ZETH, eth_rx_stack,
-		 CONFIG_ARCH_POSIX_RECOMMENDED_STACK_SIZE,
-		 CONFIG_ARCH_POSIX_RECOMMENDED_STACK_SIZE);
+K_THREAD_STACK_DEFINE(eth_rx_stack, CONFIG_ARCH_POSIX_RECOMMENDED_STACK_SIZE);
 static struct k_thread rx_thread_data;
 
 /* TODO: support multiple interfaces */
@@ -390,6 +389,7 @@ static void create_rx_handler(struct eth_context *ctx)
 			(k_thread_entry_t)eth_rx,
 			ctx, NULL, NULL, K_PRIO_COOP(14),
 			0, K_NO_WAIT);
+	k_thread_name_set(&rx_thread_data, "eth_native_posix_rx");
 }
 
 static void eth_iface_init(struct net_if *iface)
@@ -416,12 +416,10 @@ static void eth_iface_init(struct net_if *iface)
 
 #if defined(CONFIG_ETH_NATIVE_POSIX_RANDOM_MAC)
 	/* 00-00-5E-00-53-xx Documentation RFC 7042 */
-	ctx->mac_addr[0] = 0x00;
-	ctx->mac_addr[1] = 0x00;
-	ctx->mac_addr[2] = 0x5E;
+	gen_random_mac(ctx->mac_addr, 0x00, 0x00, 0x5E);
+
 	ctx->mac_addr[3] = 0x00;
 	ctx->mac_addr[4] = 0x53;
-	ctx->mac_addr[5] = sys_rand32_get();
 
 	/* The TUN/TAP setup script will by default set the MAC address of host
 	 * interface to 00:00:5E:00:53:FF so do not allow that.
@@ -585,7 +583,7 @@ static const struct ethernet_api eth_if_api = {
 };
 
 ETH_NET_DEVICE_INIT(eth_native_posix, ETH_NATIVE_POSIX_DRV_NAME,
-		    eth_init, &eth_context_data, NULL,
+		    eth_init, device_pm_control_nop, &eth_context_data, NULL,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEFAULT, &eth_if_api,
 		    NET_ETH_MTU);
 

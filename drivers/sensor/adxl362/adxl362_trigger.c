@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT adi_adxl362
+
 #include <device.h>
 #include <drivers/gpio.h>
 #include <sys/util.h>
@@ -121,7 +123,7 @@ int adxl362_trigger_set(struct device *dev,
 int adxl362_init_interrupt(struct device *dev)
 {
 	struct adxl362_data *drv_data = dev->driver_data;
-	const struct adxl362_config *cfg = dev->config->config_info;
+	const struct adxl362_config *cfg = dev->config_info;
 	int ret;
 
 	k_mutex_init(&drv_data->trigger_mutex);

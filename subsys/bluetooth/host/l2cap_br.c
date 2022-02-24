@@ -51,11 +51,6 @@
 #define L2CAP_BR_DISCONN_TIMEOUT	K_SECONDS(1)
 #define L2CAP_BR_CONN_TIMEOUT		K_SECONDS(40)
 
-/* Size of MTU is based on the maximum amount of data the buffer can hold
- * excluding ACL and driver headers.
- */
-#define L2CAP_BR_MAX_MTU	BT_L2CAP_RX_MTU
-
 /*
  * L2CAP extended feature mask:
  * BR/EDR fixed channel support enabled
@@ -226,7 +221,7 @@ static u8_t l2cap_br_get_ident(void)
 }
 
 static void l2cap_br_chan_send_req(struct bt_l2cap_br_chan *chan,
-				   struct net_buf *buf, s32_t timeout)
+				   struct net_buf *buf, k_timeout_t timeout)
 {
 	/* BLUETOOTH SPECIFICATION Version 4.2 [Vol 3, Part A] page 126:
 	 *
@@ -237,11 +232,7 @@ static void l2cap_br_chan_send_req(struct bt_l2cap_br_chan *chan,
 	 * final expiration, when the response is received, or the physical
 	 * link is lost.
 	 */
-	if (timeout) {
-		k_delayed_work_submit(&chan->chan.rtx_work, timeout);
-	} else {
-		k_delayed_work_cancel(&chan->chan.rtx_work);
-	}
+	k_delayed_work_submit(&chan->chan.rtx_work, timeout);
 
 	bt_l2cap_send(chan->chan.conn, BT_L2CAP_CID_BR_SIG, buf);
 }
@@ -737,7 +728,7 @@ static void l2cap_br_conn_req(struct bt_l2cap_br *l2cap, u8_t ident,
 	atomic_set_bit(BR_CHAN(chan)->flags, L2CAP_FLAG_CONN_ACCEPTOR);
 
 	/* Disable fragmentation of l2cap rx pdu */
-	BR_CHAN(chan)->rx.mtu = MIN(BR_CHAN(chan)->rx.mtu, L2CAP_BR_MAX_MTU);
+	BR_CHAN(chan)->rx.mtu = MIN(BR_CHAN(chan)->rx.mtu, CONFIG_BT_L2CAP_RX_MTU);
 
 	switch (l2cap_br_conn_security(chan, psm)) {
 	case L2CAP_CONN_SECURITY_PENDING:

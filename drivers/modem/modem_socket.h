@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-struct modem_socket {
+__net_socket struct modem_socket {
 	sa_family_t family;
 	enum net_sock_type type;
 	enum net_ip_protocol ip_proto;
@@ -77,7 +77,7 @@ struct modem_socket *modem_socket_from_newid(struct modem_socket_config *cfg);
 void modem_socket_put(struct modem_socket_config *cfg, int sock_fd);
 int modem_socket_poll(struct modem_socket_config *cfg,
 		      struct pollfd *fds, int nfds, int msecs);
-void modem_socket_wait_data(struct modem_socket_config *cfg,
+int modem_socket_wait_data(struct modem_socket_config *cfg,
 			    struct modem_socket *sock);
 void modem_socket_data_ready(struct modem_socket_config *cfg,
 			     struct modem_socket *sock);

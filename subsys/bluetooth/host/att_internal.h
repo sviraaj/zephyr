@@ -6,11 +6,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define BT_EATT_PSM		0x27
 #define BT_ATT_DEFAULT_LE_MTU	23
 #define BT_ATT_TIMEOUT		K_SECONDS(30)
 
-#if BT_L2CAP_RX_MTU < CONFIG_BT_L2CAP_TX_MTU
-#define BT_ATT_MTU BT_L2CAP_RX_MTU
+/* ATT MTU must be equal for RX and TX, so select the smallest value */
+#if CONFIG_BT_L2CAP_RX_MTU < CONFIG_BT_L2CAP_TX_MTU
+#define BT_ATT_MTU CONFIG_BT_L2CAP_RX_MTU
 #else
 #define BT_ATT_MTU CONFIG_BT_L2CAP_TX_MTU
 #endif
@@ -223,6 +225,26 @@ struct bt_att_signature {
 	u8_t  value[12];
 } __packed;
 
+#define BT_ATT_OP_READ_MULT_VL_REQ		0x20
+struct bt_att_read_mult_vl_req {
+	u16_t handles[0];
+} __packed;
+
+/* Read Multiple Respose */
+#define BT_ATT_OP_READ_MULT_VL_RSP		0x21
+struct bt_att_read_mult_vl_rsp {
+	u16_t len;
+	u8_t  value[0];
+} __packed;
+
+/* Handle Multiple Value Notification */
+#define BT_ATT_OP_NOTIFY_MULT			0x23
+struct bt_att_notify_mult {
+	u16_t handle;
+	u16_t len;
+	u8_t  value[0];
+} __packed;
+
 /* Write Command */
 #define BT_ATT_OP_WRITE_CMD			0x52
 struct bt_att_write_cmd {
@@ -263,7 +285,7 @@ struct net_buf *bt_att_create_pdu(struct bt_conn *conn, u8_t op,
 				  size_t len);
 
 /* Allocate a new request */
-struct bt_att_req *bt_att_req_alloc(s32_t timeout);
+struct bt_att_req *bt_att_req_alloc(k_timeout_t timeout);
 
 /* Free a request */
 void bt_att_req_free(struct bt_att_req *req);
@@ -277,3 +299,9 @@ int bt_att_req_send(struct bt_conn *conn, struct bt_att_req *req);
 
 /* Cancel ATT request */
 void bt_att_req_cancel(struct bt_conn *conn, struct bt_att_req *req);
+
+/* Connect EATT channels */
+int bt_eatt_connect(struct bt_conn *conn, u8_t num_channels);
+
+/* Disconnect EATT channels */
+int bt_eatt_disconnect(struct bt_conn *conn);

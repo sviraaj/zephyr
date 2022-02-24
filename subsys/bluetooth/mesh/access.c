@@ -57,7 +57,7 @@ void bt_mesh_model_foreach(void (*func)(struct bt_mesh_model *mod,
 
 s32_t bt_mesh_model_pub_period_get(struct bt_mesh_model *mod)
 {
-	int period;
+	s32_t period;
 
 	if (!mod->pub) {
 		return 0;
@@ -66,19 +66,19 @@ s32_t bt_mesh_model_pub_period_get(struct bt_mesh_model *mod)
 	switch (mod->pub->period >> 6) {
 	case 0x00:
 		/* 1 step is 100 ms */
-		period = K_MSEC((mod->pub->period & BIT_MASK(6)) * 100U);
+		period = (mod->pub->period & BIT_MASK(6)) * 100U;
 		break;
 	case 0x01:
 		/* 1 step is 1 second */
-		period = K_SECONDS(mod->pub->period & BIT_MASK(6));
+		period = (mod->pub->period & BIT_MASK(6)) * MSEC_PER_SEC;
 		break;
 	case 0x02:
 		/* 1 step is 10 seconds */
-		period = K_SECONDS((mod->pub->period & BIT_MASK(6)) * 10U);
+		period = (mod->pub->period & BIT_MASK(6)) * 10U * MSEC_PER_SEC;
 		break;
 	case 0x03:
 		/* 1 step is 10 minutes */
-		period = K_MINUTES((mod->pub->period & BIT_MASK(6)) * 10U);
+		period = (mod->pub->period & BIT_MASK(6)) * 600U * MSEC_PER_SEC;
 		break;
 	default:
 		CODE_UNREACHABLE;
@@ -108,7 +108,7 @@ static s32_t next_period(struct bt_mesh_model *mod)
 	if (elapsed >= period) {
 		BT_WARN("Publication sending took longer than the period");
 		/* Return smallest positive number since 0 means disabled */
-		return K_MSEC(1);
+		return 1;
 	}
 
 	return period - elapsed;
@@ -129,7 +129,7 @@ static void publish_sent(int err, void *user_data)
 
 	if (delay) {
 		BT_DBG("Publishing next time in %dms", delay);
-		k_delayed_work_submit(&mod->pub->timer, delay);
+		k_delayed_work_submit(&mod->pub->timer, K_MSEC(delay));
 	}
 }
 
@@ -217,7 +217,8 @@ static void mod_publish(struct k_work *work)
 
 			/* Continue with normal publication */
 			if (period_ms) {
-				k_delayed_work_submit(&pub->timer, period_ms);
+				k_delayed_work_submit(&pub->timer,
+						      K_MSEC(period_ms));
 			}
 		}
 
@@ -282,6 +283,11 @@ static void mod_init(struct bt_mesh_model *mod, struct bt_mesh_elem *elem,
 		     bool vnd, bool primary, void *user_data)
 {
 	int i;
+	int *err = user_data;
+
+	if (*err) {
+		return;
+	}
 
 	if (mod->pub) {
 		mod->pub->mod = mod;
@@ -300,12 +306,14 @@ static void mod_init(struct bt_mesh_model *mod, struct bt_mesh_elem *elem,
 	}
 
 	if (mod->cb && mod->cb->init) {
-		mod->cb->init(mod);
+		*err = mod->cb->init(mod);
 	}
 }
 
 int bt_mesh_comp_register(const struct bt_mesh_comp *comp)
 {
+	int err;
+
 	/* There must be at least one element */
 	if (!comp->elem_count) {
 		return -EINVAL;
@@ -313,9 +321,10 @@ int bt_mesh_comp_register(const struct bt_mesh_comp *comp)
 
 	dev_comp = comp;
 
-	bt_mesh_model_foreach(mod_init, NULL);
+	err = 0;
+	bt_mesh_model_foreach(mod_init, &err);
 
-	return 0;
+	return err;
 }
 
 void bt_mesh_comp_provision(u16_t addr)
@@ -341,8 +350,6 @@ void bt_mesh_comp_unprovision(void)
 	BT_DBG("");
 
 	dev_primary_addr = BT_MESH_ADDR_UNASSIGNED;
-
-	bt_mesh_model_foreach(mod_init, NULL);
 }
 
 u16_t bt_mesh_primary_addr(void)
@@ -479,7 +486,7 @@ static bool model_has_dst(struct bt_mesh_model *mod, u16_t dst)
 	if (BT_MESH_ADDR_IS_UNICAST(dst)) {
 		return (dev_comp->elem[mod->elem_idx].addr == dst);
 	} else if (BT_MESH_ADDR_IS_GROUP(dst) || BT_MESH_ADDR_IS_VIRTUAL(dst)) {
-		return bt_mesh_model_find_group(&mod, dst);
+		return !!bt_mesh_model_find_group(&mod, dst);
 	}
 
 	return (mod->elem_idx == 0 && bt_mesh_fixed_group_match(dst));
@@ -688,6 +695,18 @@ int bt_mesh_model_send(struct bt_mesh_model *model,
 		       struct net_buf_simple *msg,
 		       const struct bt_mesh_send_cb *cb, void *cb_data)
 {
+	struct bt_mesh_app_key *app_key;
+
+	if (!BT_MESH_IS_DEV_KEY(ctx->app_idx)) {
+		app_key = bt_mesh_app_key_find(ctx->app_idx);
+		if (!app_key) {
+			BT_ERR("Unknown app_idx 0x%04x", ctx->app_idx);
+			return -EINVAL;
+		}
+
+		ctx->net_idx = app_key->net_idx;
+	}
+
 	struct bt_mesh_net_tx tx = {
 		.sub = bt_mesh_subnet_get(ctx->net_idx),
 		.ctx = ctx,
@@ -705,7 +724,6 @@ int bt_mesh_model_publish(struct bt_mesh_model *model)
 	struct bt_mesh_model_pub *pub = model->pub;
 	struct bt_mesh_app_key *key;
 	struct bt_mesh_msg_ctx ctx = {
-		.send_rel = pub->send_rel,
 	};
 	struct bt_mesh_net_tx tx = {
 		.ctx = &ctx,
@@ -743,6 +761,7 @@ int bt_mesh_model_publish(struct bt_mesh_model *model)
 
 	ctx.addr = pub->addr;
 	ctx.send_ttl = pub->ttl;
+	ctx.send_rel = pub->send_rel;
 	ctx.net_idx = key->net_idx;
 	ctx.app_idx = key->app_idx;
 

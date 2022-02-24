@@ -52,13 +52,18 @@ typedef int (*pwm_get_cycles_per_sec_t)(struct device *dev, u32_t pwm,
 					u64_t *cycles);
 
 /** @brief PWM driver API definition. */
-struct pwm_driver_api {
+__subsystem struct pwm_driver_api {
 	pwm_pin_set_t pin_set;
 	pwm_get_cycles_per_sec_t get_cycles_per_sec;
 };
 
 /**
  * @brief Set the period and pulse width for a single PWM output.
+ *
+ * Passing 0 to the @p pulse will cause the pin to be driven to a constant
+ * inactive level.
+ * Passing a @p pulse equal @p period will cause the pin to be driven
+ * to a constant active level.
  *
  * @param dev Pointer to the device structure for the driver instance.
  * @param pwm PWM pin.

@@ -127,6 +127,7 @@ config MODEM_SHELL
 source "drivers/modem/Kconfig.ublox-sara-r4"
 source "drivers/modem/Kconfig.wncm14a2a"
 source "drivers/modem/Kconfig.a9grda"
+source "drivers/modem/Kconfig.quectel-bg95"
 source "drivers/modem/Kconfig.gsm"
 
 endif # MODEM

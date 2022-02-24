@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT invensense_mpu6050
+
 #include <drivers/i2c.h>
 #include <init.h>
 #include <sys/byteorder.h>
@@ -110,7 +112,7 @@ static int mpu6050_channel_get(struct device *dev,
 static int mpu6050_sample_fetch(struct device *dev, enum sensor_channel chan)
 {
 	struct mpu6050_data *drv_data = dev->driver_data;
-	const struct mpu6050_config *cfg = dev->config->config_info;
+	const struct mpu6050_config *cfg = dev->config_info;
 	s16_t buf[7];
 
 	if (i2c_burst_read(drv_data->i2c, cfg->i2c_addr,
@@ -141,7 +143,7 @@ static const struct sensor_driver_api mpu6050_driver_api = {
 int mpu6050_init(struct device *dev)
 {
 	struct mpu6050_data *drv_data = dev->driver_data;
-	const struct mpu6050_config *cfg = dev->config->config_info;
+	const struct mpu6050_config *cfg = dev->config_info;
 	u8_t id, i;
 
 	drv_data->i2c = device_get_binding(cfg->i2c_label);
@@ -225,16 +227,16 @@ int mpu6050_init(struct device *dev)
 
 static struct mpu6050_data mpu6050_driver;
 static const struct mpu6050_config mpu6050_cfg = {
-	.i2c_label = DT_INST_0_INVENSENSE_MPU6050_BUS_NAME,
-	.i2c_addr = DT_INST_0_INVENSENSE_MPU6050_BASE_ADDRESS,
+	.i2c_label = DT_INST_BUS_LABEL(0),
+	.i2c_addr = DT_INST_REG_ADDR(0),
 #ifdef CONFIG_MPU6050_TRIGGER
-	.int_pin = DT_INST_0_INVENSENSE_MPU6050_INT_GPIOS_PIN,
-	.int_flags = DT_INST_0_INVENSENSE_MPU6050_INT_GPIOS_FLAGS,
-	.int_label = DT_INST_0_INVENSENSE_MPU6050_INT_GPIOS_CONTROLLER,
+	.int_pin = DT_INST_GPIO_PIN(0, int_gpios),
+	.int_flags = DT_INST_GPIO_FLAGS(0, int_gpios),
+	.int_label = DT_INST_GPIO_LABEL(0, int_gpios),
 #endif /* CONFIG_MPU6050_TRIGGER */
 };
 
-DEVICE_AND_API_INIT(mpu6050, DT_INST_0_INVENSENSE_MPU6050_LABEL,
+DEVICE_AND_API_INIT(mpu6050, DT_INST_LABEL(0),
 		    mpu6050_init, &mpu6050_driver, &mpu6050_cfg,
 		    POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
 		    &mpu6050_driver_api);

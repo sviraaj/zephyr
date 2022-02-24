@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT litex_gpio
+
 #include <errno.h>
 #include <device.h>
 #include <drivers/gpio.h>
@@ -41,7 +43,7 @@ struct gpio_litex_data {
 /* Helper macros for GPIO */
 
 #define DEV_GPIO_CFG(dev)						\
-	((const struct gpio_litex_cfg *)(dev)->config->config_info)
+	((const struct gpio_litex_cfg *)(dev)->config_info)
 
 /* Helper functions for bit / port access */
 
@@ -214,61 +216,27 @@ static const struct gpio_driver_api gpio_litex_driver_api = {
 /* Device Instantiation */
 
 #define GPIO_LITEX_INIT(n) \
-	BUILD_ASSERT_MSG(DT_INST_##n##_LITEX_GPIO_SIZE != 0 \
-			&& DT_INST_##n##_LITEX_GPIO_SIZE % 4 == 0, \
-		"Register size must be a multiple of 4"); \
+	BUILD_ASSERT(DT_INST_REG_SIZE(n) != 0 \
+		     && DT_INST_REG_SIZE(n) % 4 == 0, \
+		     "Register size must be a multiple of 4"); \
 \
 	static const struct gpio_litex_cfg gpio_litex_cfg_##n = { \
 		.reg_addr = \
-		(volatile u32_t *) DT_INST_##n##_LITEX_GPIO_BASE_ADDRESS, \
-		.reg_size = DT_INST_##n##_LITEX_GPIO_SIZE, \
-		.nr_gpios = DT_INST_##n##_LITEX_GPIO_NGPIOS, \
-		.port_is_output = DT_INST_##n##_LITEX_GPIO_PORT_IS_OUTPUT, \
+		(volatile u32_t *) DT_INST_REG_ADDR(n), \
+		.reg_size = DT_INST_REG_SIZE(n), \
+		.nr_gpios = DT_INST_PROP(n, ngpios), \
+		.port_is_output = DT_INST_PROP(n, port_is_output), \
 	}; \
 	static struct gpio_litex_data gpio_litex_data_##n; \
 \
 	DEVICE_AND_API_INIT(litex_gpio_##n, \
-			    DT_INST_##n##_LITEX_GPIO_LABEL, \
+			    DT_INST_LABEL(n), \
 			    gpio_litex_init, \
 			    &gpio_litex_data_##n, \
 			    &gpio_litex_cfg_##n, \
 			    POST_KERNEL, \
 			    CONFIG_KERNEL_INIT_PRIORITY_DEVICE, \
 			    &gpio_litex_driver_api \
-			   )
+			   );
 
-#ifdef DT_INST_0_LITEX_GPIO_LABEL
-GPIO_LITEX_INIT(0);
-#endif
-
-#ifdef DT_INST_1_LITEX_GPIO_LABEL
-GPIO_LITEX_INIT(1);
-#endif
-
-#ifdef DT_INST_2_LITEX_GPIO_LABEL
-GPIO_LITEX_INIT(2);
-#endif
-
-#ifdef DT_INST_3_LITEX_GPIO_LABEL
-GPIO_LITEX_INIT(3);
-#endif
-
-#ifdef DT_INST_4_LITEX_GPIO_LABEL
-GPIO_LITEX_INIT(4);
-#endif
-
-#ifdef DT_INST_5_LITEX_GPIO_LABEL
-GPIO_LITEX_INIT(5);
-#endif
-
-#ifdef DT_INST_6_LITEX_GPIO_LABEL
-GPIO_LITEX_INIT(6);
-#endif
-
-#ifdef DT_INST_7_LITEX_GPIO_LABEL
-GPIO_LITEX_INIT(7);
-#endif
-
-#ifdef DT_INST_8_LITEX_GPIO_LABEL
-GPIO_LITEX_INIT(8);
-#endif
+DT_INST_FOREACH_STATUS_OKAY(GPIO_LITEX_INIT)

@@ -1,0 +1,12 @@
+[submodule "zb_actipod_app"]
+	path = zb_actipod_app
+	url = https://github.com/sviraaj/zb_actipod_app.git
+[submodule "zedblox_scripts"]
+	path = zedblox_scripts
+	url = https://github.com/sviraaj/zedblox_scripts.git
+[submodule "zbacrux_setup"]
+    path = zbacrux_setup
+	url = https://github.com/sviraaj/zbacrux_setup.git
+[submodule "zbacrux_unit_testing"]
+	path = zbacrux_unit_testing
+	url = https://github.com/sviraaj/zbacrux_unit_testing.git

@@ -3,8 +3,13 @@
 
 / {
 	model = "Nordic ZedBlox Acrux 02";
-	compatible = "nordic,acrux-02", "nordic,nrf52840-qiaa",
-		     "nordic,nrf52840";
+	compatible = "nordic,zbacrux-02";
+
+    sky13351 {
+		compatible = "skyworks,sky13351";
+		vctl1-gpios = <&gpio1 3 GPIO_ACTIVE_LOW>;
+		vctl2-gpios = <&gpio1 1 GPIO_ACTIVE_LOW>;
+	};
 
 	chosen {
 		zephyr,console = &uart0;
@@ -75,8 +80,29 @@
 
     mx25rxx: mx25rxx_0 {
         status = "okay";
-        compatible = "qspi,mx25rxx";
+        compatible = "macronix,mx25rxx";
         label = "MX25RXX";
+    };
+
+    gpio_i2c0: gpio_i2c {
+        compatible = "gpio-i2c";
+        status = "okay";
+        clock-frequency = <I2C_BITRATE_STANDARD>;
+        sda-gpios = <&gpio0 15 (GPIO_OPEN_DRAIN)>;
+        scl-gpios = <&gpio0 7 (GPIO_OPEN_DRAIN)>;
+        label = "GPIO_I2C_0";
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        bq40zxx: bq40zxx@b {
+            compatible = "ti,bq40zxx";
+            reg = <0x0b>;
+            label = "BQ40ZXX";
+            design-voltage = <3700>;
+            design-capacity = <16400>;
+            taper-current = <45>;
+            terminate-voltage = <3000>;
+        };
     };
 };
 
@@ -105,7 +131,13 @@
 
     /*a9grda {
         compatible = "rda,a9g";
-	    label = "a9grda";
+	    label = "rda-a9g";
+		mdm-power-gpios = <&gpio1 8 0>;
+		mdm-reset-gpios = <&sx1509b 9 0>;
+    };
+    quectel-bg95 {
+        compatible = "quectel,bg95";
+	    label = "quectel-bg95";
 		mdm-power-gpios = <&gpio1 8 0>;
 		mdm-reset-gpios = <&sx1509b 9 0>;
     };*/
@@ -155,14 +187,52 @@
     bme280_int: bme280@76 {
         compatible = "bosch,bme280";
         reg = <0x76>;
-        label = "BME280_int";
+        label = "BME280_INT";
     };
 
     bme280_ext: bme280@77 {
         compatible = "bosch,bme280";
         reg = <0x77>;
-        label = "BME280_ext";
+        label = "BME280_EXT";
     };
+
+    hdc2080_int: hdc2080@40 {
+        compatible = "ti,hdc2080";
+        reg = <0x40>;
+        label = "HDC2080_INT";
+    };
+
+    lps22hh_int: lps22hh@5c {
+		compatible = "st,lps22hh";
+		reg = <0x5c>;
+		label = "LPS22HH_INT";
+		//drdy-gpios = <&gpiod 15 GPIO_ACTIVE_HIGH>;
+	};
+
+    hdc2080_ext: hdc2080@41 {
+        compatible = "ti,hdc2080";
+        reg = <0x41>;
+        label = "HDC2080_EXT";
+    };
+ 
+    lps22hh_ext: lps22hh@5d {
+		compatible = "st,lps22hh";
+		reg = <0x5d>;
+		label = "LPS22HH_EXT";
+		//drdy-gpios = <&gpiod 15 GPIO_ACTIVE_HIGH>;
+	};
+
+    ti_tmp116_int: ti_tmp116@48 {
+		compatible = "ti,tmp116";
+		reg = <0x48>;
+		label = "TMP116_INT";
+	};
+
+    ti_tmp116_ext: ti_tmp116@49 {
+		compatible = "ti,tmp116";
+		reg = <0x49>;
+		label = "TMP116_EXT";
+	};
 };
 
 &i2c1 {
@@ -177,7 +247,7 @@
 		reg = <0x3e>;
 		label = "GPIO_P0";
 		gpio-controller;
-		int1-gpios = <&gpio1 2 0>;
+		nint-gpios = <&gpio1 2 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
 		#gpio-cells = <2>;
 		ngpios = <16>;
 	};
@@ -185,15 +255,9 @@
 
 &pwm0 {
 	status = "okay";
-	ch0-pin = <24>;
-	ch1-pin = <36>;
-	//ch0-inverted;
-};
-
-&pwm1 {
-	status = "okay";
-	ch0-pin = <7>;
-	ch0-inverted;
+	//ch0-pin = <24>;
+    ch1-pin = <28>;
+    ch2-pin = <35>;
 };
 
 &spi2 {
@@ -206,6 +270,7 @@
 	cs-gpios = <&gpio0 13 0>;
 };
 
+/*
 &spi3 {
     compatible = "nordic,nrf-spim";
 	status = "okay";
@@ -214,6 +279,30 @@
 	miso-pin = <14>;
 	cs-gpios = <&gpio1 12 0>;
 };
+*/
+
+/*
+&qspi {
+	status = "okay";
+	sck-pin = <19>;
+	io-pins = <22>, <23>, <32>, <21>;
+	csn-pins = <18>;
+	mx25r64: mx25r6435f@0 {
+		compatible = "nordic,qspi-nor";
+		reg = <0>;
+		writeoc = "pp4io";
+		readoc = "read4io";
+		sck-frequency = <8000000>;
+		label = "MX25R64";
+		jedec-id = [c2 28 17];
+		size = <67108864>;
+		has-be32k;
+		has-dpd;
+		t-enter-dpd = <10000>;
+		t-exit-dpd = <35000>;
+	};
+};
+*/
 
 &flash0 {
 	/*
@@ -231,18 +320,16 @@
 		};
 		slot0_partition: partition@10000 {
 			label = "image-0";
-			reg = <0x000010000 0x000074000>;
+			reg = <0x000010000 0x00006c000>;
 		};
-		slot1_partition: partition@84000 {
+		slot1_partition: partition@7c000 {
 			label = "image-1";
-			reg = <0x00084000 0x000074000>;
+			reg = <0x0007c000 0x00006c000>;
 		};
-		/*
-        scratch_partition: partition@de000 {
+        scratch_partition: partition@e8000 {
 			label = "image-scratch";
-			reg = <0x000de000 0x0001a000>;
+			reg = <0x000e8000 0x00010000>;
 		};
-        */
 
 		/*
 		 * The flash starting at 0x000f8000 and ending at
@@ -254,12 +341,6 @@
 			label = "settings_store";
 			reg = <0x000f8000 0x00008000>;
 		};
-
-		/* Storage partition will be used by FCB/NFFS/NVS if enabled. */
-		/*storage_partition: partition@f8000 {
-			label = "storage";
-			reg = <0x000f8000 0x00008000>;
-		};*/
 	};
 };
 
