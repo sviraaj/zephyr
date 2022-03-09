@@ -1421,6 +1421,7 @@ static void modem_reset(void)
 		SETUP_CMD_NOHANDLE("ATH"),
 		/* extended error numbers */
 		SETUP_CMD_NOHANDLE("AT+CMEE=1"),
+		SETUP_CMD_NOHANDLE("AT+QCFG=\"nwscanmode\", 1"),
 		/* UNC messages for registration. Enable loc info as well */
 		SETUP_CMD_NOHANDLE("AT+CREG=2"),
 		/* HEX receive data mode */
@@ -1433,7 +1434,7 @@ static void modem_reset(void)
         /* Disable automatic NITZ updates
          * Interfering with CCLK set by QNTP?
          */
-		SETUP_CMD_NOHANDLE("AT+CTZU=0"),
+		//SETUP_CMD_NOHANDLE("AT+CTZU=0"),
 	};
 
 restart:
@@ -1485,9 +1486,9 @@ restart:
         goto error;
     }
 
-    k_sem_take(&mdata.mdm_lock, K_FOREVER);
+    k_sleep(K_SECONDS(2));
 
-    k_sleep(K_SECONDS(5));
+    k_sem_take(&mdata.mdm_lock, K_FOREVER);
 
 #if 0
     /* register operator automatically */
@@ -1511,16 +1512,16 @@ restart:
 	/* wait for +CREG: 1(normal) or 5(roaming) */
 	counter = 0;
     do {
-        k_sleep(K_SECONDS(20));
         ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0,
                      "AT+CREG?", &mdata.sem_response,
                      MDM_NETWORK_REG_TIMEOUT);
         if (ret < 0) {
             LOG_ERR("AT+CREG ret:%d", ret);
-            /* give semaphore */
+            // give semaphore
             k_sem_give(&mdata.mdm_lock);
             goto error;
         }
+        k_sleep(K_SECONDS(20));
     } while (counter++ < 20 && mdata.ev_creg != 1 && mdata.ev_creg != 5);
 
     /* give semaphore for rssi query to work */
