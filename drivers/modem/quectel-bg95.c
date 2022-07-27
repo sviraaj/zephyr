@@ -1418,10 +1418,12 @@ static void modem_reset(void)
 	static struct setup_cmd setup_cmds[] = {
 		/* turn off echo */
 		SETUP_CMD_NOHANDLE("ATE0"),
-		SETUP_CMD_NOHANDLE("ATH"),
+		//SETUP_CMD_NOHANDLE("ATH"),
 		/* extended error numbers */
+		SETUP_CMD_NOHANDLE("AT+CFUN=0"),
 		SETUP_CMD_NOHANDLE("AT+CMEE=1"),
 		SETUP_CMD_NOHANDLE("AT+QCFG=\"nwscanmode\", 1"),
+		SETUP_CMD_NOHANDLE("AT+CFUN=1"),
 		/* UNC messages for registration. Enable loc info as well */
 		SETUP_CMD_NOHANDLE("AT+CREG=2"),
 		/* HEX receive data mode */
