@@ -441,14 +441,25 @@ zephyr_udc0: &usbotg_hs {
 			reg = <0x00160000 DT_SIZE_K(128)>;
 		};
 
-		/* storage: 128KB for settings
+		/* storage: 128KB for settings   // this was overlaping so i created a new one so that it doesnot overlap
 		storage_partition: partition@20000 {
 			label = "storage";
 			reg = <0x00020000 0x00020000>;
 		};
-        */
+
+		
+        
 
         /* Storage partition will be used by nvs settings */
+
+		storage_partition: partition@180000 {
+			label = "storage";
+			compatible = "zephyr,nvs";  //yash-edit
+			reg = <0x00180000 DT_SIZE_K(32)>;  // or 32 kb allocated
+		};
+		
+
+
 		//settings_partition: partition@f8000 {
 		//	label = "settings_store";
 		//	reg = <0x000e0000 0x00020000>;
