@@ -461,18 +461,6 @@ zephyr_udc0: &usbotg_hs {
 
 		/* Storage partition will be used by nvs settings */
 		
-		//Yash_edit_for_dynamic_offset , tried to create a custom partition an duse it but gave error
-		
-		// temp_settings_partition: partition@d0000 {
-		// 	label = "temp_offset_storage";
-		// 	reg = <0x000d0000 0x00010000>;
-		// };
-
-		storage_partition: partition@f8000 {  //used this , commented previous one beacays=use its address was overlapping with slot0 opartition
-			label = "storage";
-			compatible = "zephyr,nvs";
-			reg = <0x000f8000 0x00008000>; // 32KB or adjust size as needed
-		};
 		
 		
 
