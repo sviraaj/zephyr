@@ -5,7 +5,7 @@
  */
 
 #include <stdbool.h>
-#include <fcntl.h>
+#include <zephyr/posix/fcntl.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_sock_mgmt, CONFIG_NET_SOCKETS_LOG_LEVEL);
@@ -13,7 +13,7 @@ LOG_MODULE_REGISTER(net_sock_mgmt, CONFIG_NET_SOCKETS_LOG_LEVEL);
 #include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/net/socket.h>
-#include <zephyr/syscall_handler.h>
+#include <zephyr/internal/syscall_handler.h>
 #include <zephyr/sys/fdtable.h>
 #include <zephyr/net/socket_net_mgmt.h>
 #include <zephyr/net/ethernet_mgmt.h>
@@ -31,7 +31,7 @@ __net_socket struct net_mgmt_socket {
 	uintptr_t pid;
 
 	/* net_mgmt mask */
-	uint32_t mask;
+	uint64_t mask;
 
 	/* Message allocation timeout */
 	k_timeout_t alloc_timeout;
@@ -69,7 +69,7 @@ int znet_mgmt_socket(int family, int type, int proto)
 		return -1;
 	}
 
-	fd = z_reserve_fd();
+	fd = zvfs_reserve_fd();
 	if (fd < 0) {
 		errno = ENOSPC;
 		return -1;
@@ -80,8 +80,8 @@ int znet_mgmt_socket(int family, int type, int proto)
 	mgmt->alloc_timeout = MSG_ALLOC_TIMEOUT;
 	mgmt->wait_timeout = K_FOREVER;
 
-	z_finalize_fd(fd, mgmt,
-		     (const struct fd_op_vtable *)&net_mgmt_sock_fd_op_vtable);
+	zvfs_finalize_typed_fd(fd, mgmt, (const struct fd_op_vtable *)&net_mgmt_sock_fd_op_vtable,
+			    ZVFS_MODE_IFSOCK);
 
 	return fd;
 }
@@ -145,7 +145,7 @@ static ssize_t znet_mgmt_recvfrom(struct net_mgmt_socket *mgmt, void *buf,
 {
 	struct sockaddr_nm *nm_addr = (struct sockaddr_nm *)src_addr;
 	k_timeout_t timeout = mgmt->wait_timeout;
-	uint32_t raised_event = 0;
+	uint64_t raised_event = 0;
 	uint8_t *copy_to = buf;
 	struct net_mgmt_msghdr hdr;
 	struct net_if *iface;
@@ -205,8 +205,12 @@ again:
 
 	if (info) {
 		ret = info_len + sizeof(hdr);
-		ret = MIN(max_len, ret);
-		memcpy(&copy_to[sizeof(hdr)], info, ret);
+		if (ret > max_len) {
+			errno = EMSGSIZE;
+			return -1;
+		}
+
+		memcpy(&copy_to[sizeof(hdr)], info, info_len);
 	} else {
 		ret = 0;
 	}
@@ -233,7 +237,7 @@ static int znet_mgmt_getsockopt(struct net_mgmt_socket *mgmt, int level,
 	}
 
 	if (IS_ENABLED(CONFIG_NET_L2_ETHERNET_MGMT)) {
-		if (optname == NET_REQUEST_ETHERNET_GET_QAV_PARAM) {
+		if (optname == SO_NET_MGMT_ETHERNET_GET_QAV_PARAM) {
 			int ret;
 
 			ret = net_mgmt(NET_REQUEST_ETHERNET_GET_QAV_PARAM,
@@ -270,7 +274,7 @@ static int znet_mgmt_setsockopt(struct net_mgmt_socket *mgmt, int level,
 	}
 
 	if (IS_ENABLED(CONFIG_NET_L2_ETHERNET_MGMT)) {
-		if (optname == NET_REQUEST_ETHERNET_SET_QAV_PARAM) {
+		if (optname == SO_NET_MGMT_ETHERNET_SET_QAV_PARAM) {
 			int ret;
 
 			ret = net_mgmt(NET_REQUEST_ETHERNET_SET_QAV_PARAM,
@@ -305,7 +309,8 @@ static ssize_t net_mgmt_sock_write(void *obj, const void *buffer,
 static int net_mgmt_sock_ioctl(void *obj, unsigned int request,
 			       va_list args)
 {
-	return 0;
+	errno = EOPNOTSUPP;
+	return -1;
 }
 
 static int net_mgmt_sock_bind(void *obj, const struct sockaddr *addr,

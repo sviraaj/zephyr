@@ -18,12 +18,13 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #define DT_DRV_COMPAT st_stm32_ethernet
 
 #include <sys/types.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/net/ethernet.h>
 #include <ethernet/eth.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/irq.h>
 
 #include "eth_dwmac_priv.h"
 
@@ -32,8 +33,8 @@ static const struct pinctrl_dev_config *eth0_pcfg =
 	PINCTRL_DT_INST_DEV_CONFIG_GET(0);
 
 static const struct stm32_pclken pclken = {
-	.bus = DT_INST_CLOCKS_CELL_BY_NAME(0, stmmaceth, bus),
-	.enr = DT_INST_CLOCKS_CELL_BY_NAME(0, stmmaceth, bits),
+	.bus = DT_CLOCKS_CELL_BY_NAME(DT_INST_PARENT(0), stm_eth, bus),
+	.enr = DT_CLOCKS_CELL_BY_NAME(DT_INST_PARENT(0), stm_eth, bits),
 };
 static const struct stm32_pclken pclken_tx = {
 	.bus = DT_INST_CLOCKS_CELL_BY_NAME(0, mac_clk_tx, bus),
@@ -50,9 +51,15 @@ int dwmac_bus_init(struct dwmac_priv *p)
 	int ret;
 
 	p->clock = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
-	ret  = clock_control_on(p->clock, (clock_control_subsys_t *)&pclken);
-	ret |= clock_control_on(p->clock, (clock_control_subsys_t *)&pclken_tx);
-	ret |= clock_control_on(p->clock, (clock_control_subsys_t *)&pclken_rx);
+
+	if (!device_is_ready(p->clock)) {
+		LOG_ERR("clock control device not ready");
+		return -ENODEV;
+	}
+
+	ret  = clock_control_on(p->clock, (clock_control_subsys_t)&pclken);
+	ret |= clock_control_on(p->clock, (clock_control_subsys_t)&pclken_tx);
+	ret |= clock_control_on(p->clock, (clock_control_subsys_t)&pclken_rx);
 	if (ret) {
 		LOG_ERR("Failed to enable ethernet clock");
 		return -EIO;
@@ -74,7 +81,7 @@ int dwmac_bus_init(struct dwmac_priv *p)
 	reg_val = sys_read32(reg_addr);
 	sys_write32(reg_val | 0x03800000, reg_addr);
 
-	p->base_addr = DT_INST_REG_ADDR(0);
+	p->base_addr = DT_REG_ADDR(DT_INST_PARENT(0));
 	return 0;
 }
 

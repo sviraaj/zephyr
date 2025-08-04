@@ -12,12 +12,14 @@
 #ifndef ZEPHYR_INCLUDE_DRIVERS_EDAC_H_
 #define ZEPHYR_INCLUDE_DRIVERS_EDAC_H_
 
-#include <sys/types.h>
+#include <errno.h>
 
-typedef void (*edac_notify_callback_f)(const struct device *dev, void *data);
+#include <sys/types.h>
 
 /**
  * @defgroup edac EDAC API
+ * @since 2.5
+ * @version 0.8.0
  * @ingroup io_interfaces
  * @{
  */
@@ -31,6 +33,14 @@ enum edac_error_type {
 	/** Uncorrectable error type */
 	EDAC_ERROR_TYPE_DRAM_UC = BIT(1)
 };
+
+/**
+ * @cond INTERNAL_HIDDEN
+ *
+ * For internal use only, skip these in public documentation.
+ */
+
+typedef void (*edac_notify_callback_f)(const struct device *dev, void *data);
 
 /**
  * @brief EDAC driver API
@@ -62,7 +72,16 @@ __subsystem struct edac_driver_api {
 			     edac_notify_callback_f cb);
 };
 
-/* Optional interfaces */
+/**
+ * INTERNAL_HIDDEN @endcond
+ */
+
+/**
+ * @name Optional interfaces
+ * @{
+ *
+ * EDAC Optional Interfaces
+ */
 
 /**
  * @brief Set injection parameter param1
@@ -229,7 +248,14 @@ static inline int edac_inject_error_trigger(const struct device *dev)
 	return api->inject_error_trigger(dev);
 }
 
-/* Mandatory interfaces */
+/** @} */ /* End of EDAC Optional Interfaces */
+
+/**
+ * @name Mandatory interfaces
+ * @{
+ *
+ * EDAC Mandatory Interfaces
+ */
 
 /**
  * @brief Get ECC Error Log
@@ -386,8 +412,9 @@ static inline int edac_notify_callback_set(const struct device *dev,
 	return api->notify_cb_set(dev, cb);
 }
 
-/**
- * @}
- */
+
+/** @} */ /* End of EDAC Mandatory Interfaces */
+
+/** @} */ /* End of EDAC API */
 
 #endif  /* ZEPHYR_INCLUDE_DRIVERS_EDAC_H_ */

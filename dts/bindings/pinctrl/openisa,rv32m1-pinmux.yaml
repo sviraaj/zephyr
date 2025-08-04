@@ -1,15 +1,15 @@
-description: RV32M1 pinmux node
+description: RV32M1 pinmux
 
 compatible: "openisa,rv32m1-pinmux"
 
 include: base.yaml
 
 properties:
-    reg:
-      required: true
+  reg:
+    required: true
 
-    clocks:
-      required: true
+  clocks:
+    required: true
 
 pinmux-cells:
   - pin

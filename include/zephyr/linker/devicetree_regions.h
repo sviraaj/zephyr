@@ -7,6 +7,13 @@
  * Generate memory regions from devicetree nodes.
  */
 
+#ifndef ZEPHYR_INCLUDE_LINKER_DEVICETREE_REGIONS_H_
+#define ZEPHYR_INCLUDE_LINKER_DEVICETREE_REGIONS_H_
+
+#include <zephyr/devicetree.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/toolchain.h>
+
 /**
  * @brief Get the linker memory-region name in a token form
  *
@@ -75,6 +82,66 @@
 #define LINKER_DT_NODE_REGION_NAME(node_id) \
 	STRINGIFY(LINKER_DT_NODE_REGION_NAME_TOKEN(node_id))
 
+#define _DT_MEMORY_REGION_FLAGS_TOKEN(n)    DT_STRING_TOKEN(n, zephyr_memory_region_flags)
+#define _DT_MEMORY_REGION_FLAGS_UNQUOTED(n) DT_STRING_UNQUOTED(n, zephyr_memory_region_flags)
+
+#define _LINKER_L_PAREN (
+#define _LINKER_R_PAREN )
+#define _LINKER_ENCLOSE_PAREN(x) _LINKER_L_PAREN x _LINKER_R_PAREN
+
+#define _LINKER_IS_EMPTY_TOKEN_          1
+#define _LINKER_IS_EMPTY_TOKEN_EXPAND(x) _LINKER_IS_EMPTY_TOKEN_##x
+#define _LINKER_IS_EMPTY_TOKEN(x)        _LINKER_IS_EMPTY_TOKEN_EXPAND(x)
+
+/**
+ * @brief Get the linker memory-region flags with parentheses.
+ *
+ * This attempts to return the zephyr,memory-region-flags property
+ * with parentheses.
+ * Return empty string if not set the property.
+ *
+ * Example devicetree fragment:
+ *
+ * @code{.dts}
+ *     / {
+ *             soc {
+ *                     rx: memory@2000000 {
+ *                             zephyr,memory-region = "READ_EXEC";
+ *                             zephyr,memory-region-flags = "rx";
+ *                     };
+ *                     rx_not_w: memory@2001000 {
+ *                             zephyr,memory-region = "READ_EXEC_NOT_WRITE";
+ *                             zephyr,memory-region-flags = "rx!w";
+ *                     };
+ *                     no_flags: memory@2001000 {
+ *                             zephyr,memory-region = "NO_FLAGS";
+ *                     };
+ *             };
+ *     };
+ * @endcode
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *    LINKER_DT_NODE_REGION_FLAGS(DT_NODELABEL(rx))       // (rx)
+ *    LINKER_DT_NODE_REGION_FLAGS(DT_NODELABEL(rx_not_w)) // (rx!w)
+ *    LINKER_DT_NODE_REGION_FLAGS(DT_NODELABEL(no_flags)) // [flags will not be specified]
+ * @endcode
+ *
+ * @param node_id node identifier
+ * @return the value of the memory region flag specified in the device tree
+ *         enclosed in parentheses.
+ */
+
+#define LINKER_DT_NODE_REGION_FLAGS(node_id)                                                       \
+	COND_CODE_1(DT_NODE_HAS_PROP(node_id, zephyr_memory_region_flags),                         \
+		    (COND_CODE_1(_LINKER_IS_EMPTY_TOKEN(_DT_MEMORY_REGION_FLAGS_TOKEN(node_id)),   \
+				 (),                                                               \
+				 (_LINKER_ENCLOSE_PAREN(                                           \
+					_DT_MEMORY_REGION_FLAGS_UNQUOTED(node_id))                 \
+				 ))),                                                              \
+		    (_LINKER_ENCLOSE_PAREN(rw)))
+
 /** @cond INTERNAL_HIDDEN */
 
 #define _DT_COMPATIBLE	zephyr_memory_region
@@ -84,8 +151,6 @@
 #define _DT_SECTION_END(node_id)	UTIL_CAT(_DT_SECTION_PREFIX(node_id), _end)
 #define _DT_SECTION_SIZE(node_id)	UTIL_CAT(_DT_SECTION_PREFIX(node_id), _size)
 #define _DT_SECTION_LOAD(node_id)	UTIL_CAT(_DT_SECTION_PREFIX(node_id), _load_start)
-
-#define _DT_ATTR(token)			UTIL_CAT(UTIL_CAT(REGION_, token), _ATTR)
 
 /**
  * @brief Declare a memory region
@@ -97,6 +162,7 @@
  *        compatible = "zephyr,memory-region", "mmio-sram";
  *        reg = < 0x20010000 0x1000 >;
  *        zephyr,memory-region = "FOOBAR";
+ *        zephyr,memory-region-flags = "rw";
  *    };
  * @endcode
  *
@@ -109,10 +175,11 @@
  * @param node_id devicetree node identifier
  * @param attr region attributes
  */
-#define _REGION_DECLARE(node_id)			\
-	LINKER_DT_NODE_REGION_NAME_TOKEN(node_id) :	\
-	ORIGIN = DT_REG_ADDR(node_id),			\
-	LENGTH = DT_REG_SIZE(node_id)
+#define _REGION_DECLARE(node_id)                                                                   \
+	LINKER_DT_NODE_REGION_NAME_TOKEN(node_id)                                                  \
+	LINKER_DT_NODE_REGION_FLAGS(node_id)                                                       \
+		: ORIGIN = DT_REG_ADDR(node_id),                                                   \
+		  LENGTH = DT_REG_SIZE(node_id)
 
 /**
  * @brief Declare a memory section from the device tree nodes with
@@ -131,7 +198,7 @@
  * will result in:
  *
  * @code{.unparsed}
- *    FOOBAR 0x20010000 (NOLOAD) :
+ *    FOOBAR (NOLOAD) :
  *    {
  *        __FOOBAR_start = .;
  *        KEEP(*(FOOBAR))
@@ -144,8 +211,9 @@
  *
  * @param node_id devicetree node identifier
  */
+/* clang-format off */
 #define _SECTION_DECLARE(node_id)								\
-	LINKER_DT_NODE_REGION_NAME_TOKEN(node_id) DT_REG_ADDR(node_id) (NOLOAD) :		\
+	LINKER_DT_NODE_REGION_NAME_TOKEN(node_id) (NOLOAD) :					\
 	{											\
 		_DT_SECTION_START(node_id) = .;							\
 		KEEP(*(LINKER_DT_NODE_REGION_NAME_TOKEN(node_id)))				\
@@ -154,35 +222,7 @@
 	} > LINKER_DT_NODE_REGION_NAME_TOKEN(node_id)						\
 	_DT_SECTION_SIZE(node_id) = _DT_SECTION_END(node_id) - _DT_SECTION_START(node_id);	\
 	_DT_SECTION_LOAD(node_id) = LOADADDR(LINKER_DT_NODE_REGION_NAME_TOKEN(node_id));
-
-/**
- * Call the user-provided MPU_FN() macro passing the expected arguments
- */
-#define _EXPAND_MPU_FN(node_id, MPU_FN, ...)					\
-	MPU_FN(LINKER_DT_NODE_REGION_NAME(node_id),				\
-	       DT_REG_ADDR(node_id),						\
-	       DT_REG_SIZE(node_id),						\
-	       _DT_ATTR(DT_STRING_TOKEN(node_id, zephyr_memory_region_mpu))),
-
-/**
- * Check that the node_id has both properties:
- *  - zephyr,memory-region-mpu
- *  - zephyr,memory-region
- *
- * and call the EXPAND_MPU_FN() macro
- */
-#define _CHECK_ATTR_FN(node_id, EXPAND_MPU_FN, ...)					\
-	COND_CODE_1(UTIL_AND(DT_NODE_HAS_PROP(node_id, zephyr_memory_region_mpu),	\
-			     DT_NODE_HAS_PROP(node_id, zephyr_memory_region)),		\
-		   (EXPAND_MPU_FN(node_id, __VA_ARGS__)),				\
-		   ())
-
-/**
- * Call _CHECK_ATTR_FN() for each enabled node passing EXPAND_MPU_FN() as
- * explicit argument and the user-provided MPU_FN() macro in __VA_ARGS__
- */
-#define _CHECK_APPLY_FN(compat, EXPAND_MPU_FN, ...)					\
-	DT_FOREACH_STATUS_OKAY_VARGS(compat, _CHECK_ATTR_FN, EXPAND_MPU_FN, __VA_ARGS__)
+/* clang-format on */
 
 /** @endcond */
 
@@ -204,77 +244,4 @@
 #define LINKER_DT_SECTIONS() \
 	DT_FOREACH_STATUS_OKAY(_DT_COMPATIBLE, _SECTION_DECLARE)
 
-/**
- * @brief Generate MPU regions from the device tree nodes with compatible
- *        'zephyr,memory-region' and 'zephyr,memory-region-mpu' attribute.
- *
- * Helper macro to apply an MPU_FN macro to all the memory regions declared
- * using the 'zephyr,memory-region-mpu' property and the 'zephyr,memory-region'
- * compatible.
- *
- * @p MPU_FN must take the form:
- *
- * @code{.c}
- *   #define MPU_FN(name, base, size, attr) ...
- * @endcode
- *
- * The 'name', 'base' and 'size' parameters are taken from the DT node.
- *
- * The 'zephyr,memory-region-mpu' enum property is passed as an extended token
- * to the MPU_FN macro using the 'attr' parameter, in the form
- * REGION_{attr}_ATTR.
- *
- * Currently only three enums are supported for the 'zephyr,memory-region-mpu'
- * property:
- *
- *  - RAM
- *  - RAM_NOCACHE
- *  - FLASH
- *
- * This means that usually the arch code would provide some macros or defines
- * with the same name of the extended property, that is:
- *
- *  - REGION_RAM_ATTR
- *  - REGION_RAM_NOCACHE_ATTR
- *  - REGION_FLASH_ATTR
- *
- * Example devicetree fragment:
- *
- *     / {
- *             soc {
- *                     sram1: memory@2000000 {
- *                         zephyr,memory-region = "MY_NAME";
- *                         zephyr,memory-region-mpu = "RAM_NOCACHE";
- *                     };
- *             };
- *     };
- *
- * The 'attr' parameter of the MPU_FN function will be the extended
- * 'REGION_RAM_NOCACHE_ATTR' token and the arch code will be usually
- * implementing a macro with the same name.
- *
- * Example:
- *
- * @code{.c}
- *
- *   #define REGION_RAM_NOCACHE_ATTR 0xAAAA
- *   #define REGION_RAM_ATTR         0xBBBB
- *   #define REGION_FLASH_ATTR       0xCCCC
- *
- *   #define MPU_FN(p_name, p_base, p_size, p_attr) \
- *       {                                          \
- *           .name = p_name,                        \
- *           .base = p_base,                        \
- *           .size = p_size,                        \
- *           .attr = p_attr,                        \
- *       }
- *
- *   static const struct arm_mpu_region mpu_regions[] = {
- *       ...
- *       LINKER_DT_REGION_MPU(MPU_FN)
- *       ...
- *   };
- * @endcode
- *
- */
-#define LINKER_DT_REGION_MPU(mpu_fn) _CHECK_APPLY_FN(_DT_COMPATIBLE, _EXPAND_MPU_FN, mpu_fn)
+#endif /* ZEPHYR_INCLUDE_LINKER_DEVICETREE_REGIONS_H_ */

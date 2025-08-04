@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2021, Piotr Mienkowski
+ * Copyright (c) 2023, Gerson Fernando Budke
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -31,8 +32,10 @@
 #include <soc.h>
 #include <zephyr/drivers/counter.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/drivers/clock_control/atmel_sam_pmc.h>
 
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(counter_sam_tc, CONFIG_COUNTER_LOG_LEVEL);
 
 #define MAX_ALARMS_PER_TC_CHANNEL 2
@@ -50,11 +53,11 @@ struct counter_sam_dev_cfg {
 	uint32_t reg_cmr;
 	uint32_t reg_rc;
 	void (*irq_config_func)(const struct device *dev);
+	const struct atmel_sam_pmc_config clock_cfg[TCCHANNEL_NUMBER];
 	const struct pinctrl_dev_config *pcfg;
 	uint8_t clk_sel;
 	bool nodivclk;
 	uint8_t tc_chan_num;
-	uint8_t periph_id[TCCHANNEL_NUMBER];
 };
 
 struct counter_sam_alarm_data {
@@ -71,14 +74,14 @@ struct counter_sam_dev_data {
 };
 
 static const uint32_t sam_tc_input_freq_table[] = {
-#if defined(CONFIG_SOC_SERIES_SAME70) || defined(CONFIG_SOC_SERIES_SAMV71)
+#if defined(CONFIG_SOC_SERIES_SAMX7X)
 	USEC_PER_SEC,
 	SOC_ATMEL_SAM_MCK_FREQ_HZ / 8,
 	SOC_ATMEL_SAM_MCK_FREQ_HZ / 32,
 	SOC_ATMEL_SAM_MCK_FREQ_HZ / 128,
 	32768,
 #elif defined(CONFIG_SOC_SERIES_SAM4L)
-	USEC_PER_SEC,
+	1024,
 	SOC_ATMEL_SAM_MCK_FREQ_HZ / 2,
 	SOC_ATMEL_SAM_MCK_FREQ_HZ / 8,
 	SOC_ATMEL_SAM_MCK_FREQ_HZ / 32,
@@ -316,12 +319,13 @@ static int counter_sam_initialize(const struct device *dev)
 
 	/* Connect pins to the peripheral */
 	retval = pinctrl_apply_state(dev_cfg->pcfg, PINCTRL_STATE_DEFAULT);
-	if (retval < 0) {
+	if (retval < 0 && retval != -ENOENT) {
 		return retval;
 	}
 
 	/* Enable channel's clock */
-	soc_pmc_peripheral_enable(dev_cfg->periph_id[dev_cfg->tc_chan_num]);
+	(void)clock_control_on(SAM_DT_PMC_CONTROLLER,
+			       (clock_control_subsys_t)&dev_cfg->clock_cfg[dev_cfg->tc_chan_num]);
 
 	/* Clock and Mode Selection */
 	tc_ch->TC_CMR = dev_cfg->reg_cmr;
@@ -339,7 +343,7 @@ static int counter_sam_initialize(const struct device *dev)
 	return 0;
 }
 
-static const struct counter_driver_api counter_sam_driver_api = {
+static DEVICE_API(counter, counter_sam_driver_api) = {
 	.start = counter_sam_tc_start,
 	.stop = counter_sam_tc_stop,
 	.get_value = counter_sam_tc_get_value,
@@ -383,7 +387,7 @@ static const struct counter_sam_dev_cfg counter_##n##_sam_config = { \
 	.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),		\
 	.nodivclk = DT_INST_PROP(n, nodivclk),			\
 	.tc_chan_num = DT_INST_PROP_OR(n, channel, 0),		\
-	.periph_id = DT_INST_PROP(n, peripheral_id),		\
+	.clock_cfg = SAM_DT_INST_CLOCKS_PMC_CFG(n),		\
 };								\
 								\
 static struct counter_sam_dev_data counter_##n##_sam_data;	\

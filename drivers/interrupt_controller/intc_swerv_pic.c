@@ -12,8 +12,10 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/arch/cpu.h>
-#include <zephyr/init.h>
+#include <zephyr/device.h>
 #include <zephyr/sw_isr_table.h>
+#include <zephyr/irq.h>
+#include <zephyr/arch/riscv/irq.h>
 
 #define SWERV_PIC_MAX_NUM	CONFIG_NUM_IRQS
 #define SWERV_PIC_MAX_ID	(SWERV_PIC_MAX_NUM + RISCV_MAX_GENERIC_IRQ)
@@ -118,7 +120,7 @@ static void swerv_pic_irq_handler(const void *arg)
 {
 	uint32_t tmp;
 	uint32_t irq;
-	struct _isr_table_entry *ite;
+	const struct _isr_table_entry *ite;
 
 	/* trigger the capture of the interrupt source ID */
 	__asm__ swerv_pic_writecsr(meicpct, 0);
@@ -134,16 +136,16 @@ static void swerv_pic_irq_handler(const void *arg)
 	irq += RISCV_MAX_GENERIC_IRQ;
 
 	/* Call the corresponding IRQ handler in _sw_isr_table */
-	ite = (struct _isr_table_entry *)&_sw_isr_table[irq];
-	if (ite->isr)
+	ite = (const struct _isr_table_entry *)&_sw_isr_table[irq];
+	if (ite->isr) {
 		ite->isr(ite->arg);
+	}
 
 	swerv_pic_write(SWERV_PIC_meigwclr(irq), 0);
 }
 
 static int swerv_pic_init(const struct device *dev)
 {
-	ARG_UNUSED(dev);
 	int i;
 
 	/* Init priority order to 0, 0=lowest to 15=highest */
@@ -175,14 +177,14 @@ static int swerv_pic_init(const struct device *dev)
 	__asm__ swerv_pic_writecsr(meicurpl, 0);
 
 	/* Setup IRQ handler for SweRV PIC driver */
-	IRQ_CONNECT(RISCV_MACHINE_EXT_IRQ,
+	IRQ_CONNECT(RISCV_IRQ_MEXT,
 		    0,
 		    swerv_pic_irq_handler,
 		    NULL,
 		    0);
 
 	/* Enable IRQ for SweRV PIC driver */
-	irq_enable(RISCV_MACHINE_EXT_IRQ);
+	irq_enable(RISCV_IRQ_MEXT);
 
 	return 0;
 }
@@ -227,12 +229,14 @@ int arch_irq_is_enabled(unsigned int irq)
 {
 	uint32_t mie;
 
-	if (irq > RISCV_MAX_GENERIC_IRQ)
+	if (irq > RISCV_MAX_GENERIC_IRQ) {
 		return swerv_pic_irq_is_enabled(irq);
+	}
 
 	__asm__ volatile ("csrr %0, mie" : "=r" (mie));
 
 	return !!(mie & (1 << irq));
 }
 
-SYS_INIT(swerv_pic_init, PRE_KERNEL_1, CONFIG_INTC_INIT_PRIORITY);
+DEVICE_DT_INST_DEFINE(0, swerv_pic_init, NULL,  NULL,  NULL,
+		      PRE_KERNEL_1, CONFIG_INTC_INIT_PRIORITY, NULL);

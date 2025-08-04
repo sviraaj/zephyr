@@ -77,7 +77,7 @@ int mqtt_client_websocket_connect(struct mqtt_client *client)
 		NET_ERR("Websocket connect failed (%d)",
 			 client->transport.websocket.sock);
 
-		(void)close(transport_sock);
+		(void)zsock_close(transport_sock);
 		return client->transport.websocket.sock;
 	}
 
@@ -150,14 +150,17 @@ int mqtt_client_websocket_read(struct mqtt_client *client, uint8_t *data,
 
 	ret = websocket_recv_msg(client->transport.websocket.sock,
 				 data, buflen, &message_type, NULL, timeout);
-	if (ret > 0 && message_type > 0) {
+	if (ret >= 0 && message_type > 0) {
 		if (message_type & WEBSOCKET_FLAG_CLOSE) {
 			return 0;
 		}
 
-		if (!(message_type & WEBSOCKET_FLAG_BINARY)) {
+		if ((ret == 0) || !(message_type & WEBSOCKET_FLAG_BINARY)) {
 			return -EAGAIN;
 		}
+	}
+	if (ret == -ENOTCONN) {
+		ret = 0;
 	}
 
 	return ret;
@@ -165,7 +168,23 @@ int mqtt_client_websocket_read(struct mqtt_client *client, uint8_t *data,
 
 int mqtt_client_websocket_disconnect(struct mqtt_client *client)
 {
+	int ret;
+
 	NET_INFO("Closing socket %d", client->transport.websocket.sock);
 
-	return websocket_disconnect(client->transport.websocket.sock);
+	ret = websocket_disconnect(client->transport.websocket.sock);
+	if (ret < 0) {
+		NET_DBG("Websocket disconnect failed (%d)", ret);
+	}
+
+	if (client->transport.type == MQTT_TRANSPORT_NON_SECURE_WEBSOCKET) {
+		ret = mqtt_client_tcp_disconnect(client);
+	}
+#if defined(CONFIG_MQTT_LIB_TLS)
+	else if (client->transport.type == MQTT_TRANSPORT_SECURE_WEBSOCKET) {
+		ret = mqtt_client_tls_disconnect(client);
+	}
+#endif
+
+	return ret;
 }

@@ -15,6 +15,14 @@ longer period of time, since this ensures that the object remains valid
 :c:func:`bt_conn_unref` API is to be used when releasing a reference
 to a connection.
 
+A common mistake is to forget unreleasing a reference to a connection
+object created by functions :c:func:`bt_conn_le_create` and
+:c:func:`bt_conn_le_create_synced`. To protect against this, use the
+:kconfig:option:`CONFIG_BT_CONN_CHECK_NULL_BEFORE_CREATE` Kconfig option,
+which forces these functions return an error if the connection pointer
+passed to them is not NULL. This helps to spot such issues and avoid
+sporadic bugs caused by not releasing the connection object.
+
 An application may track connections by registering a
 :c:struct:`bt_conn_cb` struct using the :c:func:`bt_conn_cb_register`
 or :c:macro:`BT_CONN_CB_DEFINE` APIs. This struct lets the application
@@ -22,7 +30,7 @@ define callbacks for connection & disconnection events, as well as other
 events related to a connection such as a change in the security level or
 the connection parameters. When acting as a central the application will
 also get hold of the connection object through the return value of the
-:c:func:`bt_conn_create_le` API.
+:c:func:`bt_conn_le_create` API.
 
 API Reference
 *************

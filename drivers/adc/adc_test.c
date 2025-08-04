@@ -37,7 +37,7 @@ static int vnd_adc_read_async(const struct device *dev,
 }
 #endif
 
-static const struct adc_driver_api vnd_adc_api = {
+static DEVICE_API(adc, vnd_adc_api) = {
 	.channel_setup = vnd_adc_channel_setup,
 	.read = vnd_adc_read,
 #ifdef CONFIG_ADC_ASYNC
@@ -45,14 +45,9 @@ static const struct adc_driver_api vnd_adc_api = {
 #endif
 };
 
-static int vnd_adc_init(const struct device *dev)
-{
-	return 0;
-}
-
 #define VND_ADC_INIT(n)						  \
-	DEVICE_DT_INST_DEFINE(n, &vnd_adc_init, NULL,		  \
-			      NULL, NULL, POST_KERNEL,		  \
+	DEVICE_DT_INST_DEFINE(n, NULL, NULL, NULL, NULL,	  \
+			      POST_KERNEL,			  \
 			      CONFIG_KERNEL_INIT_PRIORITY_DEVICE, \
 			      &vnd_adc_api);
 

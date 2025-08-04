@@ -1,8 +1,11 @@
 common:
   depends_on: netif
   min_ram: 21
-  tags: net socket userspace
-  filter: TOOLCHAIN_HAS_NEWLIB == 1
+  tags:
+    - net
+    - socket
+    - userspace
+  filter: CONFIG_FULL_LIBC_SUPPORTED
 tests:
   net.socket.select:
     extra_configs:

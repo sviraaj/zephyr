@@ -1,5 +1,3 @@
-set_property(GLOBAL PROPERTY CSTD gnu99)
-
 # List the warnings that are not supported for C++ compilations
 list(APPEND CXX_EXCLUDED_OPTIONS
   -Werror=implicit-int
@@ -16,7 +14,8 @@ list(APPEND CXX_EXCLUDED_OPTIONS
 set_compiler_property(PROPERTY no_optimization -O0)
 set_compiler_property(PROPERTY optimization_debug -O0)
 set_compiler_property(PROPERTY optimization_speed -O2)
-set_compiler_property(PROPERTY optimization_size  -Os)
+set_compiler_property(PROPERTY optimization_size -Os)
+set_compiler_property(PROPERTY optimization_fast -O3)
 
 #######################################################
 # This section covers flags related to warning levels #
@@ -28,11 +27,13 @@ set_compiler_property(PROPERTY warning_base
                       -Wformat
                       -Wformat-security
                       -Wno-format-zero-length
-                      -Wno-main-return-type
                       -Wno-unaligned-pointer-conversion
                       -Wno-incompatible-pointer-types-discards-qualifiers
                       -Wno-typedef-redefinition
 )
+
+# C implicit promotion rules will want to make floats into doubles very easily
+check_set_compiler_property(APPEND PROPERTY warning_base -Wdouble-promotion)
 
 check_set_compiler_property(APPEND PROPERTY warning_base -Wno-pointer-sign)
 
@@ -116,10 +117,9 @@ set_compiler_property(PROPERTY warning_error_misra_sane -Werror=vla)
 set_compiler_property(PROPERTY cstd -std=)
 
 if (NOT CONFIG_ARCMWDT_LIBC)
-  set_compiler_property(PROPERTY nostdinc -Hno_default_include -Hnoarcexlib)
+  set_compiler_property(PROPERTY nostdinc -Hno_default_include -Hnoarcexlib -U__STDC_LIB_EXT1__)
+  set_compiler_property(APPEND PROPERTY nostdinc_include ${NOSTDINC})
 endif()
-
-set_compiler_property(APPEND PROPERTY nostdinc_include ${NOSTDINC})
 
 # C++ std options
 set_property(TARGET compiler-cpp PROPERTY dialect_cpp98 "-std=c++98")
@@ -131,6 +131,13 @@ set_property(TARGET compiler-cpp PROPERTY dialect_cpp17 "-std=c++17")
 set_property(TARGET compiler-cpp PROPERTY dialect_cpp2a "")
 set_property(TARGET compiler-cpp PROPERTY dialect_cpp20 "")
 set_property(TARGET compiler-cpp PROPERTY dialect_cpp2b "")
+
+# Flag for disabling strict aliasing rule in C and C++
+set_compiler_property(PROPERTY no_strict_aliasing -fno-strict-aliasing)
+
+# Flags for set extra warnigs (ARCMWDT asm can't recognize --fatal-warnings. Skip it)
+set_property(TARGET compiler PROPERTY warnings_as_errors -Werror)
+set_property(TARGET asm PROPERTY warnings_as_errors -Werror)
 
 # Disable exceptions flag in C++
 set_property(TARGET compiler-cpp PROPERTY no_exceptions "-fno-exceptions")
@@ -146,7 +153,7 @@ set_property(TARGET compiler-cpp PROPERTY no_rtti "-fno-rtti")
 # do not link in supplied run-time startup files
 set_compiler_property(PROPERTY freestanding -Hnocrt)
 
-# Flag to enable debugging
+# Flag to keep DWARF information (enable debug info)
 set_compiler_property(PROPERTY debug -g)
 
 # compile common globals like normal definitions
@@ -159,23 +166,34 @@ set_compiler_property(PROPERTY coverage "")
 # mwdt compiler flags for imacros. The specific header must be appended by user.
 set_compiler_property(PROPERTY imacros -imacros)
 
-#no support of -fsanitize=address and -lasan
-set_compiler_property(PROPERTY sanitize_address "")
-
-set_compiler_property(PROPERTY sanitize_undefined "")
+# assembler compiler flags for imacros. The specific header must be appended by user.
+set_property(TARGET asm PROPERTY imacros -imacros)
 
 # Security canaries.
 #no support of -mstack-protector-guard=global"
-set_compiler_property(PROPERTY security_canaries -fstack-protector-all)
+set_compiler_property(PROPERTY security_canaries -fstack-protector)
+set_compiler_property(PROPERTY security_canaries_strong -fstack-protector-strong)
+set_compiler_property(PROPERTY security_canaries_all -fstack-protector-all)
 
 #no support of _FORTIFY_SOURCE"
-set_compiler_property(PROPERTY security_fortify "")
+set_compiler_property(PROPERTY security_fortify_compile_time)
+set_compiler_property(PROPERTY security_fortify_run_time)
 
 # Required C++ flags when using mwdt
-set_property(TARGET compiler-cpp PROPERTY required "-Hcplus" "-Hoff=Stackcheck_alloca")
+set_property(TARGET compiler-cpp PROPERTY required "-Hcplus" )
+
+if(CONFIG_ARC)
+  set_property(TARGET compiler-cpp PROPERTY required "-Hoff=Stackcheck_alloca")
+endif()
 
 # Compiler flag for turning off thread-safe initialization of local statics
 set_property(TARGET compiler-cpp PROPERTY no_threadsafe_statics "-fno-threadsafe-statics")
+
+# ARC MWDT does not support -fno-pic and -fno-pie flags,
+# but it has PIE disabled by default - so no extra flags are required here.
+set_compiler_property(PROPERTY no_position_independent "")
+
+set_compiler_property(PROPERTY no_global_merge "")
 
 #################################
 # This section covers asm flags #
@@ -183,3 +201,23 @@ set_property(TARGET compiler-cpp PROPERTY no_threadsafe_statics "-fno-threadsafe
 
 # Required ASM flags when using mwdt
 set_property(TARGET asm PROPERTY required "-Hasmcpp")
+
+if(CONFIG_ARCMWDT_LIBC)
+  # We rely on the default C/C++ include locations which are provided by MWDT if we do build with
+  # MW C / C++ libraries. However, for that case we still need to explicitly set header directory
+  # to ASM builds (which may use 'stdbool.h').
+  set_property(TARGET asm APPEND PROPERTY required "-I${NOSTDINC}")
+endif()
+
+# Update after testing that -Wshadow and -Wno-array-bounds works
+set_compiler_property(PROPERTY warning_shadow_variables)
+set_compiler_property(PROPERTY warning_no_array_bounds)
+
+set_compiler_property(PROPERTY no_builtin -fno-builtin)
+set_compiler_property(PROPERTY no_builtin_malloc -fno-builtin-malloc)
+
+# Compiler flag for not placing functions in their own sections:
+set_compiler_property(PROPERTY no_function_sections "-fno-function-sections")
+
+# Compiler flag for not placing variables in their own sections:
+set_compiler_property(PROPERTY no_data_sections "-fno-data-sections")

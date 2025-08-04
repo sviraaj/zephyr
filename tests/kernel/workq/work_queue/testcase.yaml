@@ -1,10 +1,13 @@
 tests:
   kernel.workqueue:
     min_flash: 34
-    tags: kernel
-  kernel.workqueue.linker_generator:
-    platform_allow: qemu_cortex_m3
+    tags:
+      - kernel
+      - workqueue
+  kernel.workqueue.work_timeout:
     min_flash: 34
-    tags: kernel linker_generator
+    tags:
+      - kernel
+      - workqueue
     extra_configs:
-      - CONFIG_CMAKE_LINKER_GENERATOR=y
+      - CONFIG_WORKQUEUE_WORK_TIMEOUT=y

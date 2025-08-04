@@ -13,6 +13,8 @@ LOG_MODULE_REGISTER(spi_xec, CONFIG_SPI_LOG_LEVEL);
 #include <errno.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/spi.h>
+#include <zephyr/drivers/spi/rtio.h>
+#include <zephyr/drivers/pinctrl.h>
 #include <soc.h>
 
 /* Device constant configuration parameters */
@@ -26,6 +28,8 @@ struct spi_qmspi_config {
 	uint8_t irq_pri;
 	uint8_t chip_sel;
 	uint8_t width;	/* 1(single), 2(dual), 4(quad) */
+	uint8_t unused;
+	const struct pinctrl_dev_config *pcfg;
 };
 
 /* Device run time data */
@@ -522,7 +526,7 @@ static int qmspi_transceive(const struct device *dev,
 	uint32_t descr, last_didx;
 	int err;
 
-	spi_context_lock(&data->ctx, false, NULL, config);
+	spi_context_lock(&data->ctx, false, NULL, NULL, config);
 
 	err = qmspi_configure(dev, config);
 	if (err != 0) {
@@ -625,6 +629,13 @@ static int qmspi_init(const struct device *dev)
 	const struct spi_qmspi_config *cfg = dev->config;
 	struct spi_qmspi_data *data = dev->data;
 	QMSPI_Type *regs = cfg->regs;
+	int ret;
+
+	ret = pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_DEFAULT);
+	if (ret != 0) {
+		LOG_ERR("QSPI pinctrl setup failed (%d)", ret);
+		return ret;
+	}
 
 	mchp_pcr_periph_slp_ctrl(PCR_QMSPI, MCHP_PCR_SLEEP_DIS);
 
@@ -646,10 +657,13 @@ static int qmspi_init(const struct device *dev)
 	return 0;
 }
 
-static const struct spi_driver_api spi_qmspi_driver_api = {
+static DEVICE_API(spi, spi_qmspi_driver_api) = {
 	.transceive = qmspi_transceive_sync,
 #ifdef CONFIG_SPI_ASYNC
 	.transceive_async = qmspi_transceive_async,
+#endif
+#ifdef CONFIG_SPI_RTIO
+	.iodev_submit = spi_rtio_iodev_default_submit,
 #endif
 	.release = qmspi_release,
 };
@@ -667,7 +681,9 @@ static const struct spi_driver_api spi_qmspi_driver_api = {
 				DT_INST_PROP(0, dldh),			\
 				DT_INST_PROP(0, dcsda))
 
-#if DT_NODE_HAS_STATUS(DT_INST(0, microchip_xec_qmspi), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_INST(0, microchip_xec_qmspi))
+
+PINCTRL_DT_INST_DEFINE(0);
 
 static const struct spi_qmspi_config spi_qmspi_0_config = {
 	.regs = (QMSPI_Type *)DT_INST_REG_ADDR(0),
@@ -677,7 +693,8 @@ static const struct spi_qmspi_config spi_qmspi_0_config = {
 	.girq_nvic_direct = MCHP_QMSPI_GIRQ_NVIC_DIRECT,
 	.irq_pri = DT_INST_IRQ(0, priority),
 	.chip_sel = DT_INST_PROP(0, chip_select),
-	.width = DT_INST_PROP(0, lines)
+	.width = DT_INST_PROP(0, lines),
+	.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(0),
 };
 
 static struct spi_qmspi_data spi_qmspi_0_dev_data = {
@@ -686,9 +703,9 @@ static struct spi_qmspi_data spi_qmspi_0_dev_data = {
 	SPI_CONTEXT_CS_GPIOS_INITIALIZE(DT_DRV_INST(0), ctx)
 };
 
-DEVICE_DT_INST_DEFINE(0,
-		    &qmspi_init, NULL, &spi_qmspi_0_dev_data,
+SPI_DEVICE_DT_INST_DEFINE(0,
+		    qmspi_init, NULL, &spi_qmspi_0_dev_data,
 		    &spi_qmspi_0_config, POST_KERNEL,
 		    CONFIG_SPI_INIT_PRIORITY, &spi_qmspi_driver_api);
 
-#endif /* DT_NODE_HAS_STATUS(DT_INST(0, microchip_xec_qmspi), okay) */
+#endif /* DT_NODE_HAS_STATUS_OKAY(DT_INST(0, microchip_xec_qmspi)) */

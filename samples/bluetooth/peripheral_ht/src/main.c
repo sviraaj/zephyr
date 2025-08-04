@@ -12,7 +12,7 @@
 #include <errno.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/byteorder.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
@@ -31,10 +31,14 @@ static const struct bt_data ad[] = {
 		      BT_UUID_16_ENCODE(BT_UUID_BAS_VAL)),
 };
 
+static const struct bt_data sd[] = {
+	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
+};
+
 static void connected(struct bt_conn *conn, uint8_t err)
 {
 	if (err) {
-		printk("Connection failed (err 0x%02x)\n", err);
+		printk("Connection failed, err 0x%02x %s\n", err, bt_hci_err_to_str(err));
 	} else {
 		printk("Connected\n");
 	}
@@ -42,7 +46,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
-	printk("Disconnected (reason 0x%02x)\n", reason);
+	printk("Disconnected, reason 0x%02x %s\n", reason, bt_hci_err_to_str(reason));
 }
 
 BT_CONN_CB_DEFINE(conn_callbacks) = {
@@ -58,7 +62,7 @@ static void bt_ready(void)
 
 	hts_init();
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
 	if (err) {
 		printk("Advertising failed to start (err %d)\n", err);
 		return;
@@ -93,14 +97,14 @@ static void bas_notify(void)
 	bt_bas_set_battery_level(battery_level);
 }
 
-void main(void)
+int main(void)
 {
 	int err;
 
 	err = bt_enable(NULL);
 	if (err) {
 		printk("Bluetooth init failed (err %d)\n", err);
-		return;
+		return 0;
 	}
 
 	bt_ready();
@@ -119,4 +123,5 @@ void main(void)
 		/* Battery level simulation */
 		bas_notify();
 	}
+	return 0;
 }

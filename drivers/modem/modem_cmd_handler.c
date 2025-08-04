@@ -15,7 +15,7 @@ LOG_MODULE_REGISTER(modem_cmd_handler, CONFIG_MODEM_LOG_LEVEL);
 
 #include <zephyr/kernel.h>
 #include <stddef.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 
 #include "modem_context.h"
 #include "modem_cmd_handler.h"
@@ -99,19 +99,14 @@ static bool starts_with(struct net_buf *buf, const char *str)
  * Cmd Handler Functions
  */
 
-static inline struct net_buf *read_rx_allocator(k_timeout_t timeout,
-						void *user_data)
-{
-	return net_buf_alloc((struct net_buf_pool *)user_data, timeout);
-}
-
 /* return scanned length for params */
 static int parse_params(struct modem_cmd_handler_data *data,  size_t match_len,
 			const struct modem_cmd *cmd,
 			uint8_t **argv, size_t argv_len, uint16_t *argc)
 {
 	int count = 0;
-	size_t begin, end, i;
+	size_t delim_len, begin, end, i;
+	bool quoted = false;
 
 	if (!data || !data->match_buf || !match_len || !cmd || !argv || !argc) {
 		return -EINVAL;
@@ -119,8 +114,18 @@ static int parse_params(struct modem_cmd_handler_data *data,  size_t match_len,
 
 	begin = cmd->cmd_len;
 	end = cmd->cmd_len;
+	delim_len = strlen(cmd->delim);
 	while (end < match_len) {
-		for (i = 0; i < strlen(cmd->delim); i++) {
+		/* Don't look for delimiters in the middle of a quoted parameter */
+		if (data->match_buf[end] == '"') {
+			quoted = !quoted;
+		}
+		if (quoted) {
+			end++;
+			continue;
+		}
+		/* Look for delimiter characters */
+		for (i = 0; i < delim_len; i++) {
 			if (data->match_buf[end] == cmd->delim[i]) {
 				/* mark a parameter beginning */
 				argv[*argc] = &data->match_buf[begin];
@@ -346,8 +351,8 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data)
 				/* Wait for more data */
 				break;
 			} else if (ret > 0) {
-				LOG_INF("match direct cmd [%s] (ret:%d)",
-					log_strdup(cmd->cmd), ret);
+				LOG_DBG("match direct cmd [%s] (ret:%d)",
+					cmd->cmd, ret);
 				data->rx_buf = net_buf_skip(data->rx_buf, ret);
 			}
 
@@ -385,7 +390,7 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data)
 		cmd = find_cmd_match(data);
 		if (cmd) {
 			LOG_DBG("match cmd [%s] (len:%zu)",
-				log_strdup(cmd->cmd), match_len);
+				cmd->cmd, match_len);
 
 			//ret = process_cmd(cmd, match_len, data);
 			ret = process_cmd(cmd, len, data);
@@ -394,7 +399,7 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data)
 				break;
 			} else if (ret < 0) {
 				LOG_ERR("process cmd [%s] (len:%zu, ret:%d)",
-					log_strdup(cmd->cmd), match_len, ret);
+					cmd->cmd, match_len, ret);
 			}
 
             /* break if extra processing required */
@@ -498,6 +503,34 @@ int modem_cmd_handler_update_cmds(struct modem_cmd_handler_data *data,
 	return 0;
 }
 
+int modem_cmd_handler_await(struct modem_cmd_handler_data *data,
+			    struct k_sem *sem, k_timeout_t timeout)
+{
+	int ret = k_sem_take(sem, timeout);
+
+	if (ret == 0) {
+		ret = modem_cmd_handler_get_error(data);
+	} else if (ret == -EAGAIN) {
+		ret = -ETIMEDOUT;
+	}
+
+	return ret;
+}
+
+int modem_cmd_send_data_nolock(struct modem_iface *iface,
+			       const uint8_t *buf, size_t len)
+{
+#if defined(CONFIG_MODEM_CONTEXT_VERBOSE_DEBUG)
+	if (len > 256) {
+		/* Truncate the message, since too long log messages gets dropped somewhere. */
+		LOG_HEXDUMP_DBG(buf, 256, "SENT DIRECT DATA (truncated)");
+	} else {
+		LOG_HEXDUMP_DBG(buf, len, "SENT DIRECT DATA");
+	}
+#endif
+	return iface->write(iface, buf, len);
+}
+
 int modem_cmd_send_ext(struct modem_iface *iface,
 		       struct modem_cmd_handler *handler,
 		       const struct modem_cmd *handler_cmds,
@@ -554,13 +587,7 @@ int modem_cmd_send_ext(struct modem_iface *iface,
 	iface->write(iface, data->eol, data->eol_len);
 
 	if (sem) {
-		ret = k_sem_take(sem, timeout);
-
-		if (ret == 0) {
-			ret = data->last_error;
-		} else if (ret == -EAGAIN) {
-			ret = -ETIMEDOUT;
-		}
+		ret = modem_cmd_handler_await(data, sem, timeout);
 	}
 
 	if (!(flags & MODEM_NO_UNSET_CMDS)) {
@@ -586,9 +613,6 @@ int modem_cmd_handler_setup_cmds(struct modem_iface *iface,
 	size_t i;
 
 	for (i = 0; i < cmds_len; i++) {
-		if (i) {
-			k_sleep(K_MSEC(50));
-		}
 
 		if (cmds[i].handle_cmd.cmd && cmds[i].handle_cmd.func) {
 			ret = modem_cmd_send(iface, handler,
@@ -601,9 +625,11 @@ int modem_cmd_handler_setup_cmds(struct modem_iface *iface,
 					     sem, timeout);
 		}
 
+		k_sleep(K_MSEC(50));
+
 		if (ret < 0) {
 			LOG_ERR("command %s ret:%d",
-				log_strdup(cmds[i].send_cmd), ret);
+				cmds[i].send_cmd, ret);
 			break;
 		}
 	}
@@ -622,9 +648,6 @@ int modem_cmd_handler_setup_cmds_nolock(struct modem_iface *iface,
 	size_t i;
 
 	for (i = 0; i < cmds_len; i++) {
-		if (i) {
-			k_sleep(K_MSEC(50));
-		}
 
 		if (cmds[i].handle_cmd.cmd && cmds[i].handle_cmd.func) {
 			ret = modem_cmd_send_nolock(iface, handler,
@@ -637,9 +660,11 @@ int modem_cmd_handler_setup_cmds_nolock(struct modem_iface *iface,
 						    sem, timeout);
 		}
 
+		k_sleep(K_MSEC(50));
+
 		if (ret < 0) {
 			LOG_ERR("command %s ret:%d",
-				log_strdup(cmds[i].send_cmd), ret);
+				cmds[i].send_cmd, ret);
 			break;
 		}
 	}
@@ -665,25 +690,47 @@ void modem_cmd_handler_tx_unlock(struct modem_cmd_handler *handler)
 }
 
 int modem_cmd_handler_init(struct modem_cmd_handler *handler,
-			   struct modem_cmd_handler_data *data)
+			   struct modem_cmd_handler_data *data,
+			   const struct modem_cmd_handler_config *config)
 {
-	if (!handler || !data) {
+	/* Verify arguments */
+	if (handler == NULL || data == NULL || config == NULL) {
 		return -EINVAL;
 	}
 
-	if (!data->match_buf_len) {
+	/* Verify config */
+	if ((config->match_buf == NULL) ||
+	    (config->match_buf_len == 0) ||
+	    (config->buf_pool == NULL) ||
+	    (NULL != config->response_cmds && 0 == config->response_cmds_len) ||
+	    (NULL != config->unsol_cmds && 0 == config->unsol_cmds_len)) {
 		return -EINVAL;
 	}
 
-	if (data->eol == NULL) {
-		data->eol_len = 0;
-	} else {
-		data->eol_len = strlen(data->eol);
-	}
-
+	/* Assign data to command handler */
 	handler->cmd_handler_data = data;
+
+	/* Assign command process implementation to command handler */
 	handler->process = cmd_handler_process;
 
+	/* Store arguments */
+	data->match_buf = config->match_buf;
+	data->match_buf_len = config->match_buf_len;
+	data->buf_pool = config->buf_pool;
+	data->alloc_timeout = config->alloc_timeout;
+	data->eol = config->eol;
+	data->cmds[CMD_RESP] = config->response_cmds;
+	data->cmds_len[CMD_RESP] = config->response_cmds_len;
+	data->cmds[CMD_UNSOL] = config->unsol_cmds;
+	data->cmds_len[CMD_UNSOL] = config->unsol_cmds_len;
+
+	/* Process end of line */
+	data->eol_len = data->eol == NULL ? 0 : strlen(data->eol);
+
+	/* Store optional user data */
+	data->user_data = config->user_data;
+
+	/* Initialize command handler data members */
 	k_sem_init(&data->sem_tx_lock, 1, 1);
 	k_sem_init(&data->sem_parse_lock, 1, 1);
 

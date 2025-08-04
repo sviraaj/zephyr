@@ -4,20 +4,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <zephyr/kernel.h>
-#include <cmsis_os2.h>
+#include <zephyr/portability/cmsis_os2.h>
+#include <zephyr/portability/cmsis_types.h>
 
-#define TIMEOUT_TICKS   10
-#define STACKSZ         CONFIG_CMSIS_V2_THREAD_MAX_STACK_SIZE
+#define WAIT_TICKS    5
+#define TIMEOUT_TICKS (10 + WAIT_TICKS)
+#define STACKSZ       CONFIG_CMSIS_V2_THREAD_MAX_STACK_SIZE
 
 int max_mtx_cnt = CONFIG_CMSIS_V2_MUTEX_MAX_COUNT;
-const osMutexAttr_t mutex_attr = {
-	"myMutex",
-	osMutexRecursive | osMutexPrioInherit,
-	NULL,
-	0U
-};
+const osMutexAttr_t mutex_attr = {"myMutex", osMutexRecursive | osMutexPrioInherit, NULL, 0U};
 
 void cleanup_max_mutex(osMutexId_t *mutex_ids)
 {
@@ -49,7 +46,7 @@ void test_max_mutex(void)
 	}
 }
 
-void test_mutex(void)
+ZTEST(cmsis_mutex, test_mutex)
 {
 	osMutexId_t mutex_id = 0;
 	osThreadId_t id;
@@ -58,15 +55,13 @@ void test_mutex(void)
 
 	/* Try deleting invalid mutex object */
 	status = osMutexDelete(mutex_id);
-	zassert_true(status == osErrorParameter,
-		     "Invalid Mutex deleted unexpectedly!");
+	zassert_true(status == osErrorParameter, "Invalid Mutex deleted unexpectedly!");
 
 	mutex_id = osMutexNew(&mutex_attr);
 	zassert_true(mutex_id != NULL, "Mutex1 creation failed");
 
 	name = osMutexGetName(mutex_id);
-	zassert_true(strcmp(mutex_attr.name, name) == 0,
-		     "Error getting Mutex name");
+	zassert_str_equal(mutex_attr.name, name, "Error getting Mutex name");
 
 	/* Try to release mutex without obtaining it */
 	status = osMutexRelease(mutex_id);
@@ -115,17 +110,16 @@ void tThread_entry_lock_timeout(void *arg)
 	 * by the other thread. Try with and without timeout.
 	 */
 	status = osMutexAcquire((osMutexId_t)arg, 0);
-	zassert_true(status == osErrorResource, NULL);
+	zassert_true(status == osErrorResource);
 
-	status = osMutexAcquire((osMutexId_t)arg, TIMEOUT_TICKS - 5);
-	zassert_true(status == osErrorTimeout, NULL);
+	status = osMutexAcquire((osMutexId_t)arg, WAIT_TICKS);
+	zassert_true(status == osErrorTimeout);
 
 	status = osMutexRelease((osMutexId_t)arg);
 	zassert_true(status == osErrorResource, "Mutex unexpectedly released");
 
 	id = osMutexGetOwner((osMutexId_t)arg);
-	zassert_not_equal(id, osThreadGetId(),
-			  "Unexpectedly, current thread is the mutex owner!");
+	zassert_not_equal(id, osThreadGetId(), "Unexpectedly, current thread is the mutex owner!");
 
 	/* This delay ensures that the mutex gets released by the other
 	 * thread in the meantime
@@ -136,24 +130,22 @@ void tThread_entry_lock_timeout(void *arg)
 	 * and release it.
 	 */
 	status = osMutexAcquire((osMutexId_t)arg, TIMEOUT_TICKS);
-	zassert_true(status == osOK, NULL);
+	zassert_true(status == osOK);
 	osMutexRelease((osMutexId_t)arg);
 }
 
 static K_THREAD_STACK_DEFINE(test_stack, STACKSZ);
-static osThreadAttr_t thread_attr = {
-	.name = "Mutex_check",
-	.attr_bits = osThreadDetached,
-	.cb_mem = NULL,
-	.cb_size = 0,
-	.stack_mem = &test_stack,
-	.stack_size = STACKSZ,
-	.priority = osPriorityNormal,
-	.tz_module = 0,
-	.reserved = 0
-};
+static osThreadAttr_t thread_attr = {.name = "Mutex_check",
+				     .attr_bits = osThreadDetached,
+				     .cb_mem = NULL,
+				     .cb_size = 0,
+				     .stack_mem = &test_stack,
+				     .stack_size = STACKSZ,
+				     .priority = osPriorityNormal,
+				     .tz_module = 0,
+				     .reserved = 0};
 
-void test_mutex_lock_timeout(void)
+ZTEST(cmsis_mutex, test_mutex_lock_timeout)
 {
 	osThreadId_t id;
 	osMutexId_t mutex_id;
@@ -177,3 +169,33 @@ void test_mutex_lock_timeout(void)
 
 	osMutexDelete(mutex_id);
 }
+
+static struct cmsis_rtos_mutex_cb mutex_cb2;
+static const osMutexAttr_t mutex_attrs2 = {
+	.name = "Mutex2",
+	.attr_bits = osMutexPrioInherit,
+	.cb_mem = &mutex_cb2,
+	.cb_size = sizeof(mutex_cb2),
+};
+ZTEST(cmsis_mutex, test_mutex_static_allocation)
+{
+	osMutexId_t id;
+
+	id = osMutexNew(&mutex_attrs2);
+	zassert_not_null(id, "Failed creating mutex using static cb");
+
+	zassert_true(osMutexDelete(id) == osOK, "osMutexDelete failed");
+}
+
+ZTEST(cmsis_mutex, test_mutex_static_multiple_new)
+{
+	osMutexId_t id;
+
+	for (int i = 0; i < 100; ++i) {
+		id = osMutexNew(&mutex_attrs2);
+		zassert_not_null(id, "Failed creating mutex using static cb");
+
+		zassert_true(osMutexDelete(id) == osOK, "osMutexDelete failed");
+	}
+}
+ZTEST_SUITE(cmsis_mutex, NULL, NULL, NULL, NULL, NULL);

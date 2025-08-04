@@ -14,13 +14,12 @@
  * HAL includes go first to
  * avoid BIT macro redefinition
  */
-#include <esp_spi_flash.h>
-#include <hal/spi_ll.h>
-#include <hal/spi_flash_ll.h>
-#include <hal/spi_flash_hal.h>
+#include <esp_flash.h>
+#include <spi_flash_mmap.h>
 #include <soc/spi_struct.h>
-#include <spi_flash_defs.h>
 #include <esp_flash_encrypt.h>
+#include <esp_flash_internal.h>
+#include <bootloader_flash_priv.h>
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
@@ -30,35 +29,19 @@
 #include <zephyr/drivers/flash.h>
 #include <soc.h>
 
-#if defined(CONFIG_SOC_ESP32)
-#include "soc/dport_reg.h"
-#include "esp32/rom/cache.h"
-#include "esp32/rom/spi_flash.h"
-#include "esp32/spiram.h"
-#elif defined(CONFIG_SOC_ESP32S2)
-#include "soc/spi_mem_reg.h"
-#include "esp32s2/rom/cache.h"
-#include "esp32s2/rom/spi_flash.h"
-#elif defined(CONFIG_SOC_ESP32C3)
-#include "soc/spi_periph.h"
-#include "soc/spi_mem_reg.h"
-#include "soc/dport_access.h"
-#include "esp32c3/dport_access.h"
-#include "esp32c3/rom/cache.h"
-#include "esp32c3/rom/spi_flash.h"
-#endif
-
-#include "soc/mmu.h"
-
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(flash_esp32, CONFIG_FLASH_LOG_LEVEL);
+
+#define FLASH_SEM_TIMEOUT (k_is_in_isr() ? K_NO_WAIT : K_FOREVER)
 
 struct flash_esp32_dev_config {
 	spi_dev_t *controller;
 };
 
 struct flash_esp32_dev_data {
+#ifdef CONFIG_MULTITHREADING
 	struct k_sem sem;
+#endif
 };
 
 static const struct flash_parameters flash_esp32_parameters = {
@@ -66,11 +49,12 @@ static const struct flash_parameters flash_esp32_parameters = {
 	.erase_value = 0xff,
 };
 
+#ifdef CONFIG_MULTITHREADING
 static inline void flash_esp32_sem_take(const struct device *dev)
 {
 	struct flash_esp32_dev_data *data = dev->data;
 
-	k_sem_take(&data->sem, K_FOREVER);
+	k_sem_take(&data->sem, FLASH_SEM_TIMEOUT);
 }
 
 static inline void flash_esp32_sem_give(const struct device *dev)
@@ -79,19 +63,97 @@ static inline void flash_esp32_sem_give(const struct device *dev)
 
 	k_sem_give(&data->sem);
 }
+#else
+
+#define flash_esp32_sem_take(dev) do {} while (0)
+#define flash_esp32_sem_give(dev) do {} while (0)
+
+#endif /* CONFIG_MULTITHREADING */
+
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/sys/util.h>
+#include <stdint.h>
+#include <string.h>
+
+#ifdef CONFIG_MCUBOOT
+#define READ_BUFFER_SIZE 32
+static bool flash_esp32_is_aligned(off_t address, void *buffer, size_t length)
+{
+	/* check if address, buffer pointer, and length are 4-byte aligned */
+	return ((address & 3) == 0) && (((uintptr_t)buffer & 3) == 0) && ((length & 3) == 0);
+}
+#endif
 
 static int flash_esp32_read(const struct device *dev, off_t address, void *buffer, size_t length)
 {
 	int ret = 0;
 
-	flash_esp32_sem_take(dev);
-	if (!esp_flash_encryption_enabled()) {
-		ret = spi_flash_read(address, buffer, length);
-	} else {
-		ret = spi_flash_read_encrypted(address, buffer, length);
+#ifdef CONFIG_MCUBOOT
+	uint8_t *dest_ptr = (uint8_t *)buffer;
+	size_t remaining = length;
+	size_t copy_size = 0;
+	size_t aligned_size = 0;
+	bool allow_decrypt = esp_flash_encryption_enabled();
+
+	if (flash_esp32_is_aligned(address, buffer, length)) {
+		ret = esp_rom_flash_read(address, buffer, length, allow_decrypt);
+		return (ret == ESP_OK) ? 0 : -EIO;
 	}
+
+	/* handle unaligned reading */
+	uint8_t __aligned(4) temp_buf[READ_BUFFER_SIZE + 8];
+	while (remaining > 0) {
+		size_t addr_offset = address & 3;
+		size_t buf_offset = (uintptr_t)dest_ptr & 3;
+
+		copy_size = (remaining > READ_BUFFER_SIZE) ? READ_BUFFER_SIZE : remaining;
+
+		if (addr_offset == 0 && buf_offset == 0 && copy_size >= 4) {
+			aligned_size = copy_size & ~3;
+			ret = esp_rom_flash_read(address, dest_ptr, aligned_size, allow_decrypt);
+			if (ret != ESP_OK) {
+				return -EIO;
+			}
+
+			address += aligned_size;
+			dest_ptr += aligned_size;
+			remaining -= aligned_size;
+		} else {
+			size_t start_addr = address - addr_offset;
+
+			aligned_size = (copy_size + addr_offset + 3) & ~3;
+
+			ret = esp_rom_flash_read(start_addr, temp_buf, aligned_size, allow_decrypt);
+			if (ret != ESP_OK) {
+				return -EIO;
+			}
+
+			memcpy(dest_ptr, temp_buf + addr_offset, copy_size);
+
+			address += copy_size;
+			dest_ptr += copy_size;
+			remaining -= copy_size;
+		}
+	}
+#else
+	flash_esp32_sem_take(dev);
+
+	if (esp_flash_encryption_enabled()) {
+		ret = esp_flash_read_encrypted(NULL, address, buffer, length);
+	} else {
+		ret = esp_flash_read(NULL, buffer, address, length);
+	}
+
 	flash_esp32_sem_give(dev);
-	return ret;
+#endif
+
+	if (ret != 0) {
+		LOG_ERR("Flash read error: %d", ret);
+		return -EIO;
+	}
+
+	return 0;
 }
 
 static int flash_esp32_write(const struct device *dev,
@@ -101,22 +163,51 @@ static int flash_esp32_write(const struct device *dev,
 {
 	int ret = 0;
 
-	flash_esp32_sem_take(dev);
-	if (!esp_flash_encryption_enabled()) {
-		ret = spi_flash_write(address, buffer, length);
-	} else {
-		ret = spi_flash_write_encrypted(address, buffer, length);
+#ifdef CONFIG_MCUBOOT
+	if (!flash_esp32_is_aligned(address, (void *)buffer, length)) {
+		LOG_ERR("Unaligned flash write is not supported");
+		return -EINVAL;
 	}
+
+	bool encrypt = esp_flash_encryption_enabled();
+
+	ret = esp_rom_flash_write(address, (void *)buffer, length, encrypt);
+#else
+	flash_esp32_sem_take(dev);
+
+	if (esp_flash_encryption_enabled()) {
+		ret = esp_flash_write_encrypted(NULL, address, buffer, length);
+	} else {
+		ret = esp_flash_write(NULL, buffer, address, length);
+	}
+
 	flash_esp32_sem_give(dev);
-	return ret;
+#endif
+
+	if (ret != 0) {
+		LOG_ERR("Flash write error: %d", ret);
+		return -EIO;
+	}
+
+	return 0;
 }
 
 static int flash_esp32_erase(const struct device *dev, off_t start, size_t len)
 {
+	int ret = 0;
+
+#ifdef CONFIG_MCUBOOT
+	ret = esp_rom_flash_erase_range(start, len);
+#else
 	flash_esp32_sem_take(dev);
-	int ret = spi_flash_erase_range(start, len);
+	ret = esp_flash_erase_region(NULL, start, len);
 	flash_esp32_sem_give(dev);
-	return ret;
+#endif
+	if (ret != 0) {
+		LOG_ERR("Flash erase error: %d", ret);
+		return -EIO;
+	}
+	return 0;
 }
 
 #if CONFIG_FLASH_PAGE_LAYOUT
@@ -144,14 +235,16 @@ flash_esp32_get_parameters(const struct device *dev)
 
 static int flash_esp32_init(const struct device *dev)
 {
+#ifdef CONFIG_MULTITHREADING
 	struct flash_esp32_dev_data *const dev_data = dev->data;
 
 	k_sem_init(&dev_data->sem, 1, 1);
+#endif /* CONFIG_MULTITHREADING */
 
 	return 0;
 }
 
-static const struct flash_driver_api flash_esp32_driver_api = {
+static DEVICE_API(flash, flash_esp32_driver_api) = {
 	.read = flash_esp32_read,
 	.write = flash_esp32_write,
 	.erase = flash_esp32_erase,

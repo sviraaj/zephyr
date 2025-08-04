@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2016 Intel Corporation.
+ * Copyright 2024 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,6 +15,10 @@
 #include <zephyr/fs/fs_sys.h>
 #include <zephyr/sys/__assert.h>
 #include <ff.h>
+#include <diskio.h>
+#include <zfs_diskio.h> /* Zephyr specific FatFS API */
+#include <zephyr/logging/log.h>
+LOG_MODULE_DECLARE(fs, CONFIG_FS_LOG_LEVEL);
 
 #define FATFS_MAX_FILE_NAME 12 /* Uses 8.3 SFN */
 
@@ -64,6 +69,34 @@ static int translate_error(int error)
 	return -EIO;
 }
 
+static int translate_disk_error(int error)
+{
+	switch (error) {
+	case RES_OK:
+		return 0;
+	case RES_WRPRT:
+		return -EPERM;
+	case RES_PARERR:
+		return -EINVAL;
+	case RES_NOTRDY:
+	case RES_ERROR:
+		return -EIO;
+	}
+
+	return -EIO;
+}
+
+/* Converts a zephyr path like /SD:/foo into a path digestible by FATFS by stripping the
+ * leading slash, i.e. SD:/foo.
+ */
+static const char *translate_path(const char *path)
+{
+	/* this is guaranteed by the fs subsystem */
+	__ASSERT_NO_MSG(path[0] == '/');
+
+	return &path[1];
+}
+
 static uint8_t translate_flags(fs_mode_t flags)
 {
 	uint8_t fat_mode = 0;
@@ -97,10 +130,10 @@ static int fatfs_open(struct fs_file_t *zfp, const char *file_name,
 
 	fs_mode = translate_flags(mode);
 
-	res = f_open(zfp->filep, &file_name[1], fs_mode);
+	res = f_open(zfp->filep, translate_path(file_name), fs_mode);
 
 	if (res != FR_OK) {
-		k_mem_slab_free(&fatfs_filep_pool, &ptr);
+		k_mem_slab_free(&fatfs_filep_pool, ptr);
 		zfp->filep = NULL;
 	}
 
@@ -114,7 +147,7 @@ static int fatfs_close(struct fs_file_t *zfp)
 	res = f_close(zfp->filep);
 
 	/* Free file ptr memory */
-	k_mem_slab_free(&fatfs_filep_pool, &zfp->filep);
+	k_mem_slab_free(&fatfs_filep_pool, zfp->filep);
 	zfp->filep = NULL;
 
 	return translate_error(res);
@@ -125,7 +158,7 @@ static int fatfs_unlink(struct fs_mount_t *mountp, const char *path)
 	int res = -ENOTSUP;
 
 #if !defined(CONFIG_FS_FATFS_READ_ONLY)
-	res = f_unlink(&path[1]);
+	res = f_unlink(translate_path(path));
 
 	res = translate_error(res);
 #endif
@@ -142,14 +175,15 @@ static int fatfs_rename(struct fs_mount_t *mountp, const char *from,
 	FILINFO fno;
 
 	/* Check if 'to' path exists; remove it if it does */
-	res = f_stat(&to[1], &fno);
-	if (FR_OK == res) {
-		res = f_unlink(&to[1]);
-		if (FR_OK != res)
+	res = f_stat(translate_path(to), &fno);
+	if (res == FR_OK) {
+		res = f_unlink(translate_path(to));
+		if (res != FR_OK) {
 			return translate_error(res);
+		}
 	}
 
-	res = f_rename(&from[1], &to[1]);
+	res = f_rename(translate_path(from), translate_path(to));
 	res = translate_error(res);
 #endif
 
@@ -301,7 +335,7 @@ static int fatfs_mkdir(struct fs_mount_t *mountp, const char *path)
 	int res = -ENOTSUP;
 
 #if !defined(CONFIG_FS_FATFS_READ_ONLY)
-	res = f_mkdir(&path[1]);
+	res = f_mkdir(translate_path(path));
 	res = translate_error(res);
 #endif
 
@@ -320,10 +354,10 @@ static int fatfs_opendir(struct fs_dir_t *zdp, const char *path)
 		return -ENOMEM;
 	}
 
-	res = f_opendir(zdp->dirp, &path[1]);
+	res = f_opendir(zdp->dirp, translate_path(path));
 
 	if (res != FR_OK) {
-		k_mem_slab_free(&fatfs_dirp_pool, &ptr);
+		k_mem_slab_free(&fatfs_dirp_pool, ptr);
 		zdp->dirp = NULL;
 	}
 
@@ -355,7 +389,7 @@ static int fatfs_closedir(struct fs_dir_t *zdp)
 	res = f_closedir(zdp->dirp);
 
 	/* Free file ptr memory */
-	k_mem_slab_free(&fatfs_dirp_pool, &zdp->dirp);
+	k_mem_slab_free(&fatfs_dirp_pool, zdp->dirp);
 
 	return translate_error(res);
 }
@@ -366,7 +400,7 @@ static int fatfs_stat(struct fs_mount_t *mountp,
 	FRESULT res;
 	FILINFO fno;
 
-	res = f_stat(&path[1], &fno);
+	res = f_stat(translate_path(path), &fno);
 	if (res == FR_OK) {
 		entry->type = ((fno.fattrib & AM_DIR) ?
 			       FS_DIR_ENTRY_DIR : FS_DIR_ENTRY_FILE);
@@ -385,7 +419,7 @@ static int fatfs_statvfs(struct fs_mount_t *mountp,
 	FATFS *fs;
 	DWORD f_bfree = 0;
 
-	res = f_getfree(&mountp->mnt_point[1], &f_bfree, &fs);
+	res = f_getfree(translate_path(mountp->mnt_point), &f_bfree, &fs);
 	if (res != FR_OK) {
 		return -EIO;
 	}
@@ -414,7 +448,7 @@ static int fatfs_mount(struct fs_mount_t *mountp)
 {
 	FRESULT res;
 
-	res = f_mount((FATFS *)mountp->fs_data, &mountp->mnt_point[1], 1);
+	res = f_mount((FATFS *)mountp->fs_data, translate_path(mountp->mnt_point), 1);
 
 #if defined(CONFIG_FS_FATFS_MOUNT_MKFS)
 	if (res == FR_NO_FILESYSTEM &&
@@ -426,17 +460,17 @@ static int fatfs_mount(struct fs_mount_t *mountp)
 	    (mountp->flags & FS_MOUNT_FLAG_NO_FORMAT) == 0) {
 		uint8_t work[FF_MAX_SS];
 		MKFS_PARM mkfs_opt = {
-			.fmt = FM_FAT | FM_SFD,	/* Any suitable FAT */
+			.fmt = FM_ANY | FM_SFD,	/* Any suitable FAT */
 			.n_fat = 1,		/* One FAT fs table */
 			.align = 0,		/* Get sector size via diskio query */
 			.n_root = CONFIG_FS_FATFS_MAX_ROOT_ENTRIES,
 			.au_size = 0		/* Auto calculate cluster size */
 		};
 
-		res = f_mkfs(&mountp->mnt_point[1], &mkfs_opt, work, sizeof(work));
+		res = f_mkfs(translate_path(mountp->mnt_point), &mkfs_opt, work, sizeof(work));
 		if (res == FR_OK) {
 			res = f_mount((FATFS *)mountp->fs_data,
-					&mountp->mnt_point[1], 1);
+					translate_path(mountp->mnt_point), 1);
 		}
 	}
 #endif /* CONFIG_FS_FATFS_MOUNT_MKFS */
@@ -452,11 +486,51 @@ static int fatfs_mount(struct fs_mount_t *mountp)
 static int fatfs_unmount(struct fs_mount_t *mountp)
 {
 	FRESULT res;
+	DRESULT disk_res;
+	uint8_t param = DISK_IOCTL_POWER_OFF;
 
-	res = f_mount(NULL, &mountp->mnt_point[1], 0);
+	res = f_mount(NULL, translate_path(mountp->mnt_point), 0);
+	if (res != FR_OK) {
+		LOG_ERR("Unmount failed (%d)", res);
+		return translate_error(res);
+	}
+
+	/* Make direct disk IOCTL call to deinit disk */
+	disk_res = disk_ioctl(((FATFS *)mountp->fs_data)->pdrv, CTRL_POWER, &param);
+	if (disk_res != RES_OK) {
+		LOG_ERR("Could not power off disk (%d)", disk_res);
+		return translate_disk_error(disk_res);
+	}
+
+	return 0;
+}
+
+#if defined(CONFIG_FILE_SYSTEM_MKFS) && defined(CONFIG_FS_FATFS_MKFS)
+
+static MKFS_PARM def_cfg = {
+	.fmt = FM_ANY | FM_SFD,	/* Any suitable FAT */
+	.n_fat = 1,		/* One FAT fs table */
+	.align = 0,		/* Get sector size via diskio query */
+	.n_root = CONFIG_FS_FATFS_MAX_ROOT_ENTRIES,
+	.au_size = 0		/* Auto calculate cluster size */
+};
+
+static int fatfs_mkfs(uintptr_t dev_id, void *cfg, int flags)
+{
+	FRESULT res;
+	uint8_t work[FF_MAX_SS];
+	MKFS_PARM *mkfs_opt = &def_cfg;
+
+	if (cfg != NULL) {
+		mkfs_opt = (MKFS_PARM *)cfg;
+	}
+
+	res = f_mkfs((char *)dev_id, mkfs_opt, work, sizeof(work));
 
 	return translate_error(res);
 }
+
+#endif /* CONFIG_FILE_SYSTEM_MKFS && FS_FATFS_MKFS */
 
 /* File system interface */
 static const struct fs_file_system_t fatfs_fs = {
@@ -478,13 +552,87 @@ static const struct fs_file_system_t fatfs_fs = {
 	.mkdir = fatfs_mkdir,
 	.stat = fatfs_stat,
 	.statvfs = fatfs_statvfs,
+#if defined(CONFIG_FILE_SYSTEM_MKFS) && defined(CONFIG_FS_FATFS_MKFS)
+	.mkfs = fatfs_mkfs,
+#endif
 };
 
-static int fatfs_init(const struct device *dev)
-{
-	ARG_UNUSED(dev);
+#define DT_DRV_COMPAT zephyr_fstab_fatfs
 
-	return fs_register(FS_FATFS, &fatfs_fs);
+#define DEFINE_FS(inst)                                                                            \
+	BUILD_ASSERT(DT_INST_PROP(inst, disk_access), "FATFS needs disk-access");                  \
+	BUILD_ASSERT(!DT_INST_PROP(inst, read_only),                                               \
+		     "READ_ONLY not supported for individual instances see FS_FATFS_READ_ONLY");   \
+	BUILD_ASSERT(!DT_INST_PROP(inst, no_format),                                               \
+		     "NO_FORMAT not supported for individual instanzes FS_FATFS_MKFS");            \
+	static FATFS fs_data_##inst;                                                               \
+	struct fs_mount_t FS_FSTAB_ENTRY(DT_DRV_INST(inst)) = {                                    \
+		.type = FS_FATFS,                                                                  \
+		.mnt_point = DT_INST_PROP(inst, mount_point),                                      \
+		.fs_data = &fs_data_##inst,                                                        \
+		.storage_dev = NULL,                                                               \
+		.flags = FSTAB_ENTRY_DT_MOUNT_FLAGS(DT_DRV_INST(inst)),                            \
+	};
+
+DT_INST_FOREACH_STATUS_OKAY(DEFINE_FS);
+
+#ifdef CONFIG_FS_FATFS_FSTAB_AUTOMOUNT
+#define REFERENCE_MOUNT(inst) (&FS_FSTAB_ENTRY(DT_DRV_INST(inst))),
+
+static void automount_if_enabled(struct fs_mount_t *mountp)
+{
+	int ret = 0;
+
+	if ((mountp->flags & FS_MOUNT_FLAG_AUTOMOUNT) != 0) {
+		ret = fs_mount(mountp);
+		if (ret < 0) {
+			LOG_ERR("Error mounting filesystem: at %s: %d", mountp->mnt_point, ret);
+		} else {
+			LOG_DBG("FATFS Filesystem \"%s\" initialized", mountp->mnt_point);
+		}
+	}
+}
+#endif /* CONFIG_FS_FATFS_FSTAB_AUTOMOUNT */
+
+#if CONFIG_FS_FATFS_CUSTOM_MOUNT_POINT_COUNT
+const char *VolumeStr[CONFIG_FS_FATFS_CUSTOM_MOUNT_POINT_COUNT];
+#endif /* CONFIG_FS_FATFS_CUSTOM_MOUNT_POINT_COUNT */
+
+static int fatfs_init(void)
+{
+#if CONFIG_FS_FATFS_CUSTOM_MOUNT_POINT_COUNT
+	static char mount_points[] = CONFIG_FS_FATFS_CUSTOM_MOUNT_POINTS;
+	int mount_point_count = 0;
+
+	VolumeStr[0] = mount_points;
+	for (int i = 0; i < ARRAY_SIZE(mount_points) - 1; i++) {
+		if (mount_points[i] == ',') {
+			mount_points[i] = 0;
+			mount_point_count++;
+			if (mount_point_count >= ARRAY_SIZE(VolumeStr)) {
+				LOG_ERR("Mount point count not sufficient for defined mount "
+					"points.");
+				return -1;
+			}
+			VolumeStr[mount_point_count] = &mount_points[i + 1];
+		}
+	}
+#endif /* CONFIG_FS_FATFS_CUSTOM_MOUNT_POINT_COUNT */
+	int rc = fs_register(FS_FATFS, &fatfs_fs);
+
+#ifdef CONFIG_FS_FATFS_FSTAB_AUTOMOUNT
+	if (rc == 0) {
+		struct fs_mount_t *partitions[] = {DT_INST_FOREACH_STATUS_OKAY(REFERENCE_MOUNT)};
+
+		for (size_t i = 0; i < ARRAY_SIZE(partitions); i++) {
+			struct fs_mount_t *mpi = partitions[i];
+
+			automount_if_enabled(mpi);
+		}
+	}
+#endif /* CONFIG_FS_FATFS_FSTAB_AUTOMOUNT */
+
+	return rc;
 }
 
-SYS_INIT(fatfs_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+SYS_INIT(fatfs_init, POST_KERNEL, CONFIG_FILE_SYSTEM_INIT_PRIORITY);

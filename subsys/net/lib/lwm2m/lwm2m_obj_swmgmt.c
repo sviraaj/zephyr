@@ -187,9 +187,10 @@ static int callback_execute_not_defined(uint16_t obj_inst_id, uint8_t *args, uin
 	return -EINVAL;
 }
 
-static int callback_write_not_defined(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_inst_id,
-				      uint8_t *data, uint16_t data_len, bool last_block,
-				      size_t total_size)
+static int callback_write_not_defined(uint16_t obj_inst_id, uint16_t res_id,
+				      uint16_t res_inst_id, uint8_t *data,
+				      uint16_t data_len, bool last_block,
+				      size_t total_size, size_t offset)
 {
 	LOG_ERR("Callback not defined for inst %u", obj_inst_id);
 	return -EINVAL;
@@ -200,6 +201,45 @@ static void *callback_read_not_defined(uint16_t obj_inst_id, uint16_t res_id, ui
 {
 	LOG_ERR("Callback not defined for inst %u", obj_inst_id);
 	return NULL;
+}
+
+static void set_sw_update_state(struct lwm2m_swmgmt_data *instance, uint8_t state)
+{
+	int ret;
+	struct lwm2m_obj_path obj_path = LWM2M_OBJ(LWM2M_OBJECT_SOFTWARE_MANAGEMENT_ID,
+						   instance->obj_inst_id,
+						   SWMGMT_UPDATE_STATE_ID);
+
+	ret = lwm2m_set_u8(&obj_path, state);
+	if (ret != 0) {
+		LOG_ERR("Could not set state");
+	}
+}
+
+static void set_sw_update_result(struct lwm2m_swmgmt_data *instance, uint8_t result)
+{
+	int ret;
+	struct lwm2m_obj_path obj_path = LWM2M_OBJ(LWM2M_OBJECT_SOFTWARE_MANAGEMENT_ID,
+						   instance->obj_inst_id,
+						   SWMGMT_UPDATE_RESULT_ID);
+
+	ret = lwm2m_set_u8(&obj_path, result);
+	if (ret != 0) {
+		LOG_ERR("Could not set result");
+	}
+}
+
+static void set_sw_update_act_state(struct lwm2m_swmgmt_data *instance, bool state)
+{
+	int ret;
+	struct lwm2m_obj_path obj_path = LWM2M_OBJ(LWM2M_OBJECT_SOFTWARE_MANAGEMENT_ID,
+						   instance->obj_inst_id,
+						   SWMGMT_ACTIVATION_UPD_STATE_ID);
+
+	ret = lwm2m_set_bool(&obj_path, state);
+	if (ret != 0) {
+		LOG_ERR("Could not set activation state");
+	}
 }
 
 static struct lwm2m_swmgmt_data swmgmt_data[MAX_INSTANCE_COUNT] = { 0 };
@@ -350,8 +390,8 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 	case UPD_STATE_INITIAL:
 		switch (event) {
 		case EVENT_PKG_URI_WRITE:
-			instance->update_state = UPD_STATE_DOWNLOAD_STARTED;
-			instance->update_result = UPD_RES_DOWNLOADING;
+			set_sw_update_state(instance, UPD_STATE_DOWNLOAD_STARTED);
+			set_sw_update_result(instance, UPD_RES_DOWNLOADING);
 			ret = 0;
 			break;
 		default:
@@ -362,11 +402,11 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 	case UPD_STATE_DOWNLOAD_STARTED:
 		switch (event) {
 		case EVENT_PKG_WRITTEN:
-			instance->update_state = UPD_STATE_DOWNLOADED;
-			instance->update_result = UPD_RES_INITIAL;
+			set_sw_update_state(instance, UPD_STATE_DOWNLOADED);
+			set_sw_update_result(instance, UPD_RES_INITIAL);
 			break;
 		case EVENT_DOWNLOAD_FAILED:
-			instance->update_state = UPD_STATE_INITIAL;
+			set_sw_update_state(instance, UPD_STATE_INITIAL);
 
 			/* Inform the instance of DOWNLOAD_FAILED by calling
 			 * write_package_cb with a bunch of NULL parameters
@@ -381,12 +421,12 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 	case UPD_STATE_DOWNLOADED:
 		switch (event) {
 		case (EVENT_PKG_INTEGRITY_VERIFIED):
-			instance->update_state = UPD_STATE_DELIVERED;
-			instance->update_result = UPD_RES_INITIAL;
+			set_sw_update_state(instance, UPD_STATE_DELIVERED);
+			set_sw_update_result(instance, UPD_RES_INITIAL);
 			break;
 		case (EVENT_PKG_INTEGRITY_FAILED):
-			instance->update_state = UPD_STATE_INITIAL;
-			instance->update_result = UPD_RES_PACKAGE_INTEGRITY_CHECK_FAILURE;
+			set_sw_update_state(instance, UPD_STATE_INITIAL);
+			set_sw_update_result(instance, UPD_RES_PACKAGE_INTEGRITY_CHECK_FAILURE);
 			break;
 		default:
 			ret = -EINVAL;
@@ -407,20 +447,20 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 			break;
 
 		case EVENT_INSTALL_SUCCESSFUL:
-			instance->update_state = UPD_STATE_INSTALLED;
-			instance->update_result = UPD_RES_SW_SUCCESSFULLY_INSTALLED;
+			set_sw_update_state(instance, UPD_STATE_INSTALLED);
+			set_sw_update_result(instance, UPD_RES_SW_SUCCESSFULLY_INSTALLED);
 			instance->next_package_is_upgrade = false;
 			break;
 
 		case EVENT_INSTALL_FAIL:
-			instance->update_state = UPD_STATE_DELIVERED;
-			instance->update_result = UPD_RES_SW_INSTALLATION_FAILURE;
+			set_sw_update_state(instance, UPD_STATE_DELIVERED);
+			set_sw_update_result(instance, UPD_RES_SW_INSTALLATION_FAILURE);
 			break;
 
 		case EVENT_DELETE_PACKAGE:
 			ret = instance->delete_package_cb(instance->obj_inst_id, NULL, 0);
 			if (ret == 0) {
-				instance->update_state = UPD_STATE_INITIAL;
+				set_sw_update_state(instance, UPD_STATE_INITIAL);
 				/* update_result unchanged */
 			}
 			break;
@@ -435,24 +475,24 @@ static int handle_event(struct lwm2m_swmgmt_data *instance, uint8_t event)
 		case EVENT_ACTIVATE:
 			ret = instance->activate_cb(instance->obj_inst_id, NULL, 0);
 			if (ret == 0) {
-				instance->activation_state = true;
+				set_sw_update_act_state(instance, true);
 			}
 			break;
 		case EVENT_DEACTIVATE:
 			ret = instance->deactivate_cb(instance->obj_inst_id, NULL, 0);
 			if (ret == 0) {
-				instance->activation_state = false;
+				set_sw_update_act_state(instance, false);
 			}
 			break;
 		case EVENT_FOR_UPDATE:
 			instance->next_package_is_upgrade = true;
-			instance->update_state = UPD_STATE_INITIAL;
-			instance->update_result = UPD_RES_INITIAL;
+			set_sw_update_state(instance, UPD_STATE_INITIAL);
+			set_sw_update_result(instance, UPD_RES_INITIAL);
 		case EVENT_DELETE_PACKAGE:
 			ret = instance->delete_package_cb(instance->obj_inst_id, NULL, 0);
 			if (ret == 0) {
-				instance->update_state = UPD_STATE_INITIAL;
-				instance->update_result = UPD_RES_INITIAL;
+				set_sw_update_state(instance, UPD_STATE_INITIAL);
+				set_sw_update_result(instance, UPD_RES_INITIAL);
 			}
 			break;
 		default:
@@ -519,8 +559,10 @@ static int deactivate_cb(uint16_t obj_inst_id, uint8_t *args, uint16_t args_len)
 	return handle_event(instance, EVENT_DEACTIVATE);
 }
 
-static int package_write_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_inst_id,
-			    uint8_t *data, uint16_t data_len, bool last_block, size_t total_size)
+static int package_write_cb(uint16_t obj_inst_id, uint16_t res_id,
+			    uint16_t res_inst_id, uint8_t *data,
+			    uint16_t data_len, bool last_block,
+			    size_t total_size, size_t offset)
 {
 	int ret = -EINVAL;
 	struct lwm2m_swmgmt_data *instance = NULL;
@@ -540,17 +582,17 @@ static int package_write_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_
 		handle_event(instance, EVENT_DOWNLOAD_FAILED);
 		switch (ret) {
 		case -ENOMEM:
-			instance->update_result = UPD_RES_OUT_OF_MEMORY_DURING_DOWNLOAD;
+			set_sw_update_result(instance, UPD_RES_OUT_OF_MEMORY_DURING_DOWNLOAD);
 			break;
 		case -ENOSPC:
-			instance->update_result = UPD_RES_NOT_ENOUGH_STORAGE;
+			set_sw_update_result(instance, UPD_RES_NOT_ENOUGH_STORAGE);
 			ret = -EFBIG;
 			break;
 		case -EFAULT:
-			instance->update_result = UPD_RES_PACKAGE_INTEGRITY_CHECK_FAILURE;
+			set_sw_update_result(instance, UPD_RES_PACKAGE_INTEGRITY_CHECK_FAILURE);
 			break;
 		default:
-			instance->update_result = UPD_RES_LOST_CONNECTION_DURING_DOWNLOAD;
+			set_sw_update_result(instance, UPD_RES_LOST_CONNECTION_DURING_DOWNLOAD);
 			break;
 		}
 
@@ -592,21 +634,22 @@ static void set_update_result(uint16_t obj_inst_id, int error_code)
 
 	handle_event(instance, EVENT_DOWNLOAD_FAILED);
 	if (error_code == -ENOMEM) {
-		instance->update_result = UPD_RES_OUT_OF_MEMORY_DURING_DOWNLOAD;
+		set_sw_update_result(instance, UPD_RES_OUT_OF_MEMORY_DURING_DOWNLOAD);
 	} else if (error_code == -ENOSPC) {
-		instance->update_result = UPD_RES_NOT_ENOUGH_STORAGE;
+		set_sw_update_result(instance, UPD_RES_NOT_ENOUGH_STORAGE);
 	} else if (error_code == -EFAULT) {
-		instance->update_result = UPD_RES_PACKAGE_INTEGRITY_CHECK_FAILURE;
+		set_sw_update_result(instance, UPD_RES_PACKAGE_INTEGRITY_CHECK_FAILURE);
 	} else if (error_code == -ENOTSUP) {
-		instance->update_result = UPD_RES_INVALID_URI;
+		set_sw_update_result(instance, UPD_RES_INVALID_URI);
 	} else {
-		instance->update_result = UPD_RES_LOST_CONNECTION_DURING_DOWNLOAD;
+		set_sw_update_result(instance, UPD_RES_LOST_CONNECTION_DURING_DOWNLOAD);
 	}
 }
 
-static int package_uri_write_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_inst_id,
-				uint8_t *data, uint16_t data_len, bool last_block,
-				size_t total_size)
+static int package_uri_write_cb(uint16_t obj_inst_id, uint16_t res_id,
+				uint16_t res_inst_id, uint8_t *data,
+				uint16_t data_len, bool last_block,
+				size_t total_size, size_t offset)
 {
 #ifdef CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_SUPPORT
 	int error_code;
@@ -688,23 +731,23 @@ static struct lwm2m_engine_obj_inst *swmgmt_create(uint16_t obj_inst_id)
 #endif
 
 	/* initialize instance resource data */
-	INIT_OBJ_RES_DATA(SWMGMT_PACKAGE_NAME_ID, res[index], res_idx, res_inst[index],
-			  res_inst_idx, &instance->package_name, PACKAGE_NAME_LEN);
+	INIT_OBJ_RES_DATA_LEN(SWMGMT_PACKAGE_NAME_ID, res[index], res_idx, res_inst[index],
+			  res_inst_idx, &instance->package_name, PACKAGE_NAME_LEN, 0);
 
-	INIT_OBJ_RES(SWMGMT_PACKAGE_VERSION_ID, res[index], res_idx, res_inst[index], res_inst_idx,
-		     1, true, false, &instance->package_version, PACKAGE_VERSION_LEN,
-		     state_read_pkg_version, NULL, NULL, NULL, NULL);
+	INIT_OBJ_RES_LEN(SWMGMT_PACKAGE_VERSION_ID, res[index], res_idx, res_inst[index],
+			 res_inst_idx, 1, false, true, &instance->package_version,
+			 PACKAGE_VERSION_LEN, 0, state_read_pkg_version, NULL, NULL, NULL, NULL);
 
 	INIT_OBJ_RES_OPT(SWMGMT_PACKAGE_ID, res[index], res_idx, res_inst[index], res_inst_idx, 1,
-			 true, false, NULL, NULL, package_write_cb, NULL, NULL);
+			 false, false, NULL, NULL, NULL, package_write_cb, NULL);
 
 #ifdef CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_SUPPORT
 	INIT_OBJ_RES(SWMGMT_PACKAGE_URI_ID, res[index], res_idx, res_inst[index], res_inst_idx, 1,
-		     true, true, instance->package_uri, PACKAGE_URI_LEN, NULL, NULL, NULL,
+		     false, true, instance->package_uri, PACKAGE_URI_LEN, NULL, NULL, NULL,
 		     package_uri_write_cb, NULL);
 #else
 	INIT_OBJ_RES_OPT(SWMGMT_PACKAGE_URI_ID, res[index], res_idx, res_inst[index], res_inst_idx,
-			 1, true, false, NULL, NULL, package_uri_write_cb, NULL, NULL);
+			 1, false, true, NULL, NULL, NULL, package_uri_write_cb, NULL);
 #endif
 
 	INIT_OBJ_RES_EXECUTE(SWMGMT_INSTALL_ID, res[index], res_idx, install_cb);
@@ -741,7 +784,7 @@ static struct lwm2m_engine_obj_inst *swmgmt_create(uint16_t obj_inst_id)
 	return &inst[index];
 }
 
-static int lwm2m_swmgmt_init(const struct device *dev)
+static int lwm2m_swmgmt_init(void)
 {
 	swmgmt.obj_id = LWM2M_OBJECT_SOFTWARE_MANAGEMENT_ID;
 	swmgmt.version_major = SWMGMT_VERSION_MAJOR;
@@ -755,4 +798,4 @@ static int lwm2m_swmgmt_init(const struct device *dev)
 	return 0;
 }
 
-SYS_INIT(lwm2m_swmgmt_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+LWM2M_OBJ_INIT(lwm2m_swmgmt_init);

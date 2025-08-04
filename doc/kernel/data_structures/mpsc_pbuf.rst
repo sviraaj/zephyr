@@ -17,7 +17,7 @@ A :dfn:`MPSC Packet Buffer` has the following key properties:
 
 * Allocate, commit scheme used for packet producing.
 * Claim, free scheme used for packet consuming.
-* Allocator ensures that continue memory of requested length is allocated.
+* Allocator ensures that contiguous memory of requested length is allocated.
 * Following policies can be applied when requested space cannot be allocated:
 
   * **Overwrite** - oldest entries are dropped until requested amount of memory can
@@ -54,7 +54,7 @@ Header state:
 +-------+------+----------------------+
 
 Packet buffer space contains free space, valid user packets and internal skip
-packets. Internal skip packets indicates padding, e.g. at the of the buffer.
+packets. Internal skip packets indicates padding, e.g. at the end of the buffer.
 
 Allocation
 ^^^^^^^^^^

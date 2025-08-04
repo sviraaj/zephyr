@@ -7,7 +7,7 @@
 #ifndef _MACRO_PRIV_INC_
 #define _MACRO_PRIV_INC_
 
-#include <arch/arm64/tpidrro_el0.h>
+#include <zephyr/arch/arm64/tpidrro_el0.h>
 
 #ifdef _ASMLANGUAGE
 
@@ -22,7 +22,29 @@
 .endm
 
 /*
+ * Get CPU logic id by looking up cpu_node_list
+ * returns
+ *   xreg0: MPID
+ *   xreg1: logic id (0 ~ DT_CHILD_NUM_STATUS_OKAY(DT_PATH(cpus)) - 1)
+ * clobbers: xreg0, xreg1, xreg2, xreg3
+ */
+.macro get_cpu_logic_id xreg0, xreg1, xreg2, xreg3
+	get_cpu_id \xreg0
+	ldr	\xreg3, =cpu_node_list
+	mov	\xreg1, 0
+1:	ldr	\xreg2, [\xreg3, \xreg1, lsl 3]
+	cmp	\xreg2, \xreg0
+	beq	2f
+	add	\xreg1, \xreg1, 1
+	cmp	\xreg1, #DT_CHILD_NUM_STATUS_OKAY(DT_PATH(cpus))
+	bne	1b
+	b	.
+2:
+.endm
+
+/*
  * Get CPU pointer
+ * Note: keep in sync with `arch_curr_cpu` in include/zephyr/arch/arm64/arch_inlines.h
  */
 
 .macro get_cpu xreg0

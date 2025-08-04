@@ -6,13 +6,14 @@ on:
       - 'lib/libc/minimal/include/errno.h'
       - 'scripts/ci/errno.py'
 
+permissions:
+  contents: read
+
 jobs:
   check-errno:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/zephyrproject-rtos/ci:v0.23.3
-    env:
-      ZEPHYR_SDK_INSTALL_DIR: /opt/toolchains/zephyr-sdk-0.14.2
+      image: ghcr.io/zephyrproject-rtos/ci:v0.28.0
 
     steps:
       - name: Apply container owner mismatch workaround
@@ -24,7 +25,11 @@ jobs:
           git config --global --add safe.directory ${GITHUB_WORKSPACE}
 
       - name: checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Environment Setup
+        run: |
+          echo "ZEPHYR_SDK_INSTALL_DIR=/opt/toolchains/zephyr-sdk-$( cat SDK_VERSION )" >> $GITHUB_ENV
 
       - name: Run errno.py
         run: |

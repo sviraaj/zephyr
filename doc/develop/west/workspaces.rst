@@ -195,7 +195,7 @@ A workspace using this topology looks like this:
    │                                    │
    ├── modules/
    │   └── lib/
-   │       └── tinycbor/    # .git/ project from either the main manifest or some import.
+   │       └── zcbor/       # .git/ project from either the main manifest or some import.
    │
    └── zephyr/              # .git/ project
        └── west.yml         # This can be partially imported with lower precedence or ignored.
@@ -286,7 +286,7 @@ A workspace using this topology looks like this:
    │   └── west.yml        # main manifest with optional import(s) and override(s)
    ├── modules/
    │   └── lib/
-   │       └── tinycbor/   # .git/ project from either the main manifest or
+   │       └── zcbor/      # .git/ project from either the main manifest or
    │                       #       from some import
    │
    └── zephyr/             # .git/ project
@@ -321,3 +321,25 @@ v2.5.0 and its modules, then add the ``app1`` and ``app2`` projects:
 
 You can also do this "by hand" by copy/pasting :file:`zephyr/west.yml`
 as shown :ref:`above <west-t2>` for the T2 topology, with the same caveats.
+
+.. _workspace-as-git-repo:
+
+Not supported: workspace topdir as .git repository
+**************************************************
+
+Some users have asked for support making the workspace :ref:`topdir
+<west-workspace>` a git repository, like this example:
+
+.. code-block:: none
+
+   my-workspace/                  # workspace topdir
+   ├── .git/                      # puts the entire workspace in a git repository
+   ├── .west/                     # marks the location of the topdir
+   └── [ ... other projects ...]
+
+This is **not** an officially supported topology. As a design decision, west
+assumes that the workspace topdir itself is not a git repository.
+
+You may be able to make something like this "work" for yourself and your own
+goals. However, future versions of west might contain changes which can "break"
+your setup.

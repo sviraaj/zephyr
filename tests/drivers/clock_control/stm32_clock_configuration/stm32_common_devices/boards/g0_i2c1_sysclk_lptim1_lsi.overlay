@@ -75,3 +75,8 @@
 			<&rcc STM32_SRC_LSI LPTIM1_SEL(1)>;
 	status = "okay";
 };
+
+&adc1 {
+	/* Basic test only. ADC1 domain clock is set by the board DTS : SYSCLK */
+	status = "okay";
+};

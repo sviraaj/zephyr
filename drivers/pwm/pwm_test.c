@@ -10,7 +10,7 @@
  * devices for the "vnd,pwm" devicetree compatible used in test code.
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/drivers/pwm.h>
 
 #define DT_DRV_COMPAT vnd_pwm
@@ -48,7 +48,7 @@ static int vnd_pwm_get_cycles_per_sec(const struct device *dev,
 	return -ENOTSUP;
 }
 
-static const struct pwm_driver_api vnd_pwm_api = {
+static DEVICE_API(pwm, vnd_pwm_api) = {
 	.set_cycles = vnd_pwm_set_cycles,
 #ifdef CONFIG_PWM_CAPTURE
 	.configure_capture = vnd_pwm_configure_capture,
@@ -58,15 +58,8 @@ static const struct pwm_driver_api vnd_pwm_api = {
 	.get_cycles_per_sec = vnd_pwm_get_cycles_per_sec,
 };
 
-static int vnd_pwm_init(const struct device *dev)
-{
-	return 0;
-}
-
-#define VND_PWM_INIT(n)						  \
-	DEVICE_DT_INST_DEFINE(n, &vnd_pwm_init, NULL,		  \
-			      NULL, NULL, POST_KERNEL,		  \
-			      CONFIG_KERNEL_INIT_PRIORITY_DEVICE, \
-			      &vnd_pwm_api);
+#define VND_PWM_INIT(n)							       \
+	DEVICE_DT_INST_DEFINE(n, NULL, NULL, NULL, NULL, POST_KERNEL,	       \
+			      CONFIG_PWM_INIT_PRIORITY, &vnd_pwm_api);
 
 DT_INST_FOREACH_STATUS_OKAY(VND_PWM_INIT)

@@ -1,4 +1,4 @@
-description: TI LMP90xxx GPIO controller binding
+description: TI LMP90xxx GPIO Controller
 
 compatible: "ti,lmp90xxx-gpio"
 
@@ -7,11 +7,8 @@ include: [gpio-controller.yaml, base.yaml]
 on-bus: lmp90xxx
 
 properties:
-    label:
-      required: true
-
-    "#gpio-cells":
-      const: 2
+  "#gpio-cells":
+    const: 2
 
 gpio-cells:
   - pin

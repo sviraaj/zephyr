@@ -44,8 +44,9 @@ static int ps2_npcx_ch_configure(const struct device *dev,
 
 	ret = ps2_npcx_ctrl_configure(config->ps2_ctrl, config->channel_id,
 				      callback_isr);
-	if (ret != 0)
+	if (ret != 0) {
 		return ret;
+	}
 
 	return ps2_npcx_ctrl_enable_interface(config->ps2_ctrl,
 					      config->channel_id, 1);
@@ -95,7 +96,7 @@ static int ps2_npcx_channel_init(const struct device *dev)
 	return 0;
 }
 
-static const struct ps2_driver_api ps2_channel_npcx_driver_api = {
+static DEVICE_API(ps2, ps2_channel_npcx_driver_api) = {
 	.config = ps2_npcx_ch_configure,
 	.read = NULL,
 	.write = ps2_npcx_ch_write,

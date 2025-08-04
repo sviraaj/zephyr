@@ -10,7 +10,7 @@ LOG_MODULE_REGISTER(net_http_client_sample, LOG_LEVEL_DBG);
 #include <zephyr/net/net_ip.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/tls_credentials.h>
-#include <zephyr/net/http_client.h>
+#include <zephyr/net/http/client.h>
 
 #include "ca_certificate.h"
 
@@ -112,9 +112,9 @@ static int payload_cb(int sock, struct http_request *req, void *user_data)
 	return pos;
 }
 
-static void response_cb(struct http_response *rsp,
-			enum http_final_call final_data,
-			void *user_data)
+static int response_cb(struct http_response *rsp,
+		       enum http_final_call final_data,
+		       void *user_data)
 {
 	if (final_data == HTTP_DATA_MORE) {
 		LOG_INF("Partial data received (%zd bytes)", rsp->data_len);
@@ -124,6 +124,8 @@ static void response_cb(struct http_response *rsp,
 
 	LOG_INF("Response to %s", (const char *)user_data);
 	LOG_INF("Response status %s", rsp->http_status);
+
+	return 0;
 }
 
 static int connect_socket(sa_family_t family, const char *server, int port,
@@ -141,6 +143,8 @@ static int connect_socket(sa_family_t family, const char *server, int port,
 		LOG_ERR("Cannot connect to %s remote (%d)",
 			family == AF_INET ? "IPv4" : "IPv6",
 			-errno);
+		close(*sock);
+		*sock = -1;
 		ret = -errno;
 	}
 
@@ -356,24 +360,27 @@ static int run_queries(void)
 	return ret;
 }
 
-void main(void)
+int main(void)
 {
 	int iterations = CONFIG_NET_SAMPLE_SEND_ITERATIONS;
 	int i = 0;
-	int ret;
+	int ret = 0;
 
 	while (iterations == 0 || i < iterations) {
 		ret = run_queries();
 		if (ret < 0) {
-			exit(1);
+			ret = 1;
+			break;
 		}
 
 		if (iterations > 0) {
 			i++;
 			if (i >= iterations) {
+				ret = 0;
 				break;
 			}
 		} else {
+			ret = 0;
 			break;
 		}
 	}
@@ -382,5 +389,6 @@ void main(void)
 		k_sleep(K_FOREVER);
 	}
 
-	exit(0);
+	exit(ret);
+	return ret;
 }

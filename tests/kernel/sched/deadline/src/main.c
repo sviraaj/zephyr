@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include <zephyr/zephyr.h>
-#include <ztest.h>
-#include <zephyr/random/rand32.h>
+#include <zephyr/kernel.h>
+#include <zephyr/ztest.h>
+#include <zephyr/random/random.h>
 
 #define NUM_THREADS 8
 /* this should be large enough for us
@@ -13,14 +13,19 @@
  */
 #define STACK_SIZE (512 + CONFIG_TEST_EXTRA_STACK_SIZE)
 
+#define MSEC_TO_CYCLES(msec)  (int)(((uint64_t)(msec) * \
+				     (uint64_t)CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC) / \
+				    (uint64_t)MSEC_PER_SEC)
+
 struct k_thread worker_threads[NUM_THREADS];
+volatile struct k_thread *expected_thread;
 k_tid_t worker_tids[NUM_THREADS];
 
 K_THREAD_STACK_ARRAY_DEFINE(worker_stacks, NUM_THREADS, STACK_SIZE);
 
 int thread_deadlines[NUM_THREADS];
 
-/* The number of worker threads that ran, and and array of their
+/* The number of worker threads that ran, and array of their
  * indices in execution order
  */
 int n_exec;
@@ -48,9 +53,11 @@ void worker(void *p1, void *p2, void *p3)
 	}
 }
 
-void test_deadline(void)
+ZTEST(suite_deadline, test_deadline)
 {
 	int i;
+
+	n_exec = 0;
 
 	/* Create a bunch of threads at a single lower priority.  Give
 	 * them each a random deadline.  Sleep, and check that they
@@ -123,9 +130,11 @@ void yield_worker(void *p1, void *p2, void *p3)
 	zassert_true(n_exec == NUM_THREADS, "");
 
 	k_thread_abort(k_current_get());
+
+	CODE_UNREACHABLE;
 }
 
-void test_yield(void)
+ZTEST(suite_deadline, test_yield)
 {
 	/* Test that yield works across threads with the
 	 * same deadline and priority. This currently works by
@@ -177,7 +186,7 @@ void unqueue_worker(void *p1, void *p2, void *p3)
  *
  * @ingroup kernel_sched_tests
  */
-void test_unqueued(void)
+ZTEST(suite_deadline, test_unqueued)
 {
 	int i;
 
@@ -211,11 +220,105 @@ void test_unqueued(void)
 	}
 }
 
-void test_main(void)
+#if (CONFIG_MP_MAX_NUM_CPUS == 1)
+static void reschedule_wrapper(const void *param)
 {
-	ztest_test_suite(suite_deadline,
-			 ztest_unit_test(test_deadline),
-			 ztest_unit_test(test_yield),
-			 ztest_unit_test(test_unqueued));
-	ztest_run_test_suite(suite_deadline);
+	ARG_UNUSED(param);
+
+	k_reschedule();
 }
+
+static void test_reschedule_helper0(void *p1, void *p2, void *p3)
+{
+	/* 4. Reschedule brings us here */
+
+	zassert_true(expected_thread == _current, "");
+
+	expected_thread = &worker_threads[1];
+}
+
+static void test_reschedule_helper1(void *p1, void *p2, void *p3)
+{
+	void (*offload)(void (*f)(const void *p), const void *param) = p1;
+
+	/* 1. First helper expected to execute */
+
+	zassert_true(expected_thread == _current, "");
+
+	offload(reschedule_wrapper, NULL);
+
+	/* 2. Deadlines have not changed. Expected no changes */
+
+	zassert_true(expected_thread == _current, "");
+
+	k_thread_deadline_set(_current, MSEC_TO_CYCLES(1000));
+
+	/* 3. Deadline changed, but there was no reschedule */
+
+	zassert_true(expected_thread == _current, "");
+
+	expected_thread = &worker_threads[0];
+	offload(reschedule_wrapper, NULL);
+
+	/* 5. test_thread_reschedule_helper0 executed */
+
+	zassert_true(expected_thread == _current, "");
+}
+
+static void thread_offload(void (*f)(const void *p), const void *param)
+{
+	f(param);
+}
+
+ZTEST(suite_deadline, test_thread_reschedule)
+{
+	k_thread_create(&worker_threads[0], worker_stacks[0], STACK_SIZE,
+			test_reschedule_helper0,
+			thread_offload, NULL, NULL,
+			K_LOWEST_APPLICATION_THREAD_PRIO,
+			0, K_NO_WAIT);
+
+	k_thread_create(&worker_threads[1], worker_stacks[1], STACK_SIZE,
+			test_reschedule_helper1,
+			thread_offload, NULL, NULL,
+			K_LOWEST_APPLICATION_THREAD_PRIO,
+			0, K_NO_WAIT);
+
+	k_thread_deadline_set(&worker_threads[0], MSEC_TO_CYCLES(500));
+	k_thread_deadline_set(&worker_threads[1], MSEC_TO_CYCLES(10));
+
+	expected_thread = &worker_threads[1];
+
+	k_thread_join(&worker_threads[1], K_FOREVER);
+	k_thread_join(&worker_threads[0], K_FOREVER);
+
+#ifndef CONFIG_SMP
+	/*
+	 * When SMP is enabled, there is always a reschedule performed
+	 * at the end of the ISR.
+	 */
+	k_thread_create(&worker_threads[0], worker_stacks[0], STACK_SIZE,
+			test_reschedule_helper0,
+			irq_offload, NULL, NULL,
+			K_LOWEST_APPLICATION_THREAD_PRIO,
+			0, K_NO_WAIT);
+
+	k_thread_create(&worker_threads[1], worker_stacks[1], STACK_SIZE,
+			test_reschedule_helper1,
+			irq_offload, NULL, NULL,
+			K_LOWEST_APPLICATION_THREAD_PRIO,
+			0, K_NO_WAIT);
+
+	k_thread_deadline_set(&worker_threads[0], MSEC_TO_CYCLES(500));
+	k_thread_deadline_set(&worker_threads[1], MSEC_TO_CYCLES(10));
+
+	expected_thread = &worker_threads[1];
+
+	k_thread_join(&worker_threads[1], K_FOREVER);
+	k_thread_join(&worker_threads[0], K_FOREVER);
+
+#endif /* !CONFIG_SMP */
+}
+#endif /* CONFIG_MP_MAX_NUM_CPUS == 1 */
+
+ZTEST_SUITE(suite_deadline, NULL, NULL, NULL, NULL, NULL);

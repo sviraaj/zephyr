@@ -27,6 +27,7 @@ struct dma_stm32_stream {
 	uint32_t dst_size;
 	void *user_data; /* holds the client data */
 	dma_callback_t dma_callback;
+	bool cyclic;
 };
 
 struct dma_stm32_data {
@@ -43,6 +44,9 @@ struct dma_stm32_config {
 	uint8_t offset; /* position in the list of dmamux channel list */
 #endif
 	struct dma_stm32_stream *streams;
+#ifdef CONFIG_DMA_STM32U5
+	volatile uint32_t *linked_list_buffer;
+#endif
 };
 
 uint32_t dma_stm32_id_to_stream(uint32_t id);
@@ -51,7 +55,14 @@ uint32_t dma_stm32_slot_to_channel(uint32_t id);
 #endif
 
 typedef void (*dma_stm32_clear_flag_func)(DMA_TypeDef *DMAx);
+#if !defined(CONFIG_SOC_SERIES_STM32C0X) && \
+	!defined(CONFIG_SOC_SERIES_STM32G0X) && \
+	!defined(CONFIG_SOC_SERIES_STM32H7X) && \
+	!defined(CONFIG_SOC_SERIES_STM32U0X)
 typedef uint32_t (*dma_stm32_check_flag_func)(DMA_TypeDef *DMAx);
+#else
+typedef uint32_t (*dma_stm32_check_flag_func)(const DMA_TypeDef *DMAx);
+#endif
 
 bool dma_stm32_is_tc_active(DMA_TypeDef *DMAx, uint32_t id);
 void dma_stm32_clear_tc(DMA_TypeDef *DMAx, uint32_t id);
@@ -81,6 +92,7 @@ void stm32_dma_clear_stream_irq(DMA_TypeDef *dma, uint32_t id);
 bool stm32_dma_is_irq_happened(DMA_TypeDef *dma, uint32_t id);
 bool stm32_dma_is_unexpected_irq_happened(DMA_TypeDef *dma, uint32_t id);
 void stm32_dma_enable_stream(DMA_TypeDef *dma, uint32_t id);
+bool stm32_dma_is_enabled_stream(DMA_TypeDef *dma, uint32_t id);
 int stm32_dma_disable_stream(DMA_TypeDef *dma, uint32_t id);
 
 #if !defined(CONFIG_DMAMUX_STM32)

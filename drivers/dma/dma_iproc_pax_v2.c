@@ -22,6 +22,7 @@
 
 #define LOG_LEVEL CONFIG_DMA_LOG_LEVEL
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(dma_iproc_pax_v2);
 
 /* Driver runtime data for PAX DMA and RM */
@@ -413,10 +414,11 @@ static inline void set_ring_active(struct dma_iproc_pax_data *pd,
 	uint32_t val;
 
 	val = sys_read32(RM_RING_REG(pd, idx, RING_CONTROL));
-	if (active)
+	if (active) {
 		val |= RING_CONTROL_ACTIVE;
-	else
+	} else {
 		val &= ~RING_CONTROL_ACTIVE;
+	}
 	sys_write32(val, RM_RING_REG(pd, idx, RING_CONTROL));
 }
 
@@ -443,9 +445,9 @@ static int init_ring(struct dma_iproc_pax_data *pd, enum ring_idx idx)
 	sys_write32(RING_CONTROL_FLUSH, RM_RING_REG(pd, idx,
 						    RING_CONTROL));
 	do {
-		if (sys_read32(RM_RING_REG(pd, idx, RING_FLUSH_DONE)) &
-		    RING_FLUSH_DONE_MASK)
+		if (sys_read32(RM_RING_REG(pd, idx, RING_FLUSH_DONE)) & RING_FLUSH_DONE_MASK) {
 			break;
+		}
 		k_busy_wait(1);
 	} while (--timeout);
 
@@ -621,8 +623,9 @@ static int peek_ring_cmpl(const struct device *dev,
 	do {
 		wr_offs = sys_read32(RM_RING_REG(pd, idx,
 						 RING_CMPL_WRITE_PTR));
-		if (PAX_DMA_GET_CMPL_COUNT(wr_offs, rd_offs) >= pl_len)
+		if (PAX_DMA_GET_CMPL_COUNT(wr_offs, rd_offs) >= pl_len) {
 			break;
+		}
 		k_busy_wait(1);
 	} while (--timeout);
 
@@ -968,8 +971,9 @@ static int dma_iproc_pax_process_dma_blocks(const struct device *dev,
 						config->channel_direction,
 						block_config,
 						&non_hdr_bd_count);
-		if (ret)
+		if (ret) {
 			goto err;
+		}
 		block_config = block_config->next_block;
 	}
 
@@ -1077,7 +1081,7 @@ static int dma_iproc_pax_transfer_stop(const struct device *dev,
 	return 0;
 }
 
-static const struct dma_driver_api pax_dma_driver_api = {
+static DEVICE_API(dma, pax_dma_driver_api) = {
 	.config = dma_iproc_pax_configure,
 	.start = dma_iproc_pax_transfer_start,
 	.stop = dma_iproc_pax_transfer_stop,
@@ -1094,10 +1098,10 @@ static const struct dma_iproc_pax_cfg pax_dma_cfg = {
 };
 
 DEVICE_DT_INST_DEFINE(0,
-		    &dma_iproc_pax_init,
+		    dma_iproc_pax_init,
 		    NULL,
 		    &pax_dma_data,
 		    &pax_dma_cfg,
 		    POST_KERNEL,
-		    CONFIG_DMA_INIT_PRIORITY,
+		    CONFIG_DMA_IPROC_PAX_V2_INIT_PRIORITY,
 		    &pax_dma_driver_api);

@@ -6,15 +6,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <stddef.h>
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 #include <zephyr/bluetooth/buf.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/l2cap.h>
 
-static int l2cap_accept(struct bt_conn *conn, struct bt_l2cap_chan **chan)
+static int l2cap_accept(struct bt_conn *conn, struct bt_l2cap_server *server,
+			struct bt_l2cap_chan **chan)
 {
 	return -ENOSYS;
 }

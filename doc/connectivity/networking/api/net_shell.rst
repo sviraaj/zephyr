@@ -26,6 +26,8 @@ The following net-shell commands are implemented:
    resolve a DNS name. Only available if :kconfig:option:`CONFIG_DNS_RESOLVER` is set."
    "net events", "Enable network event monitoring. Only available if
    :kconfig:option:`CONFIG_NET_MGMT_EVENT_MONITOR` is set."
+   "net filter", "View network packet filter rules. Only available if
+   :kconfig:option:`CONFIG_NET_PKT_FILTER` is set."
    "net gptp", "Print information about gPTP support. Only available if
    :kconfig:option:`CONFIG_NET_GPTP` is set."
    "net iface", "Print information about network interfaces."
@@ -38,6 +40,9 @@ The following net-shell commands are implemented:
    "net ping", "Ping a network host."
    "net route", "Show IPv6 network routes. Only available if
    :kconfig:option:`CONFIG_NET_ROUTE` is set."
+   "net sockets", "Show network socket information and statistics. Only available if
+   :kconfig:option:`CONFIG_NET_SOCKETS_OBJ_CORE` and :kconfig:option:`CONFIG_OBJ_CORE`
+   are set."
    "net stats", "Show network statistics."
    "net tcp", "Connect/send data/close TCP connection. Only available if
    :kconfig:option:`CONFIG_NET_TCP` is set."

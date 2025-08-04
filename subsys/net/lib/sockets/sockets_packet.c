@@ -6,7 +6,7 @@
  */
 
 #include <stdbool.h>
-#include <fcntl.h>
+#include <zephyr/posix/fcntl.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_sock_packet, CONFIG_NET_SOCKETS_LOG_LEVEL);
@@ -18,7 +18,7 @@ LOG_MODULE_REGISTER(net_sock_packet, CONFIG_NET_SOCKETS_LOG_LEVEL);
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/ethernet.h>
-#include <zephyr/syscall_handler.h>
+#include <zephyr/internal/syscall_handler.h>
 #include <zephyr/sys/fdtable.h>
 
 #include "../../ip/net_stats.h"
@@ -40,41 +40,6 @@ static inline int k_fifo_wait_non_empty(struct k_fifo *fifo,
 	return k_poll(events, ARRAY_SIZE(events), timeout);
 }
 
-static int zpacket_socket(int family, int type, int proto)
-{
-	struct net_context *ctx;
-	int fd;
-	int ret;
-
-	fd = z_reserve_fd();
-	if (fd < 0) {
-		return -1;
-	}
-
-	if (proto == 0) {
-		if (type == SOCK_RAW) {
-			proto = IPPROTO_RAW;
-		}
-	}
-
-	ret = net_context_get(family, type, proto, &ctx);
-	if (ret < 0) {
-		z_free_fd(fd);
-		errno = -ret;
-		return -1;
-	}
-
-	/* Initialize user_data, all other calls will preserve it */
-	ctx->user_data = NULL;
-
-	/* recv_q and accept_q are in union */
-	k_fifo_init(&ctx->recv_q);
-	z_finalize_fd(fd, ctx,
-		      (const struct fd_op_vtable *)&packet_sock_fd_op_vtable);
-
-	return fd;
-}
-
 static void zpacket_received_cb(struct net_context *ctx,
 				struct net_pkt *pkt,
 				union net_ip_header *ip_hdr,
@@ -86,10 +51,10 @@ static void zpacket_received_cb(struct net_context *ctx,
 		user_data);
 
 	/* if pkt is NULL, EOF */
-	if (!pkt) {
+	if (pkt == NULL) {
 		struct net_pkt *last_pkt = k_fifo_peek_tail(&ctx->recv_q);
 
-		if (!last_pkt) {
+		if (last_pkt == NULL) {
 			/* If there're no packets in the queue, recv() may
 			 * be blocked waiting on it to become non-empty,
 			 * so cancel that wait.
@@ -109,6 +74,59 @@ static void zpacket_received_cb(struct net_context *ctx,
 	net_pkt_set_eof(pkt, false);
 
 	k_fifo_put(&ctx->recv_q, pkt);
+}
+
+
+static int zpacket_socket(int family, int type, int proto)
+{
+	struct net_context *ctx;
+	int fd;
+	int ret;
+
+	fd = zvfs_reserve_fd();
+	if (fd < 0) {
+		return -1;
+	}
+
+	if (proto != 0) {
+		/* For example in Linux, the protocol parameter can be given
+		 * as htons(ETH_P_ALL) to receive all the network packets.
+		 * So convert the proto field back to host byte order so that
+		 * we do not need to change the protocol field handling in
+		 * other part of the network stack.
+		 */
+		proto = ntohs(proto);
+	}
+
+	ret = net_context_get(family, type, proto, &ctx);
+	if (ret < 0) {
+		zvfs_free_fd(fd);
+		errno = -ret;
+		return -1;
+	}
+
+	/* Initialize user_data, all other calls will preserve it */
+	ctx->user_data = NULL;
+
+	/* recv_q and accept_q are in union */
+	k_fifo_init(&ctx->recv_q);
+
+	/* Register the callback so that the socket is able to receive packets
+	 * as soon as it's created.
+	 */
+	ret = net_context_recv(ctx, zpacket_received_cb, K_NO_WAIT,
+			       ctx->user_data);
+	if (ret < 0) {
+		net_context_put(ctx);
+		zvfs_free_fd(fd);
+		errno = -ret;
+		return -1;
+	}
+
+	zvfs_finalize_typed_fd(fd, ctx, (const struct fd_op_vtable *)&packet_sock_fd_op_vtable,
+			       ZVFS_MODE_IFSOCK);
+
+	return fd;
 }
 
 static int zpacket_bind_ctx(struct net_context *ctx,
@@ -136,6 +154,96 @@ static int zpacket_bind_ctx(struct net_context *ctx,
 	return 0;
 }
 
+static void zpacket_set_eth_pkttype(struct net_if *iface,
+				    struct sockaddr_ll *addr,
+				    struct net_linkaddr *lladdr)
+{
+	if (lladdr == NULL || lladdr->len == 0) {
+		return;
+	}
+
+	if (net_eth_is_addr_broadcast((struct net_eth_addr *)lladdr->addr)) {
+		addr->sll_pkttype = PACKET_BROADCAST;
+	} else if (net_eth_is_addr_multicast(
+			   (struct net_eth_addr *)lladdr->addr)) {
+		addr->sll_pkttype = PACKET_MULTICAST;
+	} else if (!net_linkaddr_cmp(net_if_get_link_addr(iface), lladdr)) {
+		addr->sll_pkttype = PACKET_HOST;
+	} else {
+		addr->sll_pkttype = PACKET_OTHERHOST;
+	}
+}
+
+static void zpacket_set_source_addr(struct net_context *ctx,
+				    struct net_pkt *pkt,
+				    struct sockaddr *src_addr,
+				    socklen_t *addrlen)
+{
+	struct sockaddr_ll addr = {0};
+	struct net_if *iface = net_context_get_iface(ctx);
+
+	if (iface == NULL) {
+		return;
+	}
+
+	addr.sll_family = AF_PACKET;
+	addr.sll_ifindex = net_if_get_by_iface(iface);
+
+	if (net_pkt_is_l2_processed(pkt)) {
+		/* L2 has already processed the packet - can copy information
+		 * directly from the net_pkt structure
+		 */
+		addr.sll_halen = pkt->lladdr_src.len;
+		memcpy(addr.sll_addr, pkt->lladdr_src.addr,
+		       MIN(sizeof(addr.sll_addr), pkt->lladdr_src.len));
+
+		addr.sll_protocol = htons(net_pkt_ll_proto_type(pkt));
+
+		if (net_if_get_link_addr(iface)->type == NET_LINK_ETHERNET) {
+			addr.sll_hatype = ARPHRD_ETHER;
+			zpacket_set_eth_pkttype(iface, &addr,
+						net_pkt_lladdr_dst(pkt));
+		}
+	} else if (net_if_get_link_addr(iface)->type == NET_LINK_ETHERNET) {
+		/* Need to extract information from the L2 header. Only
+		 * Ethernet L2 supported currently.
+		 */
+		struct net_eth_hdr *hdr;
+		struct net_linkaddr dst_addr;
+		struct net_pkt_cursor cur;
+
+		net_pkt_cursor_backup(pkt, &cur);
+		net_pkt_cursor_init(pkt);
+
+		hdr = NET_ETH_HDR(pkt);
+		if (hdr == NULL ||
+		    pkt->buffer->len < sizeof(struct net_eth_hdr)) {
+			net_pkt_cursor_restore(pkt, &cur);
+			return;
+		}
+
+		addr.sll_halen = sizeof(struct net_eth_addr);
+		memcpy(addr.sll_addr, hdr->src.addr,
+		       sizeof(struct net_eth_addr));
+
+		addr.sll_protocol = hdr->type;
+		addr.sll_hatype = ARPHRD_ETHER;
+
+		(void)net_linkaddr_create(&dst_addr, hdr->dst.addr,
+					  sizeof(struct net_eth_addr),
+					  NET_LINK_ETHERNET);
+
+		zpacket_set_eth_pkttype(iface, &addr, &dst_addr);
+		net_pkt_cursor_restore(pkt, &cur);
+	}
+
+	/* Copy the result sockaddr_ll structure into provided buffer. If the
+	 * buffer is smaller than the structure size, it will be truncated.
+	 */
+	memcpy(src_addr, &addr, MIN(sizeof(struct sockaddr_ll), *addrlen));
+	*addrlen = sizeof(struct sockaddr_ll);
+}
+
 ssize_t zpacket_sendto_ctx(struct net_context *ctx, const void *buf, size_t len,
 			   int flags, const struct sockaddr *dest_addr,
 			   socklen_t addrlen)
@@ -152,17 +260,6 @@ ssize_t zpacket_sendto_ctx(struct net_context *ctx, const void *buf, size_t len,
 		timeout = K_NO_WAIT;
 	} else {
 		net_context_get_option(ctx, NET_OPT_SNDTIMEO, &timeout, NULL);
-	}
-
-	/* Register the callback before sending in order to receive the response
-	 * from the peer.
-	 */
-
-	status = net_context_recv(ctx, zpacket_received_cb, K_NO_WAIT,
-				  ctx->user_data);
-	if (status < 0) {
-		errno = -status;
-		return -1;
 	}
 
 	status = net_context_sendto(ctx, buf, len, dest_addr, addrlen,
@@ -243,8 +340,12 @@ ssize_t zpacket_recvfrom_ctx(struct net_context *ctx, void *buf, size_t max_len,
 		return -1;
 	}
 
+	if (src_addr && addrlen) {
+		zpacket_set_source_addr(ctx, pkt, src_addr, addrlen);
+	}
 
-	if (IS_ENABLED(CONFIG_NET_PKT_RXTIME_STATS) &&
+	if ((IS_ENABLED(CONFIG_NET_PKT_RXTIME_STATS) ||
+	     IS_ENABLED(CONFIG_TRACING_NET_CORE)) &&
 	    !(flags & ZSOCK_MSG_PEEK)) {
 		net_socket_update_tc_rx_time(pkt, k_cycle_get_32());
 	}
@@ -360,16 +461,16 @@ static int packet_sock_setsockopt_vmeth(void *obj, int level, int optname,
 	return zpacket_setsockopt_ctx(obj, level, optname, optval, optlen);
 }
 
-static int packet_sock_close_vmeth(void *obj)
+static int packet_sock_close2_vmeth(void *obj, int fd)
 {
-	return zsock_close_ctx(obj);
+	return zsock_close_ctx(obj, fd);
 }
 
 static const struct socket_op_vtable packet_sock_fd_op_vtable = {
 	.fd_vtable = {
 		.read = packet_sock_read_vmeth,
 		.write = packet_sock_write_vmeth,
-		.close = packet_sock_close_vmeth,
+		.close2 = packet_sock_close2_vmeth,
 		.ioctl = packet_sock_ioctl_vmeth,
 	},
 	.bind = packet_sock_bind_vmeth,
@@ -385,14 +486,20 @@ static const struct socket_op_vtable packet_sock_fd_op_vtable = {
 
 static bool packet_is_supported(int family, int type, int proto)
 {
-	if (((type == SOCK_RAW) && (proto == ETH_P_ALL)) ||
-	    ((type == SOCK_RAW) && (proto == IPPROTO_RAW)) ||
-	    ((type == SOCK_RAW) && (proto == ETH_P_ECAT)) ||
-	    ((type == SOCK_DGRAM) && (proto > 0))) {
-		return true;
-	}
+	switch (type) {
+	case SOCK_RAW:
+		proto = ntohs(proto);
+		return proto == 0
+		  || proto == ETH_P_ALL
+		  || proto == ETH_P_ECAT
+		  || proto == ETH_P_IEEE802154;
 
-	return false;
+	case SOCK_DGRAM:
+		return true;
+
+	default:
+		return false;
+	}
 }
 
 NET_SOCKET_REGISTER(af_packet, NET_SOCKET_DEFAULT_PRIO, AF_PACKET,

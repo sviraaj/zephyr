@@ -13,13 +13,14 @@
 #define DT_DRV_COMPAT microchip_xec_ecia
 
 #include <zephyr/arch/cpu.h>
-#include <zephyr/arch/arm/aarch32/cortex_m/cmsis.h>
+#include <cmsis_core.h>
 #include <zephyr/device.h>
 #include <soc.h>
 #include <zephyr/sys/__assert.h>
 #include <zephyr/drivers/clock_control/mchp_xec_clock_control.h>
 #include <zephyr/drivers/interrupt_controller/intc_mchp_xec_ecia.h>
 #include <zephyr/dt-bindings/interrupt-controller/mchp-xec-ecia.h>
+#include <zephyr/irq.h>
 
 /* defined at the SoC layer */
 #define MCHP_FIRST_GIRQ			MCHP_FIRST_GIRQ_NOS
@@ -46,7 +47,8 @@
 
 #define ECIA_XEC_PCR_INFO						\
 	MCHP_XEC_PCR_SCR_ENCODE(DT_INST_CLOCKS_CELL(0, regidx),		\
-				DT_INST_CLOCKS_CELL(0, bitpos))
+				DT_INST_CLOCKS_CELL(0, bitpos),		\
+				DT_INST_CLOCKS_CELL(0, domain))
 
 struct xec_girq_config {
 	uintptr_t base;
@@ -443,7 +445,7 @@ int mchp_ecia_info_unset_callback(int ecia_info)
  * Leaving a node disabled also allows another driver/application to take over
  * aggregation by managing the GIRQ itself.
  */
-#define XEC_CHK_REQ_AGGR(n) DT_NODE_HAS_STATUS(n, okay) |
+#define XEC_CHK_REQ_AGGR(n) DT_NODE_HAS_STATUS_OKAY(n) |
 
 #define XEC_ECIA_REQUIRE_AGGR_ISR					\
 	(								\
@@ -474,6 +476,10 @@ static void xec_girq_isr(const struct device *dev_girq)
 	for (int i = 0; result && i < 32; i++) {
 		uint8_t bitpos = 31 - (__builtin_clz(result) & 0x1f);
 
+		/* clear GIRQ latched status */
+		girq->SRC = BIT(bitpos);
+		result &= ~BIT(bitpos);
+
 		/* is it an implemented source? */
 		if (cfg->sources[bitpos] & BIT(7)) {
 			/* yes, get the index by removing bit[7] flag */
@@ -487,10 +493,6 @@ static void xec_girq_isr(const struct device *dev_girq)
 		} else { /* paranoia, we should not get here... */
 			girq->EN_CLR = BIT(bitpos);
 		}
-
-		/* clear GIRQ latched status */
-		girq->SRC = BIT(bitpos);
-		result &= ~BIT(bitpos);
 	}
 }
 #endif
@@ -515,8 +517,12 @@ static int xec_ecia_init(const struct device *dev)
 	uint32_t n = 0, nr = 0;
 	int ret;
 
+	if (!device_is_ready(clk_dev)) {
+		return -ENODEV;
+	}
+
 	ret = clock_control_on(clk_dev,
-			       (clock_control_subsys_t *)&cfg->clk_ctrl);
+			       (clock_control_subsys_t)&cfg->clk_ctrl);
 	if (ret < 0) {
 		return ret;
 	}
@@ -568,7 +574,7 @@ static int xec_ecia_init(const struct device *dev)
 									\
 	DEVICE_DT_DEFINE(n, xec_girq_init_##n,				\
 		 NULL, &xec_data_girq_##n, &xec_config_girq_##n,	\
-		 PRE_KERNEL_1, CONFIG_INTC_INIT_PRIORITY,		\
+		 PRE_KERNEL_1, CONFIG_XEC_GIRQ_INIT_PRIORITY,		\
 		 NULL);							\
 									\
 	static int xec_girq_init_##n(const struct device *dev)		\

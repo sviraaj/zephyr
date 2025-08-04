@@ -4,13 +4,20 @@
 
 # based on http://protips.readthedocs.io/link-roles.html
 
-from __future__ import print_function
-from __future__ import unicode_literals
 import re
 import subprocess
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any, Final
+
 from docutils import nodes
+from sphinx.util import logging
+
+ZEPHYR_BASE: Final[str] = Path(__file__).parents[3]
+
 try:
     import west.manifest
+
     try:
         west_manifest = west.manifest.Manifest.from_file()
     except west.util.WestNotFound:
@@ -19,63 +26,112 @@ except ImportError:
     west_manifest = None
 
 
+logger = logging.getLogger(__name__)
+
+
 def get_github_rev():
     try:
-        output = subprocess.check_output('git describe --exact-match',
-                                         shell=True, stderr=subprocess.DEVNULL)
+        output = subprocess.check_output(
+            "git describe --exact-match", shell=True, stderr=subprocess.DEVNULL
+        )
     except subprocess.CalledProcessError:
-        return 'main'
+        return "main"
 
-    return output.strip().decode('utf-8')
+    return output.strip().decode("utf-8")
 
 
 def setup(app):
-    rev = get_github_rev()
+    app.add_role("zephyr_file", modulelink("zephyr"))
+    app.add_role("zephyr_raw", modulelink("zephyr", format="raw"))
+    app.add_role("module_file", modulelink())
 
-    # Try to get the zephyr repository's GitHub URL from the manifest.
-    #
-    # This allows building the docs in downstream Zephyr-based
-    # software with forks of the zephyr repository, and getting
-    # :zephyr_file: / :zephyr_raw: output that links to the fork,
-    # instead of mainline zephyr.
-    baseurl = None
-    if west_manifest is not None:
-        try:
-            # This search tries to look up a project named 'zephyr'.
-            # If zephyr is the manifest repository, this raises
-            # ValueError, since there isn't any such project.
-            baseurl = west_manifest.get_projects(['zephyr'],
-                                                 allow_paths=False)[0].url
-            # Spot check that we have a non-empty URL.
-            assert baseurl
-        except ValueError:
-            pass
-
-    # If the search failed, fall back on the mainline URL.
-    if baseurl is None:
-        baseurl = 'https://github.com/zephyrproject-rtos/zephyr'
-
-    app.add_role('zephyr_file', autolink('{}/blob/{}/%s'.format(baseurl, rev)))
-    app.add_role('zephyr_raw', autolink('{}/raw/{}/%s'.format(baseurl, rev)))
+    app.add_config_value("link_roles_manifest_baseurl", None, "env")
+    app.add_config_value("link_roles_manifest_project", None, "env")
+    app.add_config_value("link_roles_manifest_project_broken_links_ignore_globs", [], "env")
 
     # The role just creates new nodes based on information in the
     # arguments; its behavior doesn't depend on any other documents.
     return {
-        'parallel_read_safe': True,
-        'parallel_write_safe': True,
+        "parallel_read_safe": True,
+        "parallel_write_safe": True,
     }
 
 
-def autolink(pattern):
-    def role(name, rawtext, text, lineno, inliner, options={}, content=[]):
-        m = re.search(r'(.*)\s*<(.*)>', text)
+def modulelink(default_module=None, format="blob"):
+    def role(
+        name: str,
+        rawtext: str,
+        text: str,
+        lineno: int,
+        inliner,
+        options: dict[str, Any] | None = None,
+        content: Sequence[str] = (),
+    ):
+        if options is None:
+            options = {}
+        module = default_module
+        rev = get_github_rev()
+        config = inliner.document.settings.env.app.config
+        baseurl = config.link_roles_manifest_baseurl
+        source, line = inliner.reporter.get_source_and_line(lineno)
+        trace = f"at '{source}:{line}'"
+
+        m = re.search(r"(.*)\s*<(.*)>", text)
         if m:
             link_text = m.group(1)
             link = m.group(2)
         else:
             link_text = text
             link = text
-        url = pattern % (link,)
+
+        line_ref = ""
+        line_match = re.search(r"(.+?)(?:#(L\d+(?:-L\d+)?))?$", link)
+        if line_match and line_match.group(2):
+            link = line_match.group(1)
+            line_ref = f"?plain=1#{line_match.group(2)}"
+
+        module_match = re.search(r"(.+?):\s*(.+)", link)
+        if module_match:
+            module = module_match.group(1).strip()
+            link = module_match.group(2).strip()
+
+        # Try to get a module repository's GitHub URL from the manifest.
+        #
+        # This allows e.g. building the docs in downstream Zephyr-based
+        # software with forks of the zephyr repository, and getting
+        # :zephyr_file: / :zephyr_raw: output that links to the fork,
+        # instead of mainline zephyr.
+        projects = [p.name for p in west_manifest.projects] if west_manifest else []
+        if module in projects:
+            project = west_manifest.get_projects([module])[0]
+            baseurl = project.url
+            rev = project.revision
+        # No module provided
+        elif module is None:
+            raise ValueError(
+                f"Role 'module_file' must take a module as an argument\n\t{trace}"
+            )
+        # Invalid module provided
+        elif module != config.link_roles_manifest_project:
+            logger.debug(f"Module {module} not found in the west manifest")
+        # Baseurl for manifest project not set
+        elif baseurl is None:
+            raise ValueError(
+                f"Configuration value `link_roles_manifest_baseurl` not set\n\t{trace}"
+            )
+
+        if module == config.link_roles_manifest_project:
+            p = Path(source).relative_to(inliner.document.settings.env.srcdir)
+            if not any(
+                p.match(glob)
+                for glob in config.link_roles_manifest_project_broken_links_ignore_globs
+            ) and not Path(ZEPHYR_BASE, link).exists():
+                logger.warning(
+                    f"{link} not found in {config.link_roles_manifest_project} {trace}"
+                )
+
+        url = f"{baseurl}/{format}/{rev}/{link}{line_ref}"
         node = nodes.reference(rawtext, link_text, refuri=url, **options)
         return [node], []
+
     return role

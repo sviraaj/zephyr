@@ -11,6 +11,7 @@
 
 #define LOG_LEVEL CONFIG_ADC_LOG_LEVEL
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(adc_nrfx_adc);
 
 #define DT_DRV_COMPAT nordic_nrf_adc
@@ -253,7 +254,7 @@ static int adc_nrfx_read_async(const struct device *dev,
 
 static void event_handler(const nrfx_adc_evt_t *p_event)
 {
-	const struct device *dev = DEVICE_DT_INST_GET(0);
+	const struct device *const dev = DEVICE_DT_INST_GET(0);
 
 	if (p_event->type == NRFX_ADC_EVT_DONE) {
 		adc_context_on_sampling_done(&m_data.ctx, dev);
@@ -280,7 +281,7 @@ static int init_adc(const struct device *dev)
 	return 0;
 }
 
-static const struct adc_driver_api adc_nrfx_driver_api = {
+static DEVICE_API(adc, adc_nrfx_driver_api) = {
 	.channel_setup = adc_nrfx_channel_setup,
 	.read          = adc_nrfx_read,
 #ifdef CONFIG_ADC_ASYNC

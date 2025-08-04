@@ -5,10 +5,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <zephyr/arch/common/semihost.h>
 
-static void test_file_ops(void)
+ZTEST(semihost, test_file_ops)
 {
 	const char *test_file = "./test.bin";
 	uint8_t w_buffer[16] = { 1, 2, 3, 4, 5 };
@@ -17,7 +17,7 @@ static void test_file_ops(void)
 
 	/* Open in write mode */
 	fd = semihost_open(test_file, SEMIHOST_OPEN_WB);
-	zassert_true(fd > 0, "Bad handle (%d)", fd);
+	zassert_true(fd > 0, "Bad handle (%ld)", fd);
 	zassert_equal(semihost_flen(fd), 0, "File not empty");
 
 	/* Write some data */
@@ -35,12 +35,12 @@ static void test_file_ops(void)
 
 	/* Open the same file again for reading */
 	fd = semihost_open(test_file, SEMIHOST_OPEN_RB);
-	zassert_true(fd > 0, "Bad handle (%d)", fd);
+	zassert_true(fd > 0, "Bad handle (%ld)", fd);
 	zassert_equal(semihost_flen(fd), 2 * sizeof(w_buffer), "Data not preserved");
 
 	/* Check reading data */
 	read = semihost_read(fd, r_buffer, sizeof(r_buffer));
-	zassert_equal(read, sizeof(r_buffer), "Read failed %d", read);
+	zassert_equal(read, sizeof(r_buffer), "Read failed %ld", read);
 	zassert_mem_equal(r_buffer, w_buffer, sizeof(r_buffer), "Data not read");
 	read = semihost_read(fd, r_buffer, sizeof(r_buffer));
 	zassert_equal(read, sizeof(r_buffer), "Read failed");
@@ -63,14 +63,9 @@ static void test_file_ops(void)
 
 	/* Opening again in write mode should erase the file */
 	fd = semihost_open(test_file, SEMIHOST_OPEN_WB);
-	zassert_true(fd > 0, "Bad handle (%d)", fd);
+	zassert_true(fd > 0, "Bad handle (%ld)", fd);
 	zassert_equal(semihost_flen(fd), 0, "File not empty");
 	zassert_equal(semihost_close(fd), 0, "Close failed");
 }
 
-void test_main(void)
-{
-	ztest_test_suite(semihost,
-			 ztest_unit_test(test_file_ops));
-	ztest_run_test_suite(semihost);
-}
+ZTEST_SUITE(semihost, NULL, NULL, NULL, NULL, NULL);

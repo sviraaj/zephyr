@@ -5,9 +5,9 @@
  */
 
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <zephyr/irq_offload.h>
-#include <ztest_error_hook.h>
+#include <zephyr/ztest_error_hook.h>
 
 #define STACK_SIZE     (512 + CONFIG_TEST_EXTRA_STACK_SIZE)
 
@@ -133,11 +133,19 @@ void condvar_wait_wake_task(void *p1, void *p2, void *p3)
 
 	k_mutex_unlock(&test_mutex);
 }
-
+/**
+ * @defgroup kernel_condvar_tests Condition Variables
+ * @ingroup all_tests
+ * @{
+ * @}
+ *
+ * @addtogroup kernel_condvar_tests
+ * @{
+ */
 /**
  * @brief Test k_condvar_wait() and k_condvar_wake()
  */
-void test_condvar_wait_forever_wake(void)
+ZTEST_USER(condvar_tests, test_condvar_wait_forever_wake)
 {
 	woken = 1;
 	timeout = K_TICKS_FOREVER;
@@ -163,8 +171,10 @@ void test_condvar_wait_forever_wake(void)
 	k_thread_abort(&condvar_tid);
 }
 
-
-void test_condvar_wait_timeout_wake(void)
+/**
+ * @brief Test k_condvar_wait() and k_condvar_wake() with timeout
+ */
+ZTEST_USER(condvar_tests, test_condvar_wait_timeout_wake)
 {
 	woken = 1;
 	timeout = k_ms_to_ticks_ceil32(100);
@@ -191,7 +201,10 @@ void test_condvar_wait_timeout_wake(void)
 	k_thread_abort(&condvar_tid);
 }
 
-void test_condvar_wait_timeout(void)
+/**
+ * @brief Test k_condvar_wait() and k_condvar_wake() with timeout
+ */
+ZTEST_USER(condvar_tests, test_condvar_wait_timeout)
 {
 	timeout = k_ms_to_ticks_ceil32(50);
 
@@ -209,7 +222,7 @@ void test_condvar_wait_timeout(void)
 /**
  * @brief Test k_condvar_wait() forever
  */
-void test_condvar_wait_forever(void)
+ZTEST_USER(condvar_tests, test_condvar_wait_forever)
 {
 	timeout = K_TICKS_FOREVER;
 
@@ -224,8 +237,10 @@ void test_condvar_wait_forever(void)
 	k_thread_abort(&condvar_tid);
 }
 
-
-void test_condvar_wait_nowait(void)
+/**
+ * @brief Test k_condvar_wait() with no wait
+ */
+ZTEST_USER(condvar_tests, test_condvar_wait_nowait)
 {
 	timeout = 0;
 
@@ -240,7 +255,13 @@ void test_condvar_wait_nowait(void)
 }
 
 
-void test_condvar_wait_nowait_wake(void)
+/**
+ * @brief Test case for conditional variable wait and wake functionality.
+ *
+ * This test validates the behavior of conditional variables when a thread
+ * waits on a condition and another thread wakes it up.
+ */
+ZTEST_USER(condvar_tests, test_condvar_wait_nowait_wake)
 {
 	woken = 0;
 	timeout = 0;
@@ -266,7 +287,14 @@ void test_condvar_wait_nowait_wake(void)
 }
 
 
-void test_condvar_wait_forever_wake_from_isr(void)
+/**
+ * @brief Test case for condition variable wait and wake functionality.
+ *
+ * This test verifies the behavior of a thread waiting on a condition variable
+ * with an infinite timeout and being woken up from an interrupt service routine (ISR).
+ *
+ */
+ZTEST(condvar_tests, test_condvar_wait_forever_wake_from_isr)
 {
 	timeout = K_TICKS_FOREVER;
 
@@ -285,7 +313,16 @@ void test_condvar_wait_forever_wake_from_isr(void)
 	k_thread_abort(&condvar_tid);
 }
 
-void test_condvar_multiple_threads_wait_wake(void)
+/**
+ * @brief Test case for multiple threads waiting and waking on a condition variable.
+ *
+ * This test initializes a condition variable and creates multiple threads that
+ * wait on the condition variable. Another thread is created to wake up the
+ * waiting threads. The test ensures proper synchronization and behavior of
+ * threads waiting and waking on the condition variable.
+
+ */
+ZTEST_USER(condvar_tests, test_condvar_multiple_threads_wait_wake)
 {
 	timeout = K_TICKS_FOREVER;
 	woken = TOTAL_THREADS_WAITING;
@@ -353,7 +390,16 @@ void condvar_multiple_wake_task(void *p1, void *p2, void *p3)
 		     ret_value, woken_num);
 }
 
-void test_multiple_condvar_wait_wake(void)
+
+/**
+ * @brief Test multiple threads waiting and waking on a condition variable.
+ *
+ * This test creates multiple threads that wait on a condition variable and
+ * another set of threads that wake them up. It ensures that the condition
+ * variable mechanism works correctly when multiple threads are involved.
+
+ */
+ZTEST_USER(condvar_tests, test_multiple_condvar_wait_wake)
 {
 	woken = 1;
 	timeout = K_TICKS_FOREVER;
@@ -393,6 +439,10 @@ void test_multiple_condvar_wait_wake(void)
 #ifdef CONFIG_USERSPACE
 static void cond_init_null(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	ztest_set_fault_valid(true);
 	k_condvar_init(NULL);
 
@@ -400,10 +450,18 @@ static void cond_init_null(void *p1, void *p2, void *p3)
 	ztest_test_fail();
 }
 
-void test_condvar_init_null(void)
+
+/**
+ * @brief Test case for conditional variable initialization with a null parameter.
+ *
+ * This test verifies the behavior of the conditional variable initialization
+ * when a null parameter is passed. It creates a thread to execute the
+ * `cond_init_null` function and ensures the thread completes execution.
+ */
+ZTEST_USER(condvar_tests, test_condvar_init_null)
 {
 	k_tid_t tid = k_thread_create(&condvar_tid, stack_1, STACK_SIZE,
-			(k_thread_entry_t)cond_init_null,
+			cond_init_null,
 			NULL, NULL, NULL,
 			K_PRIO_PREEMPT(0),
 			K_USER | K_INHERIT_PERMS, K_NO_WAIT);
@@ -411,7 +469,7 @@ void test_condvar_init_null(void)
 	k_thread_join(tid, K_FOREVER);
 }
 #else
-void test_condvar_init_null(void)
+ZTEST_USER(condvar_tests, test_condvar_init_null)
 {
 	ztest_test_skip();
 }
@@ -420,6 +478,10 @@ void test_condvar_init_null(void)
 #ifdef CONFIG_USERSPACE
 static void cond_signal_null(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	ztest_set_fault_valid(true);
 	k_condvar_signal(NULL);
 
@@ -429,6 +491,10 @@ static void cond_signal_null(void *p1, void *p2, void *p3)
 
 static void cond_broadcast_null(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	ztest_set_fault_valid(true);
 	k_condvar_broadcast(NULL);
 
@@ -438,36 +504,62 @@ static void cond_broadcast_null(void *p1, void *p2, void *p3)
 
 static void cond_wait_null(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	ztest_set_fault_valid(true);
 	k_condvar_wait(NULL, NULL, K_FOREVER);
 
 	/* should not go here*/
 	ztest_test_fail();
 }
-
-void test_condvar_signal_null(void)
+/**
+ * @brief Test case for signaling a condition variable with a NULL parameter.
+ *
+ * This test creates a thread that attempts to signal a condition variable
+ * with a NULL parameter. It ensures that the system handles this scenario
+ * gracefully without causing unexpected behavior or crashes.
+ */
+ZTEST_USER(condvar_tests, test_condvar_signal_null)
 {
 	k_tid_t tid = k_thread_create(&condvar_tid, stack_1, STACK_SIZE,
-			(k_thread_entry_t)cond_signal_null,
+			cond_signal_null,
 			NULL, NULL, NULL,
 			K_PRIO_PREEMPT(0),
 			K_USER | K_INHERIT_PERMS, K_NO_WAIT);
 	k_thread_join(tid, K_FOREVER);
 }
-void test_condvar_broadcast_null(void)
+
+/**
+ * @brief Test case for broadcasting a condition variable with a NULL parameter.
+ *
+ * This test creates a thread that attempts to broadcast a condition variable
+ * with a NULL parameter. It verifies that the system can handle this edge case
+ * correctly and does not result in undefined behavior.
+ */
+ZTEST_USER(condvar_tests, test_condvar_broadcast_null)
 {
 	k_tid_t tid = k_thread_create(&condvar_tid, stack_1, STACK_SIZE,
-			(k_thread_entry_t)cond_broadcast_null,
+			cond_broadcast_null,
 			NULL, NULL, NULL,
 			K_PRIO_PREEMPT(0),
 			K_USER | K_INHERIT_PERMS, K_NO_WAIT);
 
 	k_thread_join(tid, K_FOREVER);
 }
-void test_condvar_wait_null(void)
+
+/**
+ * @brief Test case for waiting on a condition variable with a NULL parameter.
+ *
+ * This test creates a thread that attempts to wait on a condition variable
+ * with a NULL parameter. It ensures that the system properly handles this
+ * invalid operation and maintains stability.
+ */
+ZTEST_USER(condvar_tests, test_condvar_wait_null)
 {
 	k_tid_t tid = k_thread_create(&condvar_tid, stack_1, STACK_SIZE,
-			(k_thread_entry_t)cond_wait_null,
+			cond_wait_null,
 			NULL, NULL, NULL,
 			K_PRIO_PREEMPT(0),
 			K_USER | K_INHERIT_PERMS, K_NO_WAIT);
@@ -475,15 +567,15 @@ void test_condvar_wait_null(void)
 }
 
 #else
-void test_condvar_signal_null(void)
+ZTEST_USER(condvar_tests, test_condvar_signal_null)
 {
 	ztest_test_skip();
 }
-void test_condvar_broadcast_null(void)
+ZTEST_USER(condvar_tests, test_condvar_broadcast_null)
 {
 	ztest_test_skip();
 }
-void test_condvar_wait_null(void)
+ZTEST_USER(condvar_tests, test_condvar_wait_null)
 {
 	ztest_test_skip();
 }
@@ -559,18 +651,27 @@ void _condvar_usecase(long multi)
 
 }
 
-void test_condvar_usecase_signal(void)
+
+/**
+ * @brief Test case for conditional variable use case with signal
+ *
+ * This test verifies the behavior of a conditional variable in a specific
+ * use case where a signal is used. It ensures that the conditional variable
+ * operates correctly when signaled, validating synchronization mechanisms.
+ */
+ZTEST_USER(condvar_tests, test_condvar_usecase_signal)
 {
 	_condvar_usecase(0);
 }
 
-void test_condvar_usecase_broadcast(void)
+
+ZTEST_USER(condvar_tests, test_condvar_usecase_broadcast)
 {
 	_condvar_usecase(1);
 }
 
 /*test case main entry*/
-void test_main(void)
+static void *condvar_tests_setup(void)
 {
 #ifdef CONFIG_USERSPACE
 	k_thread_access_grant(k_current_get(), &test_mutex, &condvar_tid, &condvar_wake_tid,
@@ -585,24 +686,11 @@ void test_main(void)
 				      &multiple_wake_stack[i]);
 	}
 #endif
-
-	ztest_test_suite(test_condvar,
-			 ztest_user_unit_test(test_condvar_wait_forever_wake),
-			 ztest_user_unit_test(test_condvar_wait_timeout_wake),
-			 ztest_user_unit_test(test_condvar_wait_timeout),
-			 ztest_user_unit_test(test_condvar_wait_nowait_wake),
-			 ztest_unit_test(test_condvar_wait_forever_wake_from_isr),
-			 ztest_user_unit_test(test_condvar_multiple_threads_wait_wake),
-			 ztest_user_unit_test(test_multiple_condvar_wait_wake),
-			 ztest_user_unit_test(test_condvar_wait_forever),
-			 ztest_user_unit_test(test_condvar_wait_timeout),
-			 ztest_user_unit_test(test_condvar_wait_nowait),
-			 ztest_user_unit_test(test_condvar_init_null),
-			 ztest_user_unit_test(test_condvar_signal_null),
-			 ztest_user_unit_test(test_condvar_wait_null),
-			 ztest_user_unit_test(test_condvar_broadcast_null),
-			 ztest_user_unit_test(test_condvar_usecase_signal),
-			 ztest_user_unit_test(test_condvar_usecase_broadcast)
-			 );
-	ztest_run_test_suite(test_condvar);
+	return NULL;
 }
+
+/**
+ * @}
+ */
+
+ZTEST_SUITE(condvar_tests, NULL, condvar_tests_setup, NULL, NULL, NULL);

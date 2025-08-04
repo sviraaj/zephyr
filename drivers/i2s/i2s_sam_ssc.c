@@ -28,11 +28,13 @@
 #include <zephyr/drivers/dma.h>
 #include <zephyr/drivers/i2s.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/drivers/clock_control/atmel_sam_pmc.h>
 #include <soc.h>
 
 #define LOG_DOMAIN dev_i2s_sam_ssc
 #define LOG_LEVEL CONFIG_I2S_LOG_LEVEL
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(LOG_DOMAIN);
 
 #if __DCACHE_PRESENT == 1
@@ -56,7 +58,7 @@ struct queue_item {
 };
 
 /* Minimal ring buffer implementation */
-struct ring_buf {
+struct ring_buffer {
 	struct queue_item *buf;
 	uint16_t len;
 	uint16_t head;
@@ -68,8 +70,8 @@ struct i2s_sam_dev_cfg {
 	const struct device *dev_dma;
 	Ssc *regs;
 	void (*irq_config)(void);
+	const struct atmel_sam_pmc_config clock_cfg;
 	const struct pinctrl_dev_config *pcfg;
-	uint8_t periph_id;
 	uint8_t irq_id;
 };
 
@@ -81,7 +83,7 @@ struct stream {
 	uint8_t word_size_bytes;
 	bool last_block;
 	struct i2s_config cfg;
-	struct ring_buf mem_block_queue;
+	struct ring_buffer mem_block_queue;
 	void *mem_block;
 	int (*stream_start)(struct stream *, Ssc *const,
 			    const struct device *);
@@ -111,7 +113,7 @@ static void tx_stream_disable(struct stream *, Ssc *const,
 /*
  * Get data from the queue
  */
-static int queue_get(struct ring_buf *rb, void **mem_block, size_t *size)
+static int queue_get(struct ring_buffer *rb, void **mem_block, size_t *size)
 {
 	unsigned int key;
 
@@ -135,7 +137,7 @@ static int queue_get(struct ring_buf *rb, void **mem_block, size_t *size)
 /*
  * Put data in the queue
  */
-static int queue_put(struct ring_buf *rb, void *mem_block, size_t size)
+static int queue_put(struct ring_buffer *rb, void *mem_block, size_t size)
 {
 	uint16_t head_next;
 	unsigned int key;
@@ -275,7 +277,7 @@ static void dma_tx_callback(const struct device *dma_dev, void *user_data,
 	__ASSERT_NO_MSG(stream->mem_block != NULL);
 
 	/* All block data sent */
-	k_mem_slab_free(stream->cfg.mem_slab, &stream->mem_block);
+	k_mem_slab_free(stream->cfg.mem_slab, stream->mem_block);
 	stream->mem_block = NULL;
 
 	/* Stop transmission if there was an error */
@@ -734,7 +736,7 @@ static void rx_stream_disable(struct stream *stream, Ssc *const ssc,
 	ssc->SSC_IDR = SSC_IDR_OVRUN;
 	dma_stop(dev_dma, stream->dma_channel);
 	if (stream->mem_block != NULL) {
-		k_mem_slab_free(stream->cfg.mem_slab, &stream->mem_block);
+		k_mem_slab_free(stream->cfg.mem_slab, stream->mem_block);
 		stream->mem_block = NULL;
 	}
 }
@@ -746,7 +748,7 @@ static void tx_stream_disable(struct stream *stream, Ssc *const ssc,
 	ssc->SSC_IDR = SSC_IDR_TXEMPTY;
 	dma_stop(dev_dma, stream->dma_channel);
 	if (stream->mem_block != NULL) {
-		k_mem_slab_free(stream->cfg.mem_slab, &stream->mem_block);
+		k_mem_slab_free(stream->cfg.mem_slab, stream->mem_block);
 		stream->mem_block = NULL;
 	}
 }
@@ -757,7 +759,7 @@ static void rx_queue_drop(struct stream *stream)
 	void *mem_block;
 
 	while (queue_get(&stream->mem_block_queue, &mem_block, &size) == 0) {
-		k_mem_slab_free(stream->cfg.mem_slab, &mem_block);
+		k_mem_slab_free(stream->cfg.mem_slab, mem_block);
 	}
 
 	k_sem_reset(&stream->sem);
@@ -770,7 +772,7 @@ static void tx_queue_drop(struct stream *stream)
 	unsigned int n = 0U;
 
 	while (queue_get(&stream->mem_block_queue, &mem_block, &size) == 0) {
-		k_mem_slab_free(stream->cfg.mem_slab, &mem_block);
+		k_mem_slab_free(stream->cfg.mem_slab, mem_block);
 		n++;
 	}
 
@@ -973,8 +975,9 @@ static int i2s_sam_initialize(const struct device *dev)
 		return ret;
 	}
 
-	/* Enable module's clock */
-	soc_pmc_peripheral_enable(dev_cfg->periph_id);
+	/* Enable SSC clock in PMC */
+	(void)clock_control_on(SAM_DT_PMC_CONTROLLER,
+			       (clock_control_subsys_t)&dev_cfg->clock_cfg);
 
 	/* Reset the module, disable receiver & transmitter */
 	ssc->SSC_CR = SSC_CR_RXDIS | SSC_CR_TXDIS | SSC_CR_SWRST;
@@ -987,7 +990,7 @@ static int i2s_sam_initialize(const struct device *dev)
 	return 0;
 }
 
-static const struct i2s_driver_api i2s_sam_driver_api = {
+static DEVICE_API(i2s, i2s_sam_driver_api) = {
 	.configure = i2s_sam_configure,
 	.config_get = i2s_sam_config_get,
 	.read = i2s_sam_read,
@@ -1014,7 +1017,7 @@ static const struct i2s_sam_dev_cfg i2s0_sam_config = {
 	.dev_dma = DEVICE_DT_GET(DT_INST_DMAS_CTLR_BY_NAME(0, tx)),
 	.regs = (Ssc *)DT_INST_REG_ADDR(0),
 	.irq_config = i2s0_sam_irq_config,
-	.periph_id = DT_INST_PROP(0, peripheral_id),
+	.clock_cfg = SAM_DT_INST_CLOCK_PMC_CFG(0),
 	.irq_id = DT_INST_IRQN(0),
 	.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(0),
 };

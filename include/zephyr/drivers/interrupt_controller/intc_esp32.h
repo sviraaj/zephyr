@@ -1,17 +1,14 @@
 /*
- * Copyright (c) 2021 Espressif Systems (Shanghai) Co., Ltd.
+ * Copyright (c) 2021-2025 Espressif Systems (Shanghai) Co., Ltd.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_INCLUDE_DRIVERS_ESP_INTR_ALLOC_H__
-#define ZEPHYR_INCLUDE_DRIVERS_ESP_INTR_ALLOC_H__
+#ifndef ZEPHYR_INCLUDE_DRIVERS_INTERRUPT_CONTROLLER_INTC_ESP32_H_
+#define ZEPHYR_INCLUDE_DRIVERS_INTERRUPT_CONTROLLER_INTC_ESP32_H_
 
 #include <stdint.h>
 #include <stdbool.h>
-
-/* number of possible interrupts per core */
-#define ESP_INTC_INTS_NUM		(32)
 
 /*
  * Interrupt allocation flags - These flags can be used to specify
@@ -45,6 +42,17 @@
 				 ESP_INTR_FLAG_NMI)
 
 /*
+ * Get the interrupt flags from the supplied priority.
+ */
+#define ESP_PRIO_TO_FLAGS(priority) \
+	((priority) > 0 ? ((1 << (priority)) & ESP_INTR_FLAG_LEVELMASK) : 0)
+
+/*
+ * Check interrupt flags from input and filter unallowed values.
+ */
+#define ESP_INT_FLAGS_CHECK(int_flags) ((int_flags) & ESP_INTR_FLAG_SHARED)
+
+/*
  * The esp_intr_alloc* functions can allocate an int for all *_INTR_SOURCE int sources that
  * are routed through the interrupt mux. Apart from these sources, each core also has some internal
  * sources that do not pass through the interrupt mux. To allocate an interrupt for these sources,
@@ -59,6 +67,12 @@
 
 /* Function prototype for interrupt handler function */
 typedef void (*intr_handler_t)(void *arg);
+
+/* Interrupt handler associated data structure */
+typedef struct intr_handle_data_t intr_handle_data_t;
+
+/* Handle to an interrupt handler */
+typedef intr_handle_data_t *intr_handle_t;
 
 struct shared_vector_desc_t {
 	int disabled : 1;
@@ -85,11 +99,6 @@ struct intr_handle_data_t {
 	struct vector_desc_t *vector_desc;
 	struct shared_vector_desc_t *shared_vector_desc;
 };
-
-/**
- * @brief Initializes interrupt table to its defaults
- */
-void esp_intr_initialize(void);
 
 /**
  * @brief Mark an interrupt as a shared interrupt
@@ -147,7 +156,7 @@ int esp_intr_reserve(int intno, int cpu);
  * @param handler The interrupt handler. Must be NULL when an interrupt of level >3
  *               is requested, because these types of interrupts aren't C-callable.
  * @param arg    Optional argument for passed to the interrupt handler
- * @param ret_handle Pointer to a struct intr_handle_data_t pointer to store a handle that can
+ * @param ret_handle Pointer to an intr_handle_t pointer to store a handle that can
  *               later be used to request details or free the interrupt. Can be NULL if no handle
  *               is required.
  *
@@ -159,7 +168,7 @@ int esp_intr_alloc(int source,
 		int flags,
 		intr_handler_t handler,
 		void *arg,
-		struct intr_handle_data_t **ret_handle);
+		intr_handle_t *ret_handle);
 
 
 /**
@@ -189,7 +198,7 @@ int esp_intr_alloc(int source,
  * @param handler The interrupt handler. Must be NULL when an interrupt of level >3
  *               is requested, because these types of interrupts aren't C-callable.
  * @param arg    Optional argument for passed to the interrupt handler
- * @param ret_handle Pointer to a struct intr_handle_data_t pointer to store a handle that can
+ * @param ret_handle Pointer to an intr_handle_t pointer to store a handle that can
  *               later be used to request details or free the interrupt. Can be NULL if no handle
  *               is required.
  *
@@ -203,7 +212,7 @@ int esp_intr_alloc_intrstatus(int source,
 		uint32_t intrstatusmask,
 		intr_handler_t handler,
 		void *arg,
-		struct intr_handle_data_t **ret_handle);
+		intr_handle_t *ret_handle);
 
 
 /**
@@ -224,7 +233,7 @@ int esp_intr_alloc_intrstatus(int source,
  * @return -EINVAL the handle is NULL
  *         0 otherwise
  */
-int esp_intr_free(struct intr_handle_data_t *handle);
+int esp_intr_free(intr_handle_t handle);
 
 
 /**
@@ -234,7 +243,7 @@ int esp_intr_free(struct intr_handle_data_t *handle);
  *
  * @return The core number where the interrupt is allocated
  */
-int esp_intr_get_cpu(struct intr_handle_data_t *handle);
+int esp_intr_get_cpu(intr_handle_t handle);
 
 /**
  * @brief Get the allocated interrupt for a certain handle
@@ -243,13 +252,13 @@ int esp_intr_get_cpu(struct intr_handle_data_t *handle);
  *
  * @return The interrupt number
  */
-int esp_intr_get_intno(struct intr_handle_data_t *handle);
+int esp_intr_get_intno(intr_handle_t handle);
 
 /**
  * @brief Disable the interrupt associated with the handle
  *
  * @note
- * 1. For local interrupts (ESP_INTERNAL_* sources), this function has to be called on the
+ * 1. For local interrupts (``ESP_INTERNAL_*`` sources), this function has to be called on the
  * CPU the interrupt is allocated on. Other interrupts have no such restriction.
  * 2. When several handlers sharing a same interrupt source, interrupt status bits, which are
  * handled in the handler to be disabled, should be masked before the disabling, or handled
@@ -261,12 +270,12 @@ int esp_intr_get_intno(struct intr_handle_data_t *handle);
  * @return -EINVAL if the combination of arguments is invalid.
  *         0 otherwise
  */
-int esp_intr_disable(struct intr_handle_data_t *handle);
+int esp_intr_disable(intr_handle_t handle);
 
 /**
  * @brief Enable the interrupt associated with the handle
  *
- * @note For local interrupts (ESP_INTERNAL_* sources), this function has to be called on the
+ * @note For local interrupts (``ESP_INTERNAL_*`` sources), this function has to be called on the
  *       CPU the interrupt is allocated on. Other interrupts have no such restriction.
  *
  * @param handle The handle, as obtained by esp_intr_alloc or esp_intr_alloc_intrstatus
@@ -274,7 +283,7 @@ int esp_intr_disable(struct intr_handle_data_t *handle);
  * @return -EINVAL if the combination of arguments is invalid.
  *         0 otherwise
  */
-int esp_intr_enable(struct intr_handle_data_t *handle);
+int esp_intr_enable(intr_handle_t handle);
 
 /**
  * @brief Set the "in IRAM" status of the handler.
@@ -288,17 +297,16 @@ int esp_intr_enable(struct intr_handle_data_t *handle);
  * @return -EINVAL if the combination of arguments is invalid.
  *         0 otherwise
  */
-int esp_intr_set_in_iram(struct intr_handle_data_t *handle, bool is_in_iram);
+int esp_intr_set_in_iram(intr_handle_t handle, bool is_in_iram);
 
 /**
  * @brief Disable interrupts that aren't specifically marked as running from IRAM
  */
 void esp_intr_noniram_disable(void);
 
-
 /**
  * @brief Re-enable interrupts disabled by esp_intr_noniram_disable
  */
 void esp_intr_noniram_enable(void);
 
-#endif
+#endif /* ZEPHYR_INCLUDE_DRIVERS_INTERRUPT_CONTROLLER_INTC_ESP32_H_ */

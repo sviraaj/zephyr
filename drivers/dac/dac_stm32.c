@@ -68,6 +68,11 @@ static int dac_stm32_write_value(const struct device *dev,
 		return -EINVAL;
 	}
 
+	if (value >= BIT(data->resolution)) {
+		LOG_ERR("Value %d is out of range", value);
+		return -EINVAL;
+	}
+
 	if (data->resolution == 8) {
 		LL_DAC_ConvertData8RightAligned(cfg->base,
 			table_channels[channel - STM32_FIRST_CHANNEL], value);
@@ -84,6 +89,7 @@ static int dac_stm32_channel_setup(const struct device *dev,
 {
 	struct dac_stm32_data *data = dev->data;
 	const struct dac_stm32_cfg *cfg = dev->config;
+	uint32_t cfg_setting, channel;
 
 	if ((channel_cfg->channel_id - STM32_FIRST_CHANNEL >=
 			data->channel_count) ||
@@ -100,13 +106,33 @@ static int dac_stm32_channel_setup(const struct device *dev,
 		return -ENOTSUP;
 	}
 
-	/* enable output buffer by default */
-	LL_DAC_SetOutputBuffer(cfg->base,
-		table_channels[channel_cfg->channel_id - STM32_FIRST_CHANNEL],
-		LL_DAC_OUTPUT_BUFFER_ENABLE);
+	channel = table_channels[channel_cfg->channel_id - STM32_FIRST_CHANNEL];
 
-	LL_DAC_Enable(cfg->base,
-		table_channels[channel_cfg->channel_id - STM32_FIRST_CHANNEL]);
+	if (channel_cfg->buffered) {
+		cfg_setting = LL_DAC_OUTPUT_BUFFER_ENABLE;
+	} else {
+		cfg_setting = LL_DAC_OUTPUT_BUFFER_DISABLE;
+	}
+
+	LL_DAC_SetOutputBuffer(cfg->base, channel, cfg_setting);
+
+#if defined(LL_DAC_OUTPUT_CONNECT_INTERNAL)
+	/* If the DAC supports internal connections set it based on configuration */
+	if (channel_cfg->internal) {
+		cfg_setting = LL_DAC_OUTPUT_CONNECT_INTERNAL;
+	} else {
+		cfg_setting = LL_DAC_OUTPUT_CONNECT_GPIO;
+	}
+
+	LL_DAC_SetOutputConnection(cfg->base, channel, cfg_setting);
+#else
+	if (channel_cfg->internal) {
+		LOG_ERR("Internal connections not supported");
+		return -ENOTSUP;
+	}
+#endif /* LL_DAC_OUTPUT_CONNECT_INTERNAL */
+
+	LL_DAC_Enable(cfg->base, channel);
 
 	LOG_DBG("Channel setup succeeded!");
 
@@ -119,16 +145,21 @@ static int dac_stm32_init(const struct device *dev)
 	int err;
 
 	/* enable clock for subsystem */
-	const struct device *clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
+	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
+
+	if (!device_is_ready(clk)) {
+		LOG_ERR("clock control device not ready");
+		return -ENODEV;
+	}
 
 	if (clock_control_on(clk,
-			     (clock_control_subsys_t *) &cfg->pclken) != 0) {
+			     (clock_control_subsys_t) &cfg->pclken) != 0) {
 		return -EIO;
 	}
 
 	/* Configure dt provided device signals when available */
 	err = pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_DEFAULT);
-	if (err < 0) {
+	if ((err < 0) && (err != -ENOENT)) {
 		LOG_ERR("DAC pinctrl setup failed (%d)", err);
 		return err;
 	}
@@ -136,7 +167,7 @@ static int dac_stm32_init(const struct device *dev)
 	return 0;
 }
 
-static const struct dac_driver_api api_stm32_driver_api = {
+static DEVICE_API(dac, api_stm32_driver_api) = {
 	.channel_setup = dac_stm32_channel_setup,
 	.write_value = dac_stm32_write_value
 };

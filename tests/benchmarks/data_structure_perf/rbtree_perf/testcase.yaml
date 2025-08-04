@@ -1,3 +1,10 @@
 tests:
   benchmark.data_structure_perf.rbtree:
-    tags: benchmark rbtree
+    platform_key:
+      - arch
+    tags:
+      - benchmark
+      - rbtree
+      - kernel
+    integration_platforms:
+      - native_sim

@@ -6,5 +6,7 @@ Tools and IDEs
 .. toctree::
    :maxdepth: 1
 
+   clion.rst
    coccinelle.rst
-   platformio/index.rst
+   stm32cubeide.rst
+   vscode.rst

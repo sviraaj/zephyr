@@ -5,11 +5,10 @@
  */
 
 #include <zephyr/sys/printk.h>
-#include <zephyr/zephyr.h>
 #include <zephyr/types.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/pm/device_runtime.h>
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <ksched.h>
 #include <zephyr/kernel.h>
 #include <zephyr/pm/pm.h>
@@ -27,14 +26,29 @@ static bool leave_idle;
 static bool idle_entered;
 static bool testing_device_runtime;
 static bool testing_device_order;
-static bool testing_device_lock;
+static bool testing_force_state;
 
+enum pm_state forced_state;
 static const struct device *device_dummy;
 static struct dummy_driver_api *api;
 
-static const struct device *device_a;
-static const struct device *device_c;
+static const struct device *const device_a =
+	DEVICE_DT_GET(DT_INST(0, test_device_pm));
+static const struct device *const device_c =
+	DEVICE_DT_GET(DT_INST(2, test_device_pm));
 
+/*
+ * This device does not support PM. It is used to check
+ * the behavior of the PM subsystem when a device does not
+ * support PM.
+ */
+static const struct device *const device_e =
+	DEVICE_DT_GET(DT_INST(4, test_device_pm));
+
+DEVICE_DT_DEFINE(DT_INST(4, test_device_pm), NULL,
+		NULL, NULL, NULL,
+		PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
+		NULL);
 
 /*
  * According with the initialization level, devices A, B and C are
@@ -53,15 +67,6 @@ static const struct device *device_c;
  * when suspending / resuming device B.
  */
 
-
-/* Common init function for devices A,B and C */
-static int device_init(const struct device *dev)
-{
-	ARG_UNUSED(dev);
-
-	return 0;
-}
-
 static int device_a_pm_action(const struct device *dev,
 		enum pm_device_action pm_action)
 {
@@ -73,7 +78,7 @@ static int device_a_pm_action(const struct device *dev,
 
 PM_DEVICE_DT_DEFINE(DT_INST(0, test_device_pm), device_a_pm_action);
 
-DEVICE_DT_DEFINE(DT_INST(0, test_device_pm), device_init,
+DEVICE_DT_DEFINE(DT_INST(0, test_device_pm), NULL,
 		PM_DEVICE_DT_GET(DT_INST(0, test_device_pm)), NULL, NULL,
 		PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 		NULL);
@@ -118,7 +123,7 @@ static int device_b_pm_action(const struct device *dev,
 
 PM_DEVICE_DT_DEFINE(DT_INST(1, test_device_pm), device_b_pm_action);
 
-DEVICE_DT_DEFINE(DT_INST(1, test_device_pm), device_init,
+DEVICE_DT_DEFINE(DT_INST(1, test_device_pm), NULL,
 		PM_DEVICE_DT_GET(DT_INST(1, test_device_pm)), NULL, NULL,
 		PRE_KERNEL_2, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 		NULL);
@@ -134,12 +139,36 @@ static int device_c_pm_action(const struct device *dev,
 
 PM_DEVICE_DT_DEFINE(DT_INST(2, test_device_pm), device_c_pm_action);
 
-DEVICE_DT_DEFINE(DT_INST(2, test_device_pm), device_init,
+DEVICE_DT_DEFINE(DT_INST(2, test_device_pm), NULL,
 		PM_DEVICE_DT_GET(DT_INST(2, test_device_pm)), NULL, NULL,
 		POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 		NULL);
 
+static int device_init_failed(const struct device *dev)
+{
+	ARG_UNUSED(dev);
 
+	/* Return error to mark device as not ready. */
+	return -EIO;
+}
+
+static int device_d_pm_action(const struct device *dev,
+		enum pm_device_action pm_action)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(pm_action);
+
+	zassert_unreachable("Entered PM handler for unready device");
+
+	return 0;
+}
+
+PM_DEVICE_DT_DEFINE(DT_INST(3, test_device_pm), device_d_pm_action);
+
+DEVICE_DT_DEFINE(DT_INST(3, test_device_pm), device_init_failed,
+		PM_DEVICE_DT_GET(DT_INST(3, test_device_pm)), NULL, NULL,
+		POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
+		NULL);
 
 void pm_state_set(enum pm_state state, uint8_t substate_id)
 {
@@ -148,23 +177,33 @@ void pm_state_set(enum pm_state state, uint8_t substate_id)
 
 	enum pm_device_state device_power_state;
 
+#ifndef CONFIG_PM_DEVICE_SYSTEM_MANAGED
+	/* Devices shouldn't have changed state because system managed
+	 * device power management is not enabled.
+	 **/
+	pm_device_state_get(device_a, &device_power_state);
+	zassert_true(device_power_state == PM_DEVICE_STATE_ACTIVE);
+
+	pm_device_state_get(device_c, &device_power_state);
+	zassert_true(device_power_state == PM_DEVICE_STATE_ACTIVE);
+#else
 	/* If testing device order this function does not need to anything */
 	if (testing_device_order) {
 		return;
 	}
 
-	if (testing_device_lock) {
-		pm_device_state_get(device_a, &device_power_state);
+	if (testing_force_state) {
+		/* if forced to given power state was called */
+		set_pm = true;
+		zassert_equal(state, forced_state);
+		testing_force_state = false;
 
-		/*
-		 * If the device has its state locked the device has
-		 * to be ACTIVE
+		/* We have forced a state that does not trigger device power management.
+		 * The device should still be active.
 		 */
-		zassert_true(device_power_state == PM_DEVICE_STATE_ACTIVE,
-				NULL);
-		return;
+		pm_device_state_get(device_c, &device_power_state);
+		zassert_true(device_power_state == PM_DEVICE_STATE_ACTIVE);
 	}
-
 
 	/* at this point, notify_pm_state_entry() implemented in
 	 * this file has been called and set_pm should have been set
@@ -179,10 +218,10 @@ void pm_state_set(enum pm_state state, uint8_t substate_id)
 		/* If device runtime is enable, the device should still be
 		 * active
 		 */
-		zassert_true(device_power_state == PM_DEVICE_STATE_ACTIVE, NULL);
+		zassert_true(device_power_state == PM_DEVICE_STATE_ACTIVE);
 	} else {
 		/* at this point, devices have been deactivated */
-		zassert_false(device_power_state == PM_DEVICE_STATE_ACTIVE, NULL);
+		zassert_false(device_power_state == PM_DEVICE_STATE_ACTIVE);
 	}
 
 	/* this function is called when system entering low power state, so
@@ -190,6 +229,7 @@ void pm_state_set(enum pm_state state, uint8_t substate_id)
 	 */
 	zassert_false(state == PM_STATE_ACTIVE,
 		      "Entering low power state with a wrong parameter");
+#endif
 }
 
 void pm_state_exit_post_ops(enum pm_state state, uint8_t substate_id)
@@ -206,27 +246,24 @@ void pm_state_exit_post_ops(enum pm_state state, uint8_t substate_id)
 /* Our PM policy handler */
 const struct pm_state_info *pm_policy_next_state(uint8_t cpu, int32_t ticks)
 {
-	static struct pm_state_info info;
+	const struct pm_state_info *cpu_states;
 
-	ARG_UNUSED(cpu);
+	zassert_true(pm_state_cpu_get_all(cpu, &cpu_states) == 2,
+		     "There is no power state defined");
 
 	/* make sure this is idle thread */
-	zassert_true(z_is_idle_thread_object(_current), NULL);
-	zassert_true(ticks == _kernel.idle, NULL);
-	zassert_false(k_can_yield(), NULL);
+	zassert_true(z_is_idle_thread_object(_current));
+	zassert_true(ticks == _kernel.idle);
+	zassert_false(k_can_yield());
 	idle_entered = true;
 
 	if (enter_low_power) {
 		enter_low_power = false;
 		notify_app_entry = true;
-		info.state = PM_STATE_SUSPEND_TO_IDLE;
-	} else {
-		/* only test pm_policy_next_state()
-		 * no PM operation done
-		 */
-		info.state = PM_STATE_ACTIVE;
+		return &cpu_states[0];
 	}
-	return &info;
+
+	return NULL;
 }
 
 /* implement in application, called by idle thread */
@@ -237,18 +274,18 @@ static void notify_pm_state_entry(enum pm_state state)
 	/* enter suspend */
 	zassert_true(notify_app_entry == true,
 		     "Notification to enter suspend was not sent to the App");
-	zassert_true(z_is_idle_thread_object(_current), NULL);
-	zassert_equal(state, PM_STATE_SUSPEND_TO_IDLE, NULL);
+	zassert_true(z_is_idle_thread_object(_current));
+	zassert_equal(state, PM_STATE_SUSPEND_TO_IDLE);
 
 	pm_device_state_get(device_dummy, &device_power_state);
-	if (testing_device_runtime) {
+	if (testing_device_runtime || !IS_ENABLED(CONFIG_PM_DEVICE_SYSTEM_MANAGED)) {
 		/* If device runtime is enable, the device should still be
 		 * active
 		 */
-		zassert_true(device_power_state == PM_DEVICE_STATE_ACTIVE, NULL);
+		zassert_true(device_power_state == PM_DEVICE_STATE_ACTIVE);
 	} else {
 		/* at this point, devices should not be active */
-		zassert_false(device_power_state == PM_DEVICE_STATE_ACTIVE, NULL);
+		zassert_false(device_power_state == PM_DEVICE_STATE_ACTIVE);
 	}
 	set_pm = true;
 	notify_app_exit = true;
@@ -262,12 +299,12 @@ static void notify_pm_state_exit(enum pm_state state)
 	/* leave suspend */
 	zassert_true(notify_app_exit == true,
 		     "Notification to leave suspend was not sent to the App");
-	zassert_true(z_is_idle_thread_object(_current), NULL);
-	zassert_equal(state, PM_STATE_SUSPEND_TO_IDLE, NULL);
+	zassert_true(z_is_idle_thread_object(_current));
+	zassert_equal(state, PM_STATE_SUSPEND_TO_IDLE);
 
 	/* at this point, devices are active again*/
 	pm_device_state_get(device_dummy, &device_power_state);
-	zassert_equal(device_power_state, PM_DEVICE_STATE_ACTIVE, NULL);
+	zassert_equal(device_power_state, PM_DEVICE_STATE_ACTIVE);
 	leave_idle = true;
 
 }
@@ -287,7 +324,7 @@ static void notify_pm_state_exit(enum pm_state state)
  *
  * @ingroup power_tests
  */
-void test_power_idle(void)
+ZTEST(power_management_1cpu, test_power_idle)
 {
 	TC_PRINT("give way to idle thread\n");
 	k_sleep(SLEEP_TIMEOUT);
@@ -312,7 +349,7 @@ static struct pm_notifier notifier = {
  *
  * @ingroup power_tests
  */
-void test_power_state_trans(void)
+ZTEST(power_management_1cpu, test_power_state_trans)
 {
 	int ret;
 
@@ -324,7 +361,7 @@ void test_power_state_trans(void)
 
 	/* give way to idle thread */
 	k_sleep(SLEEP_TIMEOUT);
-	zassert_true(leave_idle, NULL);
+	zassert_true(leave_idle);
 
 	ret = pm_device_runtime_enable(device_dummy);
 	zassert_true(ret == 0, "Failed to enable device runtime PM");
@@ -346,7 +383,7 @@ void test_power_state_trans(void)
  *
  * @ingroup power_tests
  */
-void test_power_state_notification(void)
+ZTEST(power_management_1cpu, test_power_state_notification)
 {
 	int ret;
 	enum pm_device_state device_power_state;
@@ -358,28 +395,26 @@ void test_power_state_notification(void)
 	zassert_true(ret == 0, "Fail to open device");
 
 	pm_device_state_get(device_dummy, &device_power_state);
-	zassert_equal(device_power_state, PM_DEVICE_STATE_ACTIVE, NULL);
+	zassert_equal(device_power_state, PM_DEVICE_STATE_ACTIVE);
 
 
 	/* The device should be kept active even when the system goes idle */
 	testing_device_runtime = true;
 
 	k_sleep(SLEEP_TIMEOUT);
-	zassert_true(leave_idle, NULL);
+	zassert_true(leave_idle);
 
 	api->close(device_dummy);
 	pm_device_state_get(device_dummy, &device_power_state);
-	zassert_equal(device_power_state, PM_DEVICE_STATE_SUSPENDED, NULL);
+	zassert_equal(device_power_state, PM_DEVICE_STATE_SUSPENDED);
 	pm_notifier_unregister(&notifier);
+	testing_device_runtime = false;
 }
 
-void test_device_order(void)
+ZTEST(power_management_1cpu, test_device_order)
 {
-	device_a = DEVICE_DT_GET(DT_INST(0, test_device_pm));
-	zassert_not_null(device_a, "Failed to get device");
-
-	device_c = DEVICE_DT_GET(DT_INST(2, test_device_pm));
-	zassert_not_null(device_c, "Failed to get device");
+	zassert_true(device_is_ready(device_a), "device a not ready");
+	zassert_true(device_is_ready(device_c), "device c not ready");
 
 	testing_device_order = true;
 	enter_low_power = true;
@@ -392,57 +427,93 @@ void test_device_order(void)
 /**
  * @brief Test the device busy APIs.
  */
-void test_busy(void)
+ZTEST(power_management_1cpu, test_busy)
 {
 	bool busy;
 
 	busy = pm_device_is_any_busy();
-	zassert_false(busy, NULL);
+	zassert_false(busy);
 
 	pm_device_busy_set(device_dummy);
 
 	busy = pm_device_is_any_busy();
-	zassert_true(busy, NULL);
+	zassert_true(busy);
 
 	busy = pm_device_is_busy(device_dummy);
-	zassert_true(busy, NULL);
+	zassert_true(busy);
 
 	pm_device_busy_clear(device_dummy);
 
 	busy = pm_device_is_any_busy();
-	zassert_false(busy, NULL);
+	zassert_false(busy);
 
 	busy = pm_device_is_busy(device_dummy);
-	zassert_false(busy, NULL);
+	zassert_false(busy);
 }
 
-void test_device_state_lock(void)
+ZTEST(power_management_1cpu, test_empty_states)
 {
-	pm_device_state_lock(device_a);
-	zassert_true(pm_device_state_is_locked(device_a), NULL);
+	const struct pm_state_info *cpu_states;
+	uint8_t state = pm_state_cpu_get_all(1u, &cpu_states);
 
-	testing_device_lock = true;
-	enter_low_power = true;
-
-	k_sleep(SLEEP_TIMEOUT);
-
-	pm_device_state_unlock(device_a);
-
-	testing_device_lock = false;
+	zassert_equal(state, 0);
 }
 
-void test_main(void)
+ZTEST(power_management_1cpu, test_force_state)
+{
+	const struct pm_state_info *cpu_states;
+
+	pm_state_cpu_get_all(0, &cpu_states);
+	forced_state = cpu_states[1].state;
+	bool ret = pm_state_force(0, &cpu_states[1]);
+
+	zassert_equal(ret, true, "Error in force state");
+
+	testing_force_state = true;
+	k_sleep(K_SECONDS(1U));
+}
+
+ZTEST(power_management_1cpu, test_device_without_pm)
+{
+	pm_device_busy_set(device_e);
+
+	/* Since this device does not support PM, it should not be set busy */
+	zassert_false(pm_device_is_busy(device_e));
+
+	/* No device should be busy */
+	zassert_false(pm_device_is_any_busy());
+
+	/* Lets ensure that nothing happens */
+	pm_device_busy_clear(device_e);
+
+	/* Check the status. Since PM is enabled but this device does not support it.
+	 * It should return -ENOSYS
+	 */
+	zassert_equal(pm_device_state_get(device_e, NULL), -ENOSYS);
+
+	/* Try to forcefully change the state should also return an error */
+	zassert_equal(pm_device_action_run(device_e, PM_DEVICE_ACTION_SUSPEND), -ENOSYS);
+
+	/* Confirming the device is powered */
+	zassert_true(pm_device_is_powered(device_e));
+
+	/* Test wakeup functionality */
+	zassert_false(pm_device_wakeup_enable(device_e, true));
+	zassert_false(pm_device_wakeup_is_enabled(device_e));
+}
+
+void power_management_1cpu_teardown(void *data)
+{
+	pm_notifier_unregister(&notifier);
+}
+
+static void *power_management_1cpu_setup(void)
 {
 	device_dummy = device_get_binding(DUMMY_DRIVER_NAME);
 	api = (struct dummy_driver_api *)device_dummy->api;
-
-	ztest_test_suite(power_management_test,
-			 ztest_1cpu_unit_test(test_power_idle),
-			 ztest_1cpu_unit_test(test_power_state_trans),
-			 ztest_1cpu_unit_test(test_device_order),
-			 ztest_1cpu_unit_test(test_device_state_lock),
-			 ztest_1cpu_unit_test(test_power_state_notification),
-			 ztest_1cpu_unit_test(test_busy));
-	ztest_run_test_suite(power_management_test);
-	pm_notifier_unregister(&notifier);
+	return NULL;
 }
+
+ZTEST_SUITE(power_management_1cpu, NULL, power_management_1cpu_setup,
+			ztest_simple_1cpu_before, ztest_simple_1cpu_after,
+			power_management_1cpu_teardown);

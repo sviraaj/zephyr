@@ -5,13 +5,30 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/**
+ * @file
+ * @brief MCUboot public API for MCUboot control of image boot process
+ *
+ * The header declares API functions that can be used to get information
+ * on and select application images for boot.
+ */
+
 #ifndef ZEPHYR_INCLUDE_DFU_MCUBOOT_H_
 #define ZEPHYR_INCLUDE_DFU_MCUBOOT_H_
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 #include <zephyr/types.h>
+
+/**
+ * @brief MCUboot public API for MCUboot control of image boot process
+ *
+ * @defgroup mcuboot_api MCUboot image control API
+ * @ingroup third_party
+ * @{
+ */
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,15 +81,9 @@ extern "C" {
 
 #define BOOT_IMG_VER_STRLEN_MAX 25  /* 255.255.65535.4294967295\0 */
 
-/* Trailer: */
-#define BOOT_MAX_ALIGN		8
-#ifndef BOOT_MAGIC_SZ
-#define BOOT_MAGIC_SZ		16
-#endif
+/** Sector at which firmware update should be placed by application in swap using offset mode */
+#define SWAP_USING_OFFSET_SECTOR_UPDATE_BEGIN 1
 
-#define BOOT_TRAILER_IMG_STATUS_OFFS(bank_area) ((bank_area)->fa_size -\
-						  BOOT_MAGIC_SZ -\
-						  BOOT_MAX_ALIGN * 2)
 /**
  * @brief MCUboot image header representation for image version
  *
@@ -149,6 +160,13 @@ struct mcuboot_img_header {
 int boot_read_bank_header(uint8_t area_id,
 			  struct mcuboot_img_header *header,
 			  size_t header_size);
+
+/**
+ * @brief Get the flash area id for the active image slot.
+ *
+ * @return flash area id for the active image slot
+ */
+uint8_t boot_fetch_active_slot(void);
 
 /**
  * @brief Check if the currently running image is confirmed as OK.
@@ -254,8 +272,43 @@ int boot_request_upgrade_multi(int image_index, int permanent);
  */
 int boot_erase_img_bank(uint8_t area_id);
 
+/**
+ * @brief Get the offset of the status in the image bank
+ *
+ * @param area_id flash_area ID of image bank to get the status offset
+ * @return a positive offset on success, negative errno code on fail
+ */
+ssize_t boot_get_area_trailer_status_offset(uint8_t area_id);
+
+/**
+ * @brief Get the offset of the status from an image bank size
+ *
+ * @param area_size size of image bank
+ * @return offset of the status. When negative the status will not fit
+ * the given size
+ */
+ssize_t boot_get_trailer_status_offset(size_t area_size);
+
+#if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_USING_OFFSET) || defined(__DOXYGEN__)
+/**
+ * @brief Get the offset of the image header, this should be used in swap using offset mode to
+ *	  account for the secondary slot data starting in the first or second sector, depending
+ *	  upon the current state
+ *
+ * @param area_id flash_area ID of image bank to get the status offset
+ * @return offset of the image header
+ */
+size_t boot_get_image_start_offset(uint8_t area_id);
+#else
+#define boot_get_image_start_offset(...) 0
+#endif
+
 #ifdef __cplusplus
 }
 #endif
+
+/**
+ * @}
+ */
 
 #endif  /* ZEPHYR_INCLUDE_DFU_MCUBOOT_H_ */

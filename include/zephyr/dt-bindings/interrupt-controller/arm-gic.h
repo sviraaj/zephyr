@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef __DT_BINDING_ARM_GIC_H
-#define __DT_BINDING_ARM_GIC_H
+#ifndef ZEPHYR_INCLUDE_DT_BINDINGS_INTERRUPT_CONTROLLER_ARM_GIC_H_
+#define ZEPHYR_INCLUDE_DT_BINDINGS_INTERRUPT_CONTROLLER_ARM_GIC_H_
 
-#include <zephyr/sys/util_macro.h>
+#include <zephyr/dt-bindings/dt-util.h>
 
 /* CPU Interrupt numbers */
 #define	GIC_INT_VIRT_MAINT		25
@@ -26,4 +26,4 @@
 
 #define IRQ_DEFAULT_PRIORITY	0xa0
 
-#endif
+#endif /* ZEPHYR_INCLUDE_DT_BINDINGS_INTERRUPT_CONTROLLER_ARM_GIC_H_ */

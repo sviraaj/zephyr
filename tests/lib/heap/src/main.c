@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include <zephyr/zephyr.h>
-#include <ztest.h>
+#include <zephyr/kernel.h>
+#include <zephyr/ztest.h>
 #include <zephyr/sys/sys_heap.h>
 #include <zephyr/sys/heap_listener.h>
 #include <inttypes.h>
@@ -14,15 +14,15 @@
  */
 
 #if defined(CONFIG_SOC_MPS2_AN521) && defined(CONFIG_QEMU_TARGET)
-/* mps2_an521 blows up if allowed to link into large area, even though
+/* mps2/an521 blows up if allowed to link into large area, even though
  * the link is successful and it claims the memory is there.  We get
  * hard faults on boot in qemu before entry to cstart() once MEMSZ is
  * allowed to get near 256kb.
  */
 # define MEMSZ (192 * 1024)
 #elif defined(CONFIG_ARCH_POSIX)
-/* native_posix doesn't support CONFIG_SRAM_SIZE at all (because
- * it can link anything big enough to fit on the host), so just use a
+/* POSIX arch based targets don't support CONFIG_SRAM_SIZE at all (because
+ * they can link anything big enough to fit on the host), so just use a
  * reasonable value.
  */
 # define MEMSZ (2 * 1024 * 1024)
@@ -130,7 +130,7 @@ void *testalloc(void *arg, size_t bytes)
 		size_t expect = ROUND_UP(bytes + hdr, 8) - hdr;
 
 		zassert_equal(blksz, expect,
-			      "wrong size block returned bytes = %ld ret = %ld",
+			      "wrong size block returned bytes = %zu ret = %zu",
 			      bytes, blksz);
 	}
 
@@ -165,7 +165,7 @@ static void log_result(size_t sz, struct z_heap_stress_result *r)
  * to prevent runaway fragmentation and most allocations continue to
  * succeed in steady state.
  */
-static void test_small_heap(void)
+ZTEST(lib_heap, test_small_heap)
 {
 	struct sys_heap heap;
 	struct z_heap_stress_result result;
@@ -193,7 +193,7 @@ static void test_small_heap(void)
  * receive a 8 byte minimal chunk, we still count that as 5 bytes of
  * waste).
  */
-static void test_fragmentation(void)
+ZTEST(lib_heap, test_fragmentation)
 {
 	struct sys_heap heap;
 	struct z_heap_stress_result result;
@@ -216,7 +216,7 @@ static void test_fragmentation(void)
  * exhaustively with good performance, so the relative operation count
  * and fragmentation is going to be lower.
  */
-static void test_big_heap(void)
+ZTEST(lib_heap, test_big_heap)
 {
 	struct sys_heap heap;
 	struct z_heap_stress_result result;
@@ -253,7 +253,7 @@ static void test_big_heap(void)
  * - s: solo free header
  * - f: end marker / footer
  */
-static void test_solo_free_header(void)
+ZTEST(lib_heap, test_solo_free_header)
 {
 	struct sys_heap heap;
 
@@ -290,7 +290,7 @@ bool realloc_check_block(uint8_t *data, uint8_t *orig, size_t sz)
 	return true;
 }
 
-static void test_realloc(void)
+ZTEST(lib_heap, test_realloc)
 {
 	struct sys_heap heap;
 	void *p1, *p2, *p3;
@@ -411,7 +411,7 @@ static void heap_free_cb(uintptr_t heap_id, void *mem, size_t bytes)
 }
 #endif /* CONFIG_SYS_HEAP_LISTENER */
 
-static void test_heap_listeners(void)
+ZTEST(lib_heap, test_heap_listeners)
 {
 #ifdef CONFIG_SYS_HEAP_LISTENER
 	void *mem;
@@ -441,7 +441,7 @@ static void test_heap_listeners(void)
 
 	zassert_equal(listener_heap_id,
 		      HEAP_ID_FROM_POINTER(&listener_heap),
-		      "Heap ID mismatched: 0x%lx != %p", listener_heap_id,
+		      "Heap ID mismatched: %p != %p", (void *)listener_heap_id,
 		      &listener_heap);
 	zassert_equal(listener_mem, mem,
 		      "Heap allocated pointer mismatched: %p != %p",
@@ -450,7 +450,7 @@ static void test_heap_listeners(void)
 	sys_heap_free(&listener_heap, mem);
 	zassert_equal(listener_heap_id,
 		      HEAP_ID_FROM_POINTER(&listener_heap),
-		      "Heap ID mismatched: 0x%lx != %p", listener_heap_id,
+		      "Heap ID mismatched: %p != %p", (void *)listener_heap_id,
 		      &listener_heap);
 	zassert_equal(listener_mem, mem,
 		      "Heap allocated pointer mismatched: %p != %p",
@@ -461,7 +461,7 @@ static void test_heap_listeners(void)
 
 	zassert_equal(listener_heap_id,
 		      HEAP_ID_FROM_POINTER(&listener_heap),
-		      "Heap ID mismatched: 0x%lx != %p", listener_heap_id,
+		      "Heap ID mismatched: %p != %p", (void *)listener_heap_id,
 		      &listener_heap);
 	zassert_equal(listener_mem, mem,
 		      "Heap allocated pointer mismatched: %p != %p",
@@ -470,7 +470,7 @@ static void test_heap_listeners(void)
 	sys_heap_free(&listener_heap, mem);
 	zassert_equal(listener_heap_id,
 		      HEAP_ID_FROM_POINTER(&listener_heap),
-		      "Heap ID mismatched: 0x%lx != %p", listener_heap_id,
+		      "Heap ID mismatched: %p != %p", (void *)listener_heap_id,
 		      &listener_heap);
 	zassert_equal(listener_mem, mem,
 		      "Heap allocated pointer mismatched: %p != %p",
@@ -485,16 +485,4 @@ static void test_heap_listeners(void)
 #endif /* CONFIG_SYS_HEAP_LISTENER */
 }
 
-void test_main(void)
-{
-	ztest_test_suite(lib_heap_test,
-			 ztest_unit_test(test_realloc),
-			 ztest_unit_test(test_small_heap),
-			 ztest_unit_test(test_fragmentation),
-			 ztest_unit_test(test_big_heap),
-			 ztest_unit_test(test_solo_free_header),
-			 ztest_unit_test(test_heap_listeners)
-			 );
-
-	ztest_run_test_suite(lib_heap_test);
-}
+ZTEST_SUITE(lib_heap, NULL, NULL, NULL, NULL, NULL);

@@ -26,8 +26,8 @@ The Zephyr release model was loosely based on the Linux kernel model:
   changes such as bug fixes and documentation will be merged unless granted a
   special exemption by the Technical Steering Committee.
 
-  - Development phase: all changes are accepted (subject to approval from the
-    respective maintainers).
+  - Development phase: all changes are considered and merged, subject to
+    approval from the respective maintainers.
   - Stabilisation phase: the release manager creates a vN-rc1 tag and the tree
     enters the stabilization phase
   - CI sees the tag, builds and runs tests; Test teams analyse the report from the
@@ -45,6 +45,12 @@ The Zephyr release model was loosely based on the Linux kernel model:
 
     Release Cycle
 
+.. note::
+
+    The milestones for the current major version can be found on the
+    `Official GitHub Wiki <https://github.com/zephyrproject-rtos/zephyr/wiki/Release-Management>`_.
+    Information on previous releases can be found :ref:`here <zephyr_release_notes>`.
+
 Development Phase
 *****************
 
@@ -55,7 +61,7 @@ sufficiently stable (and which is accepted by the maintainers and the wide commu
 merged into the mainline tree.  The bulk of changes for a new development cycle
 (and all of the major changes) will be merged during this time.
 
-The development phase lasts for approximately two months.  At the end of this time,
+The development phase lasts for approximately three months.  At the end of this time,
 the release owner will declare that the development phase is over and releases the first
 of the release candidates.  For the codebase release which is destined to be
 3.1.0, for example, the release which happens at the end of the development phase
@@ -66,14 +72,17 @@ code base has begun.
 Stabilization Phase
 *******************
 
-Over the next weeks, only patches which fix problems should be submitted to the
-mainline.  On occasion, a more significant change will be allowed, but such
-occasions are rare and require a TSC approval (Change Control Board). As a
-general rule, if you miss submitting your code during the development phase for
-a given feature, the best thing to do is to wait for the next development cycle.
-(An occasional exception is made for drivers for previously unsupported
-hardware; if they do not touch any other in-tree code, they cannot cause
-regressions and should be safe to add at any time).
+Over the next weeks and depending on the release milestone, only stabilization,
+cosmetic changes, tests, bug and doc fixes are allowed (See :ref:`table
+<release_milestones>` below).
+
+On occasion, more significant changes and new features will be allowed, but such
+occasions are rare and require a TSC approval and a justification. As a general
+rule, if you miss submitting your code during the development phase for a given
+feature, the best thing to do is to wait for the next development cycle. (An
+occasional exception is made for drivers for previously unsupported hardware; if
+they do not touch any other in-tree code, they cannot cause regressions and
+should be safe to add at any time).
 
 As fixes make their way into the mainline, the patch rate will slow over time.
 The mainline release owner releases new -rc drops once or twice a week; a normal
@@ -85,25 +94,58 @@ At that point, the whole process starts over again.
 
 .. _release_quality_criteria:
 
-Release Quality Criteria
-************************
+Release Criteria
+****************
 
-The current backlog of prioritized bugs shall be used as a quality metric to
-gate the final release. The following counts shall be used:
+The main motivation is to clearly have the criteria in place that must be met
+for a release. This will help define when a release is "done" in terms that most
+people can understand and in ways that help new people to understand the process
+and participate in creating successful releases:
 
-.. csv-table:: Bug Count Release Thresholds
-   :header: "High", "Medium", "Low"
-   :widths: auto
+- The release criteria documents all the requirements of our target audience for
+  each Zephyr release
+- The target audiences for each release can be different, and may overlap
+- The criteria at any given time are not set in stone: there may be requirements
+  that have been overlooked, or that are new, and in these cases, the criteria
+  should be expanded to ensure all needs are covered.
+
+Below is the high level criteria to be met for each release:
+
+- No blocker bugs / blocking issues
+- All relevant tests shall pass on ``Tier 0`` platforms
+- All relevant tests shall pass on Tier 0 and 1 platforms (at least 1 per
+  architecture/architecture variant/Hardware features)
+- All applicable samples/tests shall build on Tiers 0, 1 and 2
+- All high and critical static analysis and security issues addressed
+- Release Notes are up-to-date.
+
+Blocker Bugs
+============
+
+Blocker bug process kicks in during the release process and is in effect after the
+feature freeze milestone. An issue labeled as a blocker practically blocks a
+release from happening. All blocker bugs shall be resolved before a release is
+created.
+
+A fix for a bug that is granted ``blocker`` status can be merged to 'main' and included in
+the release all the way until the final release date.
+
+Bugs of moderate severity and higher that have impact on all users are typically
+the candidates to be promoted to blocker bugs
+
+Contributors and member of the release engineering team shall follow these
+guidelines for release blocker bugs:
+
+- Only mark bugs as blockers if the software (Zephyr) must not be released with
+  the bug present.
+- All collaborators can add or remove blocking labels.
+- Evaluate bugs as potential blockers based on their severity and prevalence.
+- Provide detailed rationale whenever adding or removing a blocking label.
+- Ensure all blockers have the milestone tagged.
+- Release managers have final say on blocking status; contact them with any questions.
 
 
-   "0","<20","<50"
-
-.. note::
-
-   The "low" bug count target of <50 will be a phased approach starting with 150
-   for release 2.4.0, 100 for release 2.5.0, and 50 for release 2.6.0
-
-
+.. _release_milestones:
 
 Release Milestones
 *******************
@@ -131,15 +173,16 @@ Release Milestones
      - Release Manager
    * - T-3W
      - Feature Freeze (RC1)
-     - No new features, ONLY stabilization and cosmetic changes, bug and doc fixes are allowed.
+     - No new features after RC1, ONLY stabilization and cosmetic changes, bug and doc
+       fixes are allowed. New tests for existing features are also allowed.
      - Release Engineering
    * - T-2W
      - 2nd Release Candidate
-     - No new features, ONLY stabilization and cosmetic changes, bug and doc fixes are allowed.
+     - No new features after RC2, ONLY stabilization and cosmetic changes, bug and doc fixes are allowed.
      - Release Manager
    * - T-1W
      - Hard Freeze (RC3)
-     - Only blocker bug fixes, documentation and changes to release notes are allowed.
+     - Only blocker bug fixes after RC3, documentation and changes to release notes are allowed.
        Release notes need to be complete by this checkpoint. Release Criteria is
        met.
      - Release Manager
@@ -147,8 +190,6 @@ Release Milestones
      - Release
      -
      - Release Manager
-
-
 
 
 Releases
@@ -179,11 +220,13 @@ The following syntax should be used for releases and tags in Git:
 
     Zephyr Code and Releases
 
+.. _release_process_lts:
+
 Long Term Support (LTS)
 =======================
 
 Long-term support releases are designed to be supported and maintained
-for an extended period and is the recommended release for
+for an extended period and are the recommended release for
 products and the auditable branch used for certification.
 
 An LTS release is defined as:
@@ -192,8 +235,7 @@ An LTS release is defined as:
 - **Extended Stabilisation period**: Allow for more testing and bug fixing
 - **Stable APIs**
 - **Quality Driven Process**
-- **Long Term**: Maintained for an extended period of time (at least 2.5 years)
-  overlapping previous LTS release for at least half a year.
+- **Long Term**: Maintained for an extended period of time (at least 5 years).
 
 
 Product Focused
@@ -261,8 +303,11 @@ components provided by the project:
 
 - Compliance with published coding guidelines, style guides and naming
   conventions and documentation of deviations.
-- Regular static analysis on the complete tree using available commercial and
-  open-source tools and documentation of deviations and false positives.
+- Static analysis reports
+
+  - Regular static analysis on the complete tree using available commercial and
+    open-source tools, and documentation of deviations and false positives.
+
 - Documented components and APIS
 - Requirements Catalog
 - Verification Plans
@@ -277,10 +322,22 @@ state of the software when it was released.
 Long Term Support and Maintenance
 ++++++++++++++++++++++++++++++++++
 
-A Zephyr LTS release is published every 2 years and is branched and maintained
-independently from the main tree for at least 2.5 years after it was
-released. Support and maintenance for an LTS release stops at least half a year
-after the following LTS release is published.
+LTS releases are published every 2.5 to 3 years and are branched and maintained independently from
+the main tree for approximately 5 years after they were released.
+
+Support is provided in three main phases:
+
+- **Phase 1 (first 2 years):** General bug fixes and security fixes, including platform and driver
+  fixes.
+- **Phase 2 (following 3+ years):** Security and OS stability fixes only.
+- **Phase 3:** Extended support may be available through third parties (details to be determined).
+
+Support for a given LTS release (LTS *N*) continues until the initial release of the LTS two
+versions ahead (LTS *N+2*). A final release of LTS *N* occurs shortly after the initial release of
+LTS *N+2*.
+
+The list of currently supported LTS releases and their EOL dates can be found
+:ref:`here <supported_releases>`.
 
 .. figure:: lts.svg
     :align: center
@@ -314,6 +371,50 @@ governing board.
 
 Processes to achieve selected certification will be determined by the Security and
 Safety Working Groups and coordinated with the TSC.
+
+
+Hardware Support Tiers
+***********************
+
+Tier 0: Emulation Platforms
+===========================
+
+- Tests are both built and run in these platforms in CI, and therefore runtime
+  failures can block Pull Requests.
+- Supported by the Zephyr project itself, commitment to fix bugs in releases.
+- One Tier 0 platform is required for each new architecture.
+- Bugs reported against platforms of this tier are to be evaluated and treated as
+  a general bug in Zephyr and should be dealt with the highest priority.
+
+Tier 1: Supported Platforms
+===========================
+
+- Commitment from a specific team to run tests using twister device
+  testing for the "Zephyr compatibility test suite" (details TBD)
+  on a regular basis using open-source and publicly available drivers.
+- Commitment to fix bugs in time for releases. Not supported by "Zephyr Project"
+  itself.
+- General availability for purchase
+- Bugs reported against platforms of this tier are to be evaluated and treated
+  as a general bug in Zephyr and should be dealt with medium to high priority.
+
+Tier 2: Community Platforms
+===========================
+
+- Platform implementation is available in upstream, no commitment to testing,
+  may not be generally available.
+- Has a dedicated maintainer who commits to respond to issues / review patches.
+- Bugs reported against platforms of this tier are NOT considered as
+  a general bug in Zephyr.
+
+Tier 3: Deprecated and unsupported Platforms
+============================================
+
+- Platform implementation is available, but no owner or unresponsive owner.
+- No commitment to support is available.
+- May be removed from upstream if no one works to bring it up to tier 2 or better.
+- Bugs reported against platforms of this tier are NOT considered as
+  a general bug in Zephyr.
 
 
 Release Procedure
@@ -363,33 +464,21 @@ steps:
         #. Post a PR with the updated :zephyr_file:`VERSION` file using
            ``release: Zephyr 1.11.0-rc1`` as the commit subject. Merge
            the PR after successful CI.
+
         #. Tag and push the version, using an annotated tag::
 
             $ git pull
             $ git tag -s -m "Zephyr 1.11.0-rc1" v1.11.0-rc1
+
+        #. Verify that the tag has been signed correctly, ``git show`` for the
+           tag must contain a signature (look for the ``BEGIN PGP SIGNATURE``
+           or ``BEGIN SSH SIGNATURE`` marker in the output)::
+
+            $ git show v1.11.0-rc1
+
+        #. Push the tag::
+
             $ git push git@github.com:zephyrproject-rtos/zephyr.git v1.11.0-rc1
-
-        #. Once the tag is pushed, a github action will create a draft release
-           in Github with a shortlog since the last tag. The action will also
-           create a SPDX manifest of the Zephyr tree and will add the file as an
-           asset in the release.
-
-           Go to the draft release that was created and edit as needed. If this
-           step fails for a reason, it can be done manually following the steps
-           below:
-
-                #. Create a shortlog of changes between the previous release (use
-                   rc1..rc2 between release candidates)::
-
-                    $ git shortlog v1.10.0..v1.11.0-rc1
-
-                #. Find the new tag at the top of the releases page and edit the release
-                   with the ``Edit tag`` button with the following:
-
-                    * Name it ``Zephyr 1.11.0-rc1``
-                    * Copy the shortlog into the release notes textbox (*don't forget
-                      to quote it properly so it shows as unformatted text in Markdown*)
-                    * Check the "This is a pre-release" checkbox
 
         #. Send an email to the mailing lists (``announce`` and ``devel``)
            with a link to the release
@@ -418,43 +507,23 @@ steps:
 
             $ git pull
             $ git tag -s -m "Zephyr 1.11.0" v1.11.0
+
+        #. Verify that the tag has been signed correctly, ``git show`` for the
+           tag must contain a signature (look for the ``BEGIN PGP SIGNATURE``
+           or ``BEGIN SSH SIGNATURE`` marker in the output)::
+
+            $ git show v1.11.0
+
+        #. Push the tag::
+
             $ git push git@github.com:zephyrproject-rtos/zephyr.git v1.11.0
 
-            # This is the tag that will represent the release on GitHub, so that
-            # the file you can download is named ``zephyr-v1.11.0.zip`` and not
-            # just ``v1.11.0.zip``
-            $ git tag -s -m "Zephyr 1.11.0" zephyr-v1.11.0
-            $ git push git@github.com:zephyrproject-rtos/zephyr.git zephyr-v1.11.0
+        #. Find the new ``v1.11.0`` tag at the top of the releases page and
+           edit the release with the ``Edit tag`` button with the following:
 
-        #. Find the new ``zephyr-v1.11.0`` tag at the top of the releases page
-           and edit the release with the ``Edit tag`` button with the following:
-
-            * Name it ``Zephyr 1.11.0``
-            * Copy the full content of ``docs/releases/release-notes-1.11.rst``
-              into the release notes textbox
+            * Copy the overview of ``docs/releases/release-notes-1.11.rst``
+              into the release notes textbox and link to the full release notes
+              file on docs.zephyrproject.org.
 
         #. Send an email to the mailing lists (``announce`` and ``devel``) with a link
            to the release
-
-Listing all closed GitHub issues
-=================================
-
-The release notes for a final release contain the list of GitHub issues that
-have been closed during the development process of that release.
-
-In order to obtain the list of issues closed during the release development
-cycle you can do the following:
-
-#. Look for the last release before the current one and find the day it was
-   tagged::
-
-    $ git show -s --format=%ci zephyr-v1.10.0
-    tag zephyr-v1.10.0
-    Tagger: Kumar Gala <kumar.gala@linaro.org>
-
-    Zephyr 1.10.0
-    2017-12-08 13:32:22 -0600
-
-
-#. Use available release tools to list all the issues that have been closed
-   between that date and the day of the release.

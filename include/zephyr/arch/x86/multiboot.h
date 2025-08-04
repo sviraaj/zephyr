@@ -9,36 +9,13 @@
 
 #ifndef _ASMLANGUAGE
 
-/*
- * Multiboot (version 1) boot information structure.
- *
- * Only fields/values of interest to Zephyr are enumerated: at
- * present, that means only those pertaining to the framebuffer.
- */
-
-struct multiboot_info {
-	uint32_t flags;
-	uint32_t mem_lower;
-	uint32_t mem_upper;
-	uint32_t unused0[8];
-	uint32_t mmap_length;
-	uint32_t mmap_addr;
-	uint32_t unused1[9];
-	uint32_t fb_addr_lo;
-	uint32_t fb_addr_hi;
-	uint32_t fb_pitch;
-	uint32_t fb_width;
-	uint32_t fb_height;
-	uint8_t  fb_bpp;
-	uint8_t  fb_type;
-	uint8_t  fb_color_info[6];
-};
+#include "multiboot_info.h"
 
 extern struct multiboot_info multiboot_info;
 
 #ifdef CONFIG_MULTIBOOT_INFO
 
-extern void z_multiboot_init(struct multiboot_info *info_pa);
+void z_multiboot_init(struct multiboot_info *info_pa);
 
 #else
 
@@ -94,7 +71,7 @@ struct multiboot_mmap {
 #define MULTIBOOT_HEADER_FLAG_MEM	BIT(1)	/* want mem_/mmap_* info */
 #define MULTIBOOT_HEADER_FLAG_FB	BIT(2)	/* want fb_* info */
 
-#ifdef CONFIG_MULTIBOOT_FRAMEBUF
+#ifdef CONFIG_INTEL_MULTIBOOTFB_DISPLAY
 #define MULTIBOOT_HEADER_FLAGS \
 	(MULTIBOOT_HEADER_FLAG_FB | MULTIBOOT_HEADER_FLAG_MEM)
 #else
@@ -103,9 +80,10 @@ struct multiboot_mmap {
 
 /* The flags in the boot info structure tell us which fields are valid. */
 
-#define MULTIBOOT_INFO_FLAGS_MEM	(1 << 0)	/* mem_* valid */
-#define MULTIBOOT_INFO_FLAGS_MMAP	(1 << 6)	/* mmap_* valid */
-#define MULTIBOOT_INFO_FLAGS_FB		(1 << 12)	/* fb_* valid */
+#define MULTIBOOT_INFO_FLAGS_MEM		BIT(0)	/* mem_* valid */
+#define MULTIBOOT_INFO_FLAGS_CMDLINE		BIT(2)	/* cmdline* valid */
+#define MULTIBOOT_INFO_FLAGS_MMAP		BIT(6)	/* mmap_* valid */
+#define MULTIBOOT_INFO_FLAGS_FB			BIT(12)	/* fb_* valid */
 
 /* The only fb_type we support is RGB. No text modes and no color palettes. */
 

@@ -5,9 +5,11 @@
 
 menuconfig UART_SIFIVE
 	bool "SiFive Freedom serial driver"
-	depends on SOC_SERIES_RISCV_SIFIVE_FREEDOM
+	default y
+	depends on DT_HAS_SIFIVE_UART0_ENABLED
 	select SERIAL_HAS_DRIVER
 	select SERIAL_SUPPORT_INTERRUPT
+	select PINCTRL if SOC_SERIES_SIFIVE_FREEDOM_FE300
 	help
 	  This option enables the SiFive Freedom serial driver.
 

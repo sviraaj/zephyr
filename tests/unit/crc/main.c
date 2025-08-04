@@ -4,15 +4,39 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <zephyr/sys/crc.h>
-#include "../../../lib/os/crc8_sw.c"
-#include "../../../lib/os/crc16_sw.c"
-#include "../../../lib/os/crc32_sw.c"
-#include "../../../lib/os/crc32c_sw.c"
-#include "../../../lib/os/crc7_sw.c"
+#include "../../../lib/crc/crc8_sw.c"
+#include "../../../lib/crc/crc16_sw.c"
+#include "../../../lib/crc/crc32_sw.c"
+#include "../../../lib/crc/crc32c_sw.c"
+#include "../../../lib/crc/crc7_sw.c"
+#include "../../../lib/crc/crc24_sw.c"
+#include "../../../lib/crc/crc4_sw.c"
+#include "../../../lib/crc/crc32k_4_2_sw.c"
 
-void test_crc32c(void)
+ZTEST(crc, test_crc32_k_4_2)
+{
+	uint8_t test1[] = "A";
+	uint8_t test2[] = "123456789";
+	uint8_t test3[] = "Zephyr";
+
+	const uint32_t TEST2_CRC = 0x3ee83603;
+
+	zassert_equal(crc32_k_4_2_update(0xFFFFFFFF, test1, sizeof(test1) - 1), 0x2d098604);
+	zassert_equal(crc32_k_4_2_update(0xFFFFFFFF, test2, sizeof(test2) - 1), TEST2_CRC);
+	zassert_equal(crc32_k_4_2_update(0xFFFFFFFF, test3, sizeof(test3) - 1), 0xacf334b2);
+
+	/* test iteration */
+	uint32_t crc = 0xFFFFFFFF;
+
+	for (size_t i = 0; i < sizeof(test2) - 1; i++) {
+		crc = crc32_k_4_2_update(crc, &test2[i], 1);
+	}
+	zassert_equal(crc, TEST2_CRC);
+}
+
+ZTEST(crc, test_crc32c)
 {
 	uint8_t test1[] = { 'A' };
 	uint8_t test2[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
@@ -20,11 +44,11 @@ void test_crc32c(void)
 
 	/* Single streams */
 	zassert_equal(crc32_c(0, test1, sizeof(test1), true, true),
-			0xE16DCDEE, NULL);
+			0xE16DCDEE);
 	zassert_equal(crc32_c(0, test2, sizeof(test2), true, true),
-			0xE3069283, NULL);
+			0xE3069283);
 	zassert_equal(crc32_c(0, test3, sizeof(test3), true, true),
-			0xFCDEB58D, NULL);
+			0xFCDEB58D);
 
 	/* Continuous streams - test1, test2 and test3 are considered part
 	 * of one big stream whose CRC needs to be calculated. Note that the
@@ -32,25 +56,41 @@ void test_crc32c(void)
 	 * second to third and so on.
 	 */
 	zassert_equal(crc32_c(0, test1, sizeof(test1), true, false),
-			0x1E923211, NULL);
+			0x1E923211);
 	zassert_equal(crc32_c(0x1E923211, test2, sizeof(test2), false, false),
-			0xB2983B83, NULL);
+			0xB2983B83);
 	zassert_equal(crc32_c(0xB2983B83, test3, sizeof(test3), false, true),
-			0x7D4F9D21, NULL);
+			0x7D4F9D21);
 }
 
-void test_crc32_ieee(void)
+ZTEST(crc, test_crc32_ieee)
 {
 	uint8_t test1[] = { 'A' };
 	uint8_t test2[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
 	uint8_t test3[] = { 'Z', 'e', 'p', 'h', 'y', 'r' };
 
-	zassert_equal(crc32_ieee(test1, sizeof(test1)), 0xD3D99E8B, NULL);
-	zassert_equal(crc32_ieee(test2, sizeof(test2)), 0xCBF43926, NULL);
-	zassert_equal(crc32_ieee(test3, sizeof(test3)), 0x20089AA4, NULL);
+	zassert_equal(crc32_ieee(test1, sizeof(test1)), 0xD3D99E8B);
+	zassert_equal(crc32_ieee(test2, sizeof(test2)), 0xCBF43926);
+	zassert_equal(crc32_ieee(test3, sizeof(test3)), 0x20089AA4);
 }
 
-void test_crc16(void)
+ZTEST(crc, test_crc24_pgp)
+{
+	uint8_t test1[] = { 'A' };
+	uint8_t test2[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
+	uint8_t test3[] = { 'Z', 'e', 'p', 'h', 'y', 'r' };
+
+	zassert_equal(crc24_pgp(test1, sizeof(test1)), 0x00FE86FA);
+	zassert_equal(crc24_pgp(test2, sizeof(test2)), 0x0021CF02);
+	zassert_equal(crc24_pgp(test3, sizeof(test3)), 0x004662E9);
+
+	/* Compute a CRC in several steps */
+	zassert_equal(crc24_pgp_update(CRC24_PGP_INITIAL_VALUE, test2, 3), 0x0009DF67);
+	zassert_equal(crc24_pgp_update(0x0009DF67, test2 + 3, 2), 0x00BA353A);
+	zassert_equal(crc24_pgp_update(0x00BA353A, test2 + 5, 4), 0x0021CF02);
+}
+
+ZTEST(crc, test_crc16)
 {
 	uint8_t test[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
 
@@ -59,16 +99,16 @@ void test_crc16(void)
 	 * check=0x2189
 	 * poly is 0x1021, reflected 0x8408
 	 */
-	zassert_equal(crc16_reflect(0x8408, 0x0, test, sizeof(test)), 0x2189, NULL);
+	zassert_equal(crc16_reflect(0x8408, 0x0, test, sizeof(test)), 0x2189);
 
 	/* CRC-16/DECT-X
 	 * https://reveng.sourceforge.io/crc-catalogue/16.htm#crc.cat.crc-16-dect-x
 	 * check=0x007f
 	 */
-	zassert_equal(crc16(0x0589, 0x0, test, sizeof(test)), 0x007f, NULL);
+	zassert_equal(crc16(0x0589, 0x0, test, sizeof(test)), 0x007f);
 }
 
-void test_crc16_ansi(void)
+ZTEST(crc, test_crc16_ansi)
 {
 	uint8_t test[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
 
@@ -79,11 +119,11 @@ void test_crc16_ansi(void)
 	 * check=0x4b37
 	 * poly is 0x1021, reflected 0xA001
 	 */
-	zassert_equal(crc16_c, 0x4b37, NULL);
-	zassert_equal(crc16_reflect(0xA001, 0xffff, test, sizeof(test)), crc16_c, NULL);
+	zassert_equal(crc16_c, 0x4b37);
+	zassert_equal(crc16_reflect(0xA001, 0xffff, test, sizeof(test)), crc16_c);
 }
 
-void test_crc16_ccitt(void)
+ZTEST(crc, test_crc16_ccitt)
 {
 	uint8_t test0[] = { };
 	uint8_t test1[] = { 'A' };
@@ -91,19 +131,19 @@ void test_crc16_ccitt(void)
 	uint8_t test3[] = { 'Z', 'e', 'p', 'h', 'y', 'r', 0, 0 };
 	uint16_t crc;
 
-	zassert_equal(crc16_ccitt(0, test0, sizeof(test0)), 0x0, NULL);
-	zassert_equal(crc16_ccitt(0, test1, sizeof(test1)), 0x538d, NULL);
+	zassert_equal(crc16_ccitt(0, test0, sizeof(test0)), 0x0);
+	zassert_equal(crc16_ccitt(0, test1, sizeof(test1)), 0x538d);
 	/* CRC-16/CCITT, CRC-16/CCITT-TRUE, CRC-16/KERMIT
 	 * https://reveng.sourceforge.io/crc-catalogue/16.htm#crc.cat.crc-16-kermit
 	 * check=0x2189
 	 */
-	zassert_equal(crc16_ccitt(0, test2, sizeof(test2)), 0x2189, NULL);
+	zassert_equal(crc16_ccitt(0, test2, sizeof(test2)), 0x2189);
 	/* CRC-16/X-25, CRC-16/IBM-SDLC, CRC-16/ISO-HDLC
 	 * https://reveng.sourceforge.io/crc-catalogue/16.htm#crc.cat.crc-16-ibm-sdlc
 	 * check=0x906e
 	 */
 	zassert_equal(crc16_ccitt(0xffff, test2, sizeof(test2)) ^ 0xffff,
-		      0x906e, NULL);
+		      0x906e);
 
 	/* Appending the CRC to a buffer and computing the CRC over
 	 * the extended buffer leaves a residual of zero.
@@ -112,10 +152,10 @@ void test_crc16_ccitt(void)
 	test3[sizeof(test3)-2] = (uint8_t)(crc >> 0);
 	test3[sizeof(test3)-1] = (uint8_t)(crc >> 8);
 
-	zassert_equal(crc16_ccitt(0, test3, sizeof(test3)), 0, NULL);
+	zassert_equal(crc16_ccitt(0, test3, sizeof(test3)), 0);
 }
 
-void test_crc16_ccitt_for_ppp(void)
+ZTEST(crc, test_crc16_ccitt_for_ppp)
 {
 	/* Example capture including FCS from
 	 * https://www.horo.ch/techno/ppp-fcs/examples_en.html
@@ -129,12 +169,12 @@ void test_crc16_ccitt_for_ppp(void)
 	uint8_t test2[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
 
 	zassert_equal(crc16_ccitt(0xffff, test0, sizeof(test0)),
-		      0xf0b8, NULL);
+		      0xf0b8);
 	zassert_equal(crc16_ccitt(0xffff, test2, sizeof(test2)) ^ 0xFFFF,
-		      0x906e, NULL);
+		      0x906e);
 }
 
-void test_crc16_itu_t(void)
+ZTEST(crc, test_crc16_itu_t)
 {
 	uint8_t test2[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
 
@@ -142,46 +182,79 @@ void test_crc16_itu_t(void)
 	 * https://reveng.sourceforge.io/crc-catalogue/16.htm#crc.cat.crc-16-xmodem
 	 * check=0x31c3
 	 */
-	zassert_equal(crc16_itu_t(0, test2, sizeof(test2)), 0x31c3, NULL);
+	zassert_equal(crc16_itu_t(0, test2, sizeof(test2)), 0x31c3);
 	/* CRC16/CCITT-FALSE, CRC-16/IBM-3740, CRC-16/AUTOSAR
 	 * https://reveng.sourceforge.io/crc-catalogue/16.htm#crc.cat.crc-16-ibm-3740
 	 * check=0x29b1
 	 */
-	zassert_equal(crc16_itu_t(0xffff, test2, sizeof(test2)), 0x29b1, NULL);
+	zassert_equal(crc16_itu_t(0xffff, test2, sizeof(test2)), 0x29b1);
 	/* CRC-16/GSM
 	 * https://reveng.sourceforge.io/crc-catalogue/16.htm#crc.cat.crc-16-gsm
 	 * check=0xce3c
 	 */
-	zassert_equal(crc16_itu_t(0, test2, sizeof(test2)) ^ 0xffff, 0xce3c, NULL);
+	zassert_equal(crc16_itu_t(0, test2, sizeof(test2)) ^ 0xffff, 0xce3c);
 
 }
 
-void test_crc8_ccitt(void)
+ZTEST(crc, test_crc4)
+{
+	uint8_t test1[] = {'A'};
+	uint8_t test2[] = {'Z', 'e', 'p', 'h', 'y', 'r'};
+
+	zassert_equal(crc4(test1, sizeof(test1), 0x3, 0x0, true), 0x2);
+	zassert_equal(crc4(test2, sizeof(test2), 0x3, 0x0, true), 0x0);
+	zassert_equal(crc4(test1, sizeof(test1), 0x3, 0x0, false), 0x4);
+	zassert_equal(crc4(test2, sizeof(test2), 0x3, 0x0, false), 0xE);
+}
+
+ZTEST(crc, test_crc4_ti)
+{
+	uint8_t test1[] = {'Z', 'e', 'p'};
+
+	zassert_equal(crc4_ti(0x0, test1, sizeof(test1)), 0xF);
+	zassert_equal(crc4_ti(0x5, test1, sizeof(test1)), 0xB);
+}
+
+ZTEST(crc, test_crc8_ccitt)
 {
 	uint8_t test0[] = { 0 };
 	uint8_t test1[] = { 'A' };
 	uint8_t test2[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
 
-	zassert(crc8_ccitt(CRC8_CCITT_INITIAL_VALUE, test0,
-			   sizeof(test0)) == 0xF3, "pass", "fail");
-	zassert(crc8_ccitt(CRC8_CCITT_INITIAL_VALUE, test1,
-			   sizeof(test1)) == 0x33, "pass", "fail");
-	zassert(crc8_ccitt(CRC8_CCITT_INITIAL_VALUE, test2,
-			   sizeof(test2)) == 0xFB, "pass", "fail");
+	zassert_equal(crc8_ccitt(CRC8_CCITT_INITIAL_VALUE, test0, sizeof(test0)), 0xF3);
+	zassert_equal(crc8_ccitt(CRC8_CCITT_INITIAL_VALUE, test1, sizeof(test1)), 0x33);
+	zassert_equal(crc8_ccitt(CRC8_CCITT_INITIAL_VALUE, test2, sizeof(test2)), 0xFB);
 }
 
-void test_crc7_be(void)
+ZTEST(crc, test_crc8_rohc)
+{
+	uint8_t test0[] = { 0 };
+	uint8_t test1[] = { 'A' };
+	uint8_t test2[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
+	uint8_t test3[] = { 0x07, 0x3F };        /* GSM 07.10 example */
+	uint8_t test4[] = { 0x07, 0x3F, 0x89 };  /* GSM 07.10 example */
+	uint8_t test5[] = { 0x03, 0x3f, 0x01, 0x1c };  /* Our GSM 07.10 calc */
+
+	zassert_equal(crc8_rohc(CRC8_ROHC_INITIAL_VALUE, test0, sizeof(test0)), 0xcf);
+	zassert_equal(crc8_rohc(CRC8_ROHC_INITIAL_VALUE, test1, sizeof(test1)), 0x2e);
+	zassert_equal(crc8_rohc(CRC8_ROHC_INITIAL_VALUE, test2, sizeof(test2)), 0xd0);
+	zassert_equal(crc8_rohc(CRC8_ROHC_INITIAL_VALUE, test3, sizeof(test3)), 0x76);
+	zassert_equal(crc8_rohc(CRC8_ROHC_INITIAL_VALUE, test4, sizeof(test4)), 0xcf);
+	zassert_equal(crc8_rohc(CRC8_ROHC_INITIAL_VALUE, test5, sizeof(test5)), 0xcf);
+}
+
+ZTEST(crc, test_crc7_be)
 {
 	uint8_t test0[] = { 0 };
 	uint8_t test1[] = { 'A' };
 	uint8_t test2[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
 
-	zassert_equal(crc7_be(0, test0, sizeof(test0)), 0, NULL);
-	zassert_equal(crc7_be(0, test1, sizeof(test1)), 0xDA, NULL);
-	zassert_equal(crc7_be(0, test2, sizeof(test2)), 0xEA, NULL);
+	zassert_equal(crc7_be(0, test0, sizeof(test0)), 0);
+	zassert_equal(crc7_be(0, test1, sizeof(test1)), 0xDA);
+	zassert_equal(crc7_be(0, test2, sizeof(test2)), 0xEA);
 }
 
-void test_crc8(void)
+ZTEST(crc, test_crc8)
 {
 	uint8_t fcs, expected;
 
@@ -261,18 +334,4 @@ void test_crc8(void)
 	zassert_equal(fcs, expected, "0x%02x vs 0x%02x", fcs, expected);
 }
 
-void test_main(void)
-{
-	ztest_test_suite(test_crc,
-			 ztest_unit_test(test_crc32c),
-			 ztest_unit_test(test_crc32_ieee),
-			 ztest_unit_test(test_crc16),
-			 ztest_unit_test(test_crc16_ansi),
-			 ztest_unit_test(test_crc16_ccitt),
-			 ztest_unit_test(test_crc16_ccitt_for_ppp),
-			 ztest_unit_test(test_crc16_itu_t),
-			 ztest_unit_test(test_crc8_ccitt),
-			 ztest_unit_test(test_crc7_be),
-			 ztest_unit_test(test_crc8));
-	ztest_run_test_suite(test_crc);
-}
+ZTEST_SUITE(crc, NULL, NULL, NULL, NULL, NULL);

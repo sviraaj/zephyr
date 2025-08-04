@@ -32,6 +32,9 @@ struct lll_scan {
 
 	uint16_t duration_reload;
 	uint16_t duration_expire;
+#if defined(CONFIG_BT_CTLR_JIT_SCHEDULING)
+	uint8_t scan_aux_score;
+#endif /* CONFIG_BT_CTLR_JIT_SCHEDULING */
 	uint8_t  phy:3;
 	uint8_t  is_adv_ind:1;
 	uint8_t  is_aux_sched:1;
@@ -90,3 +93,4 @@ void lll_scan_prepare(void *param);
 
 extern uint8_t ull_scan_lll_handle_get(struct lll_scan *lll);
 extern struct lll_scan *ull_scan_lll_is_valid_get(struct lll_scan *lll);
+extern struct lll_scan_aux *ull_scan_aux_lll_is_valid_get(struct lll_scan_aux *lll);

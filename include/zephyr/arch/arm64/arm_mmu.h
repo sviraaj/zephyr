@@ -7,6 +7,11 @@
 #ifndef ZEPHYR_INCLUDE_ARCH_ARM64_ARM_MMU_H_
 #define ZEPHYR_INCLUDE_ARCH_ARM64_ARM_MMU_H_
 
+#ifndef _ASMLANGUAGE
+#include <stdint.h>
+#include <stdlib.h>
+#endif
+
 /* Following Memory types supported through MAIR encodings can be passed
  * by user through "attrs"(attributes) field of specified memory region.
  * As MAIR supports such 8 encodings, we will reserve attrs[2:0];
@@ -39,6 +44,8 @@
  * attrs[6] : Execute Permissions unprivileged mode (UXN)
  * attrs[7] : Mirror RO/RW permissions to EL0
  * attrs[8] : Overwrite existing mapping if any
+ * attrs[9] : non-Global mapping (nG)
+ * attrs[10]: Paged-out mapping
  *
  */
 #define MT_PERM_SHIFT		3U
@@ -47,6 +54,8 @@
 #define MT_U_EXECUTE_SHIFT	6U
 #define MT_RW_AP_SHIFT		7U
 #define MT_NO_OVERWRITE_SHIFT	8U
+#define MT_NON_GLOBAL_SHIFT	9U
+#define MT_PAGED_OUT_SHIFT	10U
 
 #define MT_RO			(0U << MT_PERM_SHIFT)
 #define MT_RW			(1U << MT_PERM_SHIFT)
@@ -65,6 +74,11 @@
 
 #define MT_NO_OVERWRITE		(1U << MT_NO_OVERWRITE_SHIFT)
 
+#define MT_G			(0U << MT_NON_GLOBAL_SHIFT)
+#define MT_NG			(1U << MT_NON_GLOBAL_SHIFT)
+
+#define MT_PAGED_OUT		(1U << MT_PAGED_OUT_SHIFT)
+
 #define MT_P_RW_U_RW		(MT_RW | MT_RW_AP_ELx | MT_P_EXECUTE_NEVER | MT_U_EXECUTE_NEVER)
 #define MT_P_RW_U_NA		(MT_RW | MT_RW_AP_EL_HIGHER  | MT_P_EXECUTE_NEVER | MT_U_EXECUTE_NEVER)
 #define MT_P_RO_U_RO		(MT_RO | MT_RW_AP_ELx | MT_P_EXECUTE_NEVER | MT_U_EXECUTE_NEVER)
@@ -79,67 +93,18 @@
 #define MT_DEFAULT_SECURE_STATE	MT_SECURE
 #endif
 
-/*
- * PTE descriptor can be Block descriptor or Table descriptor
- * or Page descriptor.
- */
-#define PTE_DESC_TYPE_MASK	3U
-#define PTE_BLOCK_DESC		1U
-#define PTE_TABLE_DESC		3U
-#define PTE_PAGE_DESC		3U
-#define PTE_INVALID_DESC	0U
+/* Definitions used by arch_page_info_get() */
+#define ARCH_DATA_PAGE_LOADED		BIT(0)
+#define ARCH_DATA_PAGE_ACCESSED		BIT(1)
+#define ARCH_DATA_PAGE_DIRTY		BIT(2)
+#define ARCH_DATA_PAGE_NOT_MAPPED	BIT(3)
 
 /*
- * Block and Page descriptor attributes fields
+ * Special unpaged "location" tags (highest possible descriptor physical
+ * address values unlikely to conflict with backing store locations)
  */
-#define PTE_BLOCK_DESC_MEMTYPE(x)	(x << 2)
-#define PTE_BLOCK_DESC_NS		(1ULL << 5)
-#define PTE_BLOCK_DESC_AP_ELx		(1ULL << 6)
-#define PTE_BLOCK_DESC_AP_EL_HIGHER	(0ULL << 6)
-#define PTE_BLOCK_DESC_AP_RO		(1ULL << 7)
-#define PTE_BLOCK_DESC_AP_RW		(0ULL << 7)
-#define PTE_BLOCK_DESC_NON_SHARE	(0ULL << 8)
-#define PTE_BLOCK_DESC_OUTER_SHARE	(2ULL << 8)
-#define PTE_BLOCK_DESC_INNER_SHARE	(3ULL << 8)
-#define PTE_BLOCK_DESC_AF		(1ULL << 10)
-#define PTE_BLOCK_DESC_NG		(1ULL << 11)
-#define PTE_BLOCK_DESC_PXN		(1ULL << 53)
-#define PTE_BLOCK_DESC_UXN		(1ULL << 54)
-
-/*
- * TCR definitions.
- */
-#define TCR_EL1_IPS_SHIFT	32U
-#define TCR_EL2_PS_SHIFT	16U
-#define TCR_EL3_PS_SHIFT	16U
-
-#define TCR_T0SZ_SHIFT		0U
-#define TCR_T0SZ(x)		((64 - (x)) << TCR_T0SZ_SHIFT)
-
-#define TCR_IRGN_NC		(0ULL << 8)
-#define TCR_IRGN_WBWA		(1ULL << 8)
-#define TCR_IRGN_WT		(2ULL << 8)
-#define TCR_IRGN_WBNWA		(3ULL << 8)
-#define TCR_IRGN_MASK		(3ULL << 8)
-#define TCR_ORGN_NC		(0ULL << 10)
-#define TCR_ORGN_WBWA		(1ULL << 10)
-#define TCR_ORGN_WT		(2ULL << 10)
-#define TCR_ORGN_WBNWA		(3ULL << 10)
-#define TCR_ORGN_MASK		(3ULL << 10)
-#define TCR_SHARED_NON		(0ULL << 12)
-#define TCR_SHARED_OUTER	(2ULL << 12)
-#define TCR_SHARED_INNER	(3ULL << 12)
-#define TCR_TG0_4K		(0ULL << 14)
-#define TCR_TG0_64K		(1ULL << 14)
-#define TCR_TG0_16K		(2ULL << 14)
-#define TCR_EPD1_DISABLE	(1ULL << 23)
-
-#define TCR_PS_BITS_4GB		0x0ULL
-#define TCR_PS_BITS_64GB	0x1ULL
-#define TCR_PS_BITS_1TB		0x2ULL
-#define TCR_PS_BITS_4TB		0x3ULL
-#define TCR_PS_BITS_16TB	0x4ULL
-#define TCR_PS_BITS_256TB	0x5ULL
+#define ARCH_UNPAGED_ANON_ZERO		0x0000fffffffff000
+#define ARCH_UNPAGED_ANON_UNINIT	0x0000ffffffffe000
 
 #ifndef _ASMLANGUAGE
 
@@ -167,6 +132,7 @@ struct arm_mmu_config {
 
 struct arm_mmu_ptables {
 	uint64_t *base_xlat_table;
+	uint64_t ttbr0;
 };
 
 /* Convenience macros to represent the ARMv8-A-specific
@@ -185,6 +151,45 @@ struct arm_mmu_ptables {
 
 #define MMU_REGION_FLAT_ENTRY(name, adr, sz, attrs) \
 	MMU_REGION_ENTRY(name, adr, adr, sz, attrs)
+
+/*
+ * @brief Auto generate mmu region entry for node_id
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *      DT_FOREACH_STATUS_OKAY_VARGS(nxp_imx_gpio,
+ *				  MMU_REGION_DT_FLAT_ENTRY,
+ *				 (MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_NS))
+ * @endcode
+ *
+ * @note  Since devicetree_generated.h does not include
+ *        node_id##_P_reg_FOREACH_PROP_ELEM* definitions,
+ *        we can't automate dts node with multiple reg
+ *        entries.
+ */
+#define MMU_REGION_DT_FLAT_ENTRY(node_id, attrs)  \
+	MMU_REGION_FLAT_ENTRY(DT_NODE_FULL_NAME(node_id), \
+				  DT_REG_ADDR(node_id), \
+				  DT_REG_SIZE(node_id), \
+				  attrs),
+
+/*
+ * @brief Auto generate mmu region entry for status = "okay"
+ *        nodes compatible to a driver
+ *
+ * Example usage:
+ *
+ * @code{.c}
+ *      MMU_REGION_DT_COMPAT_FOREACH_FLAT_ENTRY(nxp_imx_gpio,
+ *				 (MT_DEVICE_nGnRnE | MT_P_RW_U_NA | MT_NS))
+ * @endcode
+ *
+ * @note  This is a wrapper of @ref MMU_REGION_DT_FLAT_ENTRY
+ */
+#define MMU_REGION_DT_COMPAT_FOREACH_FLAT_ENTRY(compat, attr) \
+	DT_FOREACH_STATUS_OKAY_VARGS(compat, \
+	MMU_REGION_DT_FLAT_ENTRY, attr)
 
 /* Kernel macros for memory attribution
  * (access permissions and cache-ability).

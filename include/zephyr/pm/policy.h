@@ -10,8 +10,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <zephyr/device.h>
 #include <zephyr/pm/state.h>
 #include <zephyr/sys/slist.h>
+#include <zephyr/toolchain.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,11 +35,40 @@ extern "C" {
  */
 typedef void (*pm_policy_latency_changed_cb_t)(int32_t latency);
 
-/** @brief Latency request. */
-struct pm_policy_latency_request {
+/**
+ * @brief Latency change subscription.
+ *
+ * @note All fields in this structure are meant for private usage.
+ */
+struct pm_policy_latency_subscription {
+	/** @cond INTERNAL_HIDDEN */
 	sys_snode_t node;
-	/** Request value. */
-	uint32_t value;
+	pm_policy_latency_changed_cb_t cb;
+	/** @endcond */
+};
+
+/**
+ * @brief Latency request.
+ *
+ * @note All fields in this structure are meant for private usage.
+ */
+struct pm_policy_latency_request {
+	/** @cond INTERNAL_HIDDEN */
+	sys_snode_t node;
+	uint32_t value_us;
+	/** @endcond */
+};
+
+/**
+ * @brief Event.
+ *
+ * @note All fields in this structure are meant for private usage.
+ */
+struct pm_policy_event {
+	/** @cond INTERNAL_HIDDEN */
+	sys_snode_t node;
+	int64_t uptime_ticks;
+	/** @endcond */
 };
 
 /** @cond INTERNAL_HIDDEN */
@@ -107,39 +138,99 @@ void pm_policy_state_lock_put(enum pm_state state, uint8_t substate_id);
 bool pm_policy_state_lock_is_active(enum pm_state state, uint8_t substate_id);
 
 /**
- * @brief Add a new latency requirement.
+ * @brief Check if a power state is available.
  *
- * The system will not enter any power state that would make the system to
- * exceed the given latency value.
+ * It is unavailable if locked or latency requirement cannot be fulfilled in that state.
  *
- * @param req Latency request.
- * @param value Maximum allowed latency in microseconds.
+ * @param state Power state.
+ * @param substate_id Power substate ID. Use PM_ALL_SUBSTATES to affect all the
+ *		      substates in the given power state.
+ *
+ * @retval true if power state is active.
+ * @retval false if power state is not active.
  */
-void pm_policy_latency_request_add(struct pm_policy_latency_request *req,
-				   uint32_t value);
+bool pm_policy_state_is_available(enum pm_state state, uint8_t substate_id);
 
 /**
- * @brief Update a latency requirement.
+ * @brief Check if any power state can be used.
  *
- * @param req Latency request.
- * @param value New maximum allowed latency in microseconds.
+ * Function allows to quickly check if any power state is available and exit
+ * suspend operation early.
+ *
+ * @retval true if any power state is active.
+ * @retval false if all power states are unavailable.
  */
-void pm_policy_latency_request_update(struct pm_policy_latency_request *req,
-				      uint32_t value);
+bool pm_policy_state_any_active(void);
 
 /**
- * @brief Remove a latency requirement.
+ * @brief Register an event.
  *
- * @param req Latency request.
+ * Events in the power-management policy context are defined as any source that
+ * will wake up the system at a known time in the future. By registering such
+ * event, the policy manager will be able to decide whether certain power states
+ * are worth entering or not.
+ *
+ * CPU is woken up before the time passed in cycle to minimize event handling
+ * latency. Once woken up, the CPU will be kept awake until the event has been
+ * handled, which is signaled by pm_policy_event_unregister() or moving event
+ * into the future using pm_policy_event_update().
+ *
+ * @param evt Event.
+ * @param uptime_ticks When the event will occur, in uptime ticks.
+ *
+ * @see pm_policy_event_unregister()
  */
-void pm_policy_latency_request_remove(struct pm_policy_latency_request *req);
+void pm_policy_event_register(struct pm_policy_event *evt, int64_t uptime_ticks);
 
 /**
- * @brief Set the callback to be called when maximum latency changes.
+ * @brief Update an event.
  *
- * @param cb Callback function (NULL to disable).
+ * This shortcut allows for moving the time an event will occur without the
+ * need for an unregister + register cycle.
+ *
+ * @param evt Event.
+ * @param uptime_ticks When the event will occur, in uptime ticks.
+ *
+ * @see pm_policy_event_register
  */
-void pm_policy_latency_changed(pm_policy_latency_changed_cb_t cb);
+void pm_policy_event_update(struct pm_policy_event *evt, int64_t uptime_ticks);
+
+/**
+ * @brief Unregister an event.
+ *
+ * @param evt Event.
+ *
+ * @see pm_policy_event_register
+ */
+void pm_policy_event_unregister(struct pm_policy_event *evt);
+
+/**
+ * @brief Check if a state will disable a device
+ *
+ * This function allows client code to check if a state will disable a device.
+ *
+ * @param dev Device reference.
+ * @param state The state to check on whether it disables the device.
+ * @param substate_id The substate to check on whether it disables the device.
+ *
+ * @retval true if the state disables the device
+ * @retval false if the state does not disable the device
+ */
+bool pm_policy_device_is_disabling_state(const struct device *dev,
+					 enum pm_state state, uint8_t substate_id);
+
+/**
+ * @brief Returns the ticks until the next event
+ *
+ * If an event is registred, it will return the number of ticks until the next event, if the
+ * "next"/"oldest" registered event is in the past, it will return 0. Otherwise it returns -1.
+ *
+ * @retval >0 If next registered event is in the future
+ * @retval 0 If next registered event is now or in the past
+ * @retval -1 Otherwise
+ */
+int64_t pm_policy_next_event_ticks(void);
+
 #else
 static inline void pm_policy_state_lock_get(enum pm_state state, uint8_t substate_id)
 {
@@ -161,18 +252,127 @@ static inline bool pm_policy_state_lock_is_active(enum pm_state state, uint8_t s
 	return false;
 }
 
+static inline void pm_policy_event_register(struct pm_policy_event *evt, uint32_t cycle)
+{
+	ARG_UNUSED(evt);
+	ARG_UNUSED(cycle);
+}
+
+static inline void pm_policy_event_update(struct pm_policy_event *evt, uint32_t cycle)
+{
+	ARG_UNUSED(evt);
+	ARG_UNUSED(cycle);
+}
+
+static inline void pm_policy_event_unregister(struct pm_policy_event *evt)
+{
+	ARG_UNUSED(evt);
+}
+
+static inline int64_t pm_policy_next_event_ticks(void)
+{
+	return -1;
+}
+
+#endif /* CONFIG_PM */
+
+#if defined(CONFIG_PM_POLICY_DEVICE_CONSTRAINTS) || defined(__DOXYGEN__)
+/**
+ * @brief Increase power state locks.
+ *
+ * Set power state locks in all power states that disable power in the given
+ * device.
+ *
+ * @param dev Device reference.
+ *
+ * @see pm_policy_device_power_lock_put()
+ * @see pm_policy_state_lock_get()
+ */
+void pm_policy_device_power_lock_get(const struct device *dev);
+
+/**
+ * @brief Decrease power state locks.
+ *
+ * Remove power state locks in all power states that disable power in the given
+ * device.
+ *
+ * @param dev Device reference.
+ *
+ * @see pm_policy_device_power_lock_get()
+ * @see pm_policy_state_lock_put()
+ */
+void pm_policy_device_power_lock_put(const struct device *dev);
+
+#else
+
+static inline void pm_policy_device_power_lock_get(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+}
+
+static inline void pm_policy_device_power_lock_put(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+}
+#endif /* CONFIG_PM_POLICY_DEVICE_CONSTRAINTS */
+
+#if defined(CONFIG_PM) || defined(CONFIG_PM_POLICY_LATENCY_STANDALONE) || defined(__DOXYGEN__)
+/**
+ * @brief Add a new latency requirement.
+ *
+ * The system will not enter any power state that would make the system to
+ * exceed the given latency value.
+ *
+ * @param req Latency request.
+ * @param value_us Maximum allowed latency in microseconds.
+ */
+void pm_policy_latency_request_add(struct pm_policy_latency_request *req,
+				   uint32_t value_us);
+
+/**
+ * @brief Update a latency requirement.
+ *
+ * @param req Latency request.
+ * @param value_us New maximum allowed latency in microseconds.
+ */
+void pm_policy_latency_request_update(struct pm_policy_latency_request *req,
+				      uint32_t value_us);
+
+/**
+ * @brief Remove a latency requirement.
+ *
+ * @param req Latency request.
+ */
+void pm_policy_latency_request_remove(struct pm_policy_latency_request *req);
+
+/**
+ * @brief Subscribe to maximum latency changes.
+ *
+ * @param req Subscription request.
+ * @param cb Callback function (NULL to disable).
+ */
+void pm_policy_latency_changed_subscribe(struct pm_policy_latency_subscription *req,
+					 pm_policy_latency_changed_cb_t cb);
+
+/**
+ * @brief Unsubscribe to maximum latency changes.
+ *
+ * @param req Subscription request.
+ */
+void pm_policy_latency_changed_unsubscribe(struct pm_policy_latency_subscription *req);
+#else
 static inline void pm_policy_latency_request_add(
-	struct pm_policy_latency_request *req, uint32_t value)
+	struct pm_policy_latency_request *req, uint32_t value_us)
 {
 	ARG_UNUSED(req);
-	ARG_UNUSED(value);
+	ARG_UNUSED(value_us);
 }
 
 static inline void pm_policy_latency_request_update(
-	struct pm_policy_latency_request *req, uint32_t value)
+	struct pm_policy_latency_request *req, uint32_t value_us)
 {
 	ARG_UNUSED(req);
-	ARG_UNUSED(value);
+	ARG_UNUSED(value_us);
 }
 
 static inline void pm_policy_latency_request_remove(
@@ -180,7 +380,7 @@ static inline void pm_policy_latency_request_remove(
 {
 	ARG_UNUSED(req);
 }
-#endif /* CONFIG_PM */
+#endif /* CONFIG_PM CONFIG_PM_POLICY_LATENCY_STANDALONE */
 
 /**
  * @}

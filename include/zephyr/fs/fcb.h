@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 Nordic Semiconductor ASA
+ * Copyright (c) 2017-2023 Nordic Semiconductor ASA
  * Copyright (c) 2015 Runtime Inc
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -14,6 +14,7 @@
 #include <limits.h>
 
 #include <zephyr/storage/flash_map.h>
+#include <zephyr/sys/util_macro.h>
 
 #include <zephyr/kernel.h>
 
@@ -23,6 +24,8 @@ extern "C" {
 
 /**
  * @defgroup fcb Flash Circular Buffer (FCB)
+ * @since 1.11
+ * @version 1.0.0
  * @ingroup file_system_storage
  * @{
  * @}
@@ -34,7 +37,7 @@ extern "C" {
  * @{
  */
 
-#define FCB_MAX_LEN	(CHAR_MAX | CHAR_MAX << 7) /**< Max length of element */
+#define FCB_MAX_LEN	(0x3fffu) /**< Max length of element (16,383) */
 
 #define META_INFO_LEN    (4U)
 /**
@@ -76,6 +79,11 @@ struct fcb_entry_ctx {
 	const struct flash_area *fap;
 	/**< Flash area where the entry is placed */
 };
+
+/**
+ * @brief Flag to disable CRC for the fcb_entries in flash.
+ */
+#define FCB_FLAGS_CRC_DISABLED BIT(0)
 
 /**
  * @brief FCB instance structure
@@ -130,6 +138,10 @@ struct fcb {
 	/**< The value flash takes when it is erased. This is read from
 	 * flash parameters and initialized upon call to fcb_init.
 	 */
+#ifdef CONFIG_FCB_ALLOW_FIXED_ENDMARKER
+	const uint8_t f_flags;
+	/**< Flags for configuring the FCB. */
+#endif
 };
 
 /**
@@ -147,11 +159,11 @@ struct fcb {
  * Initialize FCB instance.
  *
  * @param[in] f_area_id ID of flash area where fcb storage resides.
- * @param[in,out] fcb   FCB instance structure.
+ * @param[in,out] fcbp  FCB instance structure.
  *
  * @return 0 on success, non-zero on failure.
  */
-int fcb_init(int f_area_id, struct fcb *fcb);
+int fcb_init(int f_area_id, struct fcb *fcbp);
 
 /**
  * Appends an entry to circular buffer.
@@ -161,24 +173,24 @@ int fcb_init(int f_area_id, struct fcb *fcb);
  * flash_area_write() to fcb flash_area.
  * When you're finished, call fcb_append_finish() with loc as argument.
  *
- * @param[in] fcb FCB instance structure.
+ * @param[in] fcbp FCB instance structure.
  * @param[in] len Length of data which are expected to be written as the entry
  *            payload.
  * @param[out] loc entry location information
  *
  * @return 0 on success, non-zero on failure.
  */
-int fcb_append(struct fcb *fcb, uint16_t len, struct fcb_entry *loc);
+int fcb_append(struct fcb *fcbp, uint16_t len, struct fcb_entry *loc);
 
 /**
  * Finishes entry append operation.
  *
- * @param[in] fcb FCB instance structure.
+ * @param[in] fcbp FCB instance structure.
  * @param[in] append_loc entry location information
  *
  * @return 0 on success, non-zero on failure.
  */
-int fcb_append_finish(struct fcb *fcb, struct fcb_entry *append_loc);
+int fcb_append_finish(struct fcb *fcbp, struct fcb_entry *append_loc);
 
 /**
  * FCB Walk callback function type.
@@ -202,7 +214,7 @@ typedef int (*fcb_walk_cb)(struct fcb_entry_ctx *loc_ctx, void *arg);
  *
  * @param[in] sector     fcb sector to be walked. If null, traverse entire
  *                       storage.
- * @param[in] fcb        FCB instance structure.
+ * @param[in] fcbp       FCB instance structure.
  * @param[in] cb         pointer to the function which gets called for every
  *                       entry. If cb wants to stop the walk, it should return
  *                       non-zero value.
@@ -212,8 +224,7 @@ typedef int (*fcb_walk_cb)(struct fcb_entry_ctx *loc_ctx, void *arg);
  * @return 0 on success, negative on failure (or transferred form callback
  *         return-value), positive transferred form callback return-value
  */
-int fcb_walk(struct fcb *fcb, struct flash_sector *sector, fcb_walk_cb cb,
-	     void *cb_arg);
+int fcb_walk(struct fcb *fcbp, struct flash_sector *sector, fcb_walk_cb cb, void *cb_arg);
 
 /**
  * Get next fcb entry location.
@@ -226,12 +237,12 @@ int fcb_walk(struct fcb *fcb, struct flash_sector *sector, fcb_walk_cb cb,
  * FCB storage. loc->fe_sector is set and loc->fe_elem_off is 0 function fetches
  * the first entry location in the fcb sector.
  *
- * @param[in] fcb FCB instance structure.
+ * @param[in] fcbp FCB instance structure.
  * @param[in,out] loc entry location information
  *
  * @return 0 on success, non-zero on failure.
  */
-int fcb_getnext(struct fcb *fcb, struct fcb_entry *loc);
+int fcb_getnext(struct fcb *fcbp, struct fcb_entry *loc);
 
 /**
  * Rotate fcb sectors
@@ -239,9 +250,9 @@ int fcb_getnext(struct fcb *fcb, struct fcb_entry *loc);
  * Function erases the data from oldest sector. Upon that the next sector
  * becomes the oldest. Active sector is also switched if needed.
  *
- * @param[in] fcb FCB instance structure.
+ * @param[in] fcbp FCB instance structure.
  */
-int fcb_rotate(struct fcb *fcb);
+int fcb_rotate(struct fcb *fcbp);
 
 /**
  * Start using the scratch block.
@@ -249,50 +260,49 @@ int fcb_rotate(struct fcb *fcb);
  * Take one of the scratch blocks into use. So a scratch sector becomes
  * active sector to which entries can be appended.
  *
- * @param[in] fcb FCB instance structure.
+ * @param[in] fcbp FCB instance structure.
  *
  * @return 0 on success, non-zero on failure.
  */
-int fcb_append_to_scratch(struct fcb *fcb);
+int fcb_append_to_scratch(struct fcb *fcbp);
 
 /**
  * Get free sector count.
  *
- * @param[in] fcb FCB instance structure.
+ * @param[in] fcbp FCB instance structure.
  *
  * @return Number of free sectors.
  */
-int fcb_free_sector_cnt(struct fcb *fcb);
+int fcb_free_sector_cnt(struct fcb *fcbp);
 
 /**
  * Check whether FCB has any data.
  *
- * @param[in] fcb FCB instance structure.
+ * @param[in] fcbp FCB instance structure.
  *
  * @return Positive value if fcb is empty, otherwise 0.
  */
-int fcb_is_empty(struct fcb *fcb);
+int fcb_is_empty(struct fcb *fcbp);
 
 /**
  * Finds the fcb entry that gives back up to n entries at the end.
  *
- * @param[in]               fcb FCB instance structure.
+ * @param[in] fcbp          FCB instance structure.
  * @param[in] entries       number of fcb entries the user wants to get
  * @param[out] last_n_entry last_n_entry the fcb_entry to be returned
  *
  * @return 0 on there are any fcbs available; -ENOENT otherwise
  */
-int fcb_offset_last_n(struct fcb *fcb, uint8_t entries,
-		      struct fcb_entry *last_n_entry);
+int fcb_offset_last_n(struct fcb *fcbp, uint8_t entries, struct fcb_entry *last_n_entry);
 
 /**
  * Clear fcb instance storage.
  *
- * @param[in] fcb FCB instance structure.
+ * @param[in] fcbp FCB instance structure.
  *
  * @return 0 on success; non-zero on failure
  */
-int fcb_clear(struct fcb *fcb);
+int fcb_clear(struct fcb *fcbp);
 
 /**
  * @}
@@ -308,7 +318,7 @@ int fcb_clear(struct fcb *fcb);
 /**
  * Read raw data from the fcb flash sector.
  *
- * @param[in] fcb    FCB instance structure.
+ * @param[in] fcbp   FCB instance structure.
  * @param[in] sector FCB sector.
  * @param[in] off    Read offset form sector begin.
  * @param[out] dst   Destination buffer.
@@ -316,22 +326,22 @@ int fcb_clear(struct fcb *fcb);
  *
  * @return  0 on success, negative errno code on fail.
  */
-int fcb_flash_read(const struct fcb *fcb, const struct flash_sector *sector,
-		   off_t off, void *dst, size_t len);
+int fcb_flash_read(const struct fcb *fcbp, const struct flash_sector *sector, off_t off,
+		   void *dst, size_t len);
 
 /**
  * Write raw data to the fcb flash sector.
  *
- * @param[in] fcb    FCB instance structure.
+ * @param[in] fcbp   FCB instance structure.
  * @param[in] sector FCB sector.
  * @param[in] off    Write offset form sector begin.
- * @param[out] src   Source buffer.
- * @param[in] len    Read-out size.
+ * @param[in] src    Source buffer.
+ * @param[in] len    Write size.
  *
  * @return  0 on success, negative errno code on fail.
  */
-int fcb_flash_write(const struct fcb *fcb, const struct flash_sector *sector,
-		    off_t off, const void *src, size_t len);
+int fcb_flash_write(const struct fcb *fcbp, const struct flash_sector *sector, off_t off,
+		    const void *src, size_t len);
 
 /**
  * @}

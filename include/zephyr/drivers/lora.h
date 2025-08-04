@@ -4,6 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/**
+ * @file
+ * @brief Public LoRa driver APIs
+ */
 #ifndef ZEPHYR_INCLUDE_DRIVERS_LORA_H_
 #define ZEPHYR_INCLUDE_DRIVERS_LORA_H_
 
@@ -11,23 +15,32 @@
  * @file
  * @brief Public LoRa APIs
  * @defgroup lora_api LoRa APIs
+ * @since 2.2
+ * @version 0.1.0
  * @ingroup io_interfaces
  * @{
  */
 
-#include <zephyr/types.h>
+#include <stdint.h>
+#include <zephyr/kernel.h>
 #include <zephyr/device.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/**
+ * @brief LoRa signal bandwidth
+ */
 enum lora_signal_bandwidth {
 	BW_125_KHZ = 0,
 	BW_250_KHZ,
 	BW_500_KHZ,
 };
 
+/**
+ * @brief LoRa data-rate
+ */
 enum lora_datarate {
 	SF_6 = 6,
 	SF_7,
@@ -38,6 +51,9 @@ enum lora_datarate {
 	SF_12,
 };
 
+/**
+ * @brief LoRa coding rate
+ */
 enum lora_coding_rate {
 	CR_4_5 = 1,
 	CR_4_6 = 2,
@@ -45,14 +61,51 @@ enum lora_coding_rate {
 	CR_4_8 = 4,
 };
 
+/**
+ * @struct lora_modem_config
+ * Structure containing the configuration of a LoRa modem
+ */
 struct lora_modem_config {
+	/** Frequency in Hz to use for transceiving */
 	uint32_t frequency;
+
+	/** The bandwidth to use for transceiving */
 	enum lora_signal_bandwidth bandwidth;
+
+	/** The data-rate to use for transceiving */
 	enum lora_datarate datarate;
+
+	/** The coding rate to use for transceiving */
 	enum lora_coding_rate coding_rate;
+
+	/** Length of the preamble */
 	uint16_t preamble_len;
+
+	/** TX-power in dBm to use for transmission */
 	int8_t tx_power;
+
+	/** Set to true for transmission, false for receiving */
 	bool tx;
+
+	/**
+	 * Invert the In-Phase and Quadrature (IQ) signals. Normally this
+	 * should be set to false. In advanced use-cases where a
+	 * differentation is needed between "uplink" and "downlink" traffic,
+	 * the IQ can be inverted to create two different channels on the
+	 * same frequency
+	 */
+	bool iq_inverted;
+
+	/**
+	 * Sets the sync-byte to use:
+	 *  - false: for using the private network sync-byte
+	 *  - true:  for using the public network sync-byte
+	 * The public network sync-byte is only intended for advanced usage.
+	 * Normally the private network sync-byte should be used for peer
+	 * to peer communications and the LoRaWAN APIs should be used for
+	 * interacting with a public network.
+	 */
+	bool public_network;
 };
 
 /**
@@ -68,7 +121,7 @@ struct lora_modem_config {
  * @see lora_recv() for argument descriptions.
  */
 typedef void (*lora_recv_cb)(const struct device *dev, uint8_t *data, uint16_t size,
-			     int16_t rssi, int8_t snr);
+			     int16_t rssi, int8_t snr, void *user_data);
 
 /**
  * @typedef lora_api_config()
@@ -115,7 +168,8 @@ typedef int (*lora_api_recv)(const struct device *dev, uint8_t *data,
  * @param dev Modem to receive data on.
  * @param cb Callback to run on receiving data.
  */
-typedef int (*lora_api_recv_async)(const struct device *dev, lora_recv_cb cb);
+typedef int (*lora_api_recv_async)(const struct device *dev, lora_recv_cb cb,
+			     void *user_data);
 
 /**
  * @typedef lora_api_test_cw()
@@ -126,7 +180,7 @@ typedef int (*lora_api_recv_async)(const struct device *dev, lora_recv_cb cb);
 typedef int (*lora_api_test_cw)(const struct device *dev, uint32_t frequency,
 				int8_t tx_power, uint16_t duration);
 
-struct lora_driver_api {
+__subsystem struct lora_driver_api {
 	lora_api_config config;
 	lora_api_send send;
 	lora_api_send_async send_async;
@@ -233,14 +287,16 @@ static inline int lora_recv(const struct device *dev, uint8_t *data,
  * @param dev Modem to receive data on.
  * @param cb Callback to run on receiving data. If NULL, any pending
  *	     asynchronous receptions will be cancelled.
+ * @param user_data User data passed to callback
  * @return 0 when reception successfully setup, negative on error
  */
-static inline int lora_recv_async(const struct device *dev, lora_recv_cb cb)
+static inline int lora_recv_async(const struct device *dev, lora_recv_cb cb,
+			       void *user_data)
 {
 	const struct lora_driver_api *api =
 		(const struct lora_driver_api *)dev->api;
 
-	return api->recv_async(dev, cb);
+	return api->recv_async(dev, cb, user_data);
 }
 
 /**

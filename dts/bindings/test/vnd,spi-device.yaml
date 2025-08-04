@@ -5,4 +5,5 @@ description: Test SPI device
 
 compatible: "vnd,spi-device"
 
-include: spi-device.yaml
+include:
+  - name: spi-device.yaml

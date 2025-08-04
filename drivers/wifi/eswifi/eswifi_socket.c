@@ -7,7 +7,6 @@
 #include "eswifi_log.h"
 LOG_MODULE_DECLARE(LOG_MODULE_NAME);
 
-#include <zephyr/zephyr.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <string.h>
@@ -96,6 +95,16 @@ int __eswifi_bind(struct eswifi_dev *eswifi, struct eswifi_off_socket *socket,
 		return -EIO;
 	}
 
+	if (socket->type == ESWIFI_TRANSPORT_UDP) {
+		/* No listen or accept, so start UDP server now */
+		snprintk(eswifi->buf, sizeof(eswifi->buf), "P5=1\r");
+		err = eswifi_at_cmd(eswifi, eswifi->buf);
+		if (err < 0) {
+			LOG_ERR("Unable to start UDP server");
+			return -EIO;
+		}
+	}
+
 	return 0;
 }
 
@@ -124,32 +133,39 @@ static void eswifi_off_read_work(struct k_work *work)
 
 	__select_socket(eswifi, socket->index);
 
-	len = __read_data(eswifi, 1460, &data); /* 1460 is max size */
-	if (len < 0) {
-		__stop_socket(eswifi, socket);
-
-		if (socket->recv_cb) {
-			/* send EOF (null pkt) */
-			goto do_recv_cb;
-		}
-	}
-
-	if (!len || !socket->recv_cb) {
-		goto done;
-	}
-
-	LOG_DBG("payload sz = %d", len);
-
-	pkt = net_pkt_rx_alloc_with_buffer(eswifi->iface, len,
+	/* Verify if we can allocate a rx packet before reading data to prevent leaks */
+	pkt = net_pkt_rx_alloc_with_buffer(eswifi->iface, 1460,
 					   AF_UNSPEC, 0, K_NO_WAIT);
 	if (!pkt) {
 		LOG_ERR("Cannot allocate rx packet");
 		goto done;
 	}
 
+	len = __read_data(eswifi, 1460, &data); /* 1460 is max size */
+	if (len < 0) {
+		__stop_socket(eswifi, socket);
+
+		if (socket->recv_cb) {
+			/* send EOF (null pkt) */
+			net_pkt_unref(pkt);
+			pkt = NULL;
+			goto do_recv_cb;
+		}
+	}
+
+	if (!len || !socket->recv_cb) {
+		net_pkt_unref(pkt);
+		goto done;
+	}
+
+	LOG_DBG("payload sz = %d", len);
+
 	if (net_pkt_write(pkt, data, len) < 0) {
 		LOG_WRN("Incomplete buffer copy");
 	}
+
+	/* Resize the packet */
+	net_pkt_trim_buffer(pkt);
 
 	net_pkt_cursor_init(pkt);
 
@@ -195,6 +211,22 @@ int __eswifi_off_start_client(struct eswifi_dev *eswifi,
 		return -EIO;
 	}
 
+	/* Stop any running server */
+	snprintk(eswifi->buf, sizeof(eswifi->buf), "P5=0\r");
+	err = eswifi_at_cmd(eswifi, eswifi->buf);
+	if (err < 0) {
+		LOG_ERR("Unable to stop running client");
+		return -EIO;
+	}
+
+	/* Clear local port */
+	snprintk(eswifi->buf, sizeof(eswifi->buf), "P2=0\r");
+	err = eswifi_at_cmd(eswifi, eswifi->buf);
+	if (err < 0) {
+		LOG_ERR("Unable to stop running client");
+		return -EIO;
+	}
+
 	/* Set Remote IP */
 	snprintk(eswifi->buf, sizeof(eswifi->buf), "P3=%u.%u.%u.%u\r",
 		 sin_addr->s4_addr[0], sin_addr->s4_addr[1],
@@ -222,7 +254,29 @@ int __eswifi_off_start_client(struct eswifi_dev *eswifi,
 		LOG_ERR("Unable to start TCP/UDP client");
 		return -EIO;
 	}
+
+#if !defined(CONFIG_NET_SOCKETS_OFFLOAD)
 	net_context_set_state(socket->context, NET_CONTEXT_CONNECTED);
+#endif
+
+	return 0;
+}
+
+int __eswifi_listen(struct eswifi_dev *eswifi, struct eswifi_off_socket *socket, int backlog)
+{
+	int err;
+
+	__select_socket(eswifi, socket->index);
+
+	/* Set backlog */
+	snprintk(eswifi->buf, sizeof(eswifi->buf), "P8=%d\r", backlog);
+	err = eswifi_at_cmd(eswifi, eswifi->buf);
+	if (err < 0) {
+		LOG_ERR("Unable to start set listen backlog");
+		err = -EIO;
+	}
+
+	socket->is_server = true;
 
 	return 0;
 }

@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef SHELL_FPRINTF_H__
-#define SHELL_FPRINTF_H__
+#ifndef ZEPHYR_INCLUDE_SHELL_FPRINTF_H_
+#define ZEPHYR_INCLUDE_SHELL_FPRINTF_H_
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -80,4 +80,4 @@ void z_shell_fprintf_buffer_flush(const struct shell_fprintf *sh_fprintf);
 }
 #endif
 
-#endif /* SHELL_FPRINTF_H__ */
+#endif /* ZEPHYR_INCLUDE_SHELL_FPRINTF_H_ */

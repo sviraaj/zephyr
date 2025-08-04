@@ -97,7 +97,7 @@ Options:
   --list-types               list the possible message types
   --types TYPE(,TYPE2...)    show only these comma separated message types
   --ignore TYPE(,TYPE2...)   ignore various comma separated message types
-  --exclude DIR(,DIR22...)   exclude directories
+  --exclude DIR (--exclude DIR2...)   exclude directories
   --show-types               show the specific message type in the output
   --max-line-length=n        set the maximum line length, (default $max_line_length)
                              if exceeded, warn on patches
@@ -389,6 +389,7 @@ our $Attribute	= qr{
 			__always_unused|
 			__noreturn|
 			__used|
+			__unused|
 			__cold|
 			__pure|
 			__noclone|
@@ -463,10 +464,13 @@ our $typeKernelTypedefs = qr{(?x:
 	(?:__)?(?:u|s|be|le)(?:8|16|32|64)|
 	atomic_t
 )};
+# DIR is misinterpreted as a macro or value in some POSIX headers
+our $typePosixTypedefs = qr{DIR};
 our $typeTypedefs = qr{(?x:
 	$typeC99Typedefs\b|
 	$typeOtherOSTypedefs\b|
-	$typeKernelTypedefs\b
+	$typeKernelTypedefs\b|
+	$typePosixTypedefs\b
 )};
 
 our $zero_initializer = qr{(?:(?:0[xX])?0+$Int_type?|NULL|false)\b};
@@ -591,6 +595,18 @@ our @mode_permission_funcs = (
 	["SENSOR_TEMPLATE(?:_2|)", 3],
 	["__ATTR", 2],
 );
+
+our $api_defines = qr{(?x:
+	_ATFILE_SOURCE|
+	_BSD_SOURCE|
+	_DEFAULT_SOURCE|
+	_GNU_SOURCE|
+	_ISOC11_SOURCE|
+	_ISOC99_SOURCE|
+	_POSIX_SOURCE|
+	_SVID_SOURCE|
+	_XOPEN_SOURCE_EXTENDED
+)};
 
 my $word_pattern = '\b[A-Z]?[a-z]{2,}\b';
 
@@ -1119,7 +1135,7 @@ sub top_of_kernel_tree {
 	my ($root) = @_;
 
 	my @tree_check = (
-		"LICENSE", "CODEOWNERS", "Kconfig", "README.rst",
+		"LICENSE", "Kconfig", "README.rst",
 		"doc", "arch", "include", "drivers", "boards",
 		"kernel", "lib", "scripts",
 	);
@@ -2661,12 +2677,6 @@ sub process {
 			$in_commit_log = 0;
 		}
 
-# Check if CODEOWNERS is being updated.  If so, there's probably no need to
-# emit the "does CODEOWNERS need updating?" message on file add/move/delete
-		if ($line =~ /^\s*CODEOWNERS\s*\|/) {
-			$reported_maintainer_file = 1;
-		}
-
 # Check signature styles
 		if (!$in_header_lines &&
 		    $line =~ /^(\s*)([a-z0-9_-]+by:|$signature_tags)(\s*)(.*)/i) {
@@ -2868,8 +2878,6 @@ sub process {
 		      (defined($1) || defined($2))))) {
 			$is_patch = 1;
 			$reported_maintainer_file = 1;
-			WARN("FILE_PATH_CHANGES",
-			     "added, moved or deleted file(s), does CODEOWNERS need updating?\n" . $herecurr);
 		}
 
 # Check for adding new DT bindings not in schema format
@@ -2940,6 +2948,7 @@ sub process {
 
 # Check for various typo / spelling mistakes
 		if (defined($misspellings) &&
+		    ($spelling_file !~ /$realfile/) &&
 		    ($in_commit_log || $line =~ /^(?:\+|Subject:)/i)) {
 			while ($rawline =~ /(?:^|[^a-z@])($misspellings)(?:\b|$|[^a-z@])/gi) {
 				my $typo = $1;
@@ -3121,7 +3130,7 @@ sub process {
 
 # check for DT compatible documentation
 		if (defined $root &&
-			(($realfile =~ /\.dtsi?$/ && $line =~ /^\+\s*compatible\s*=\s*\"/) ||
+			(($realfile =~ /\.(dts|dtsi|overlay)$/ && $line =~ /^\+\s*compatible\s*=\s*\"/) ||
 			 ($realfile =~ /\.[ch]$/ && $line =~ /^\+.*\.compatible\s*=\s*\"/))) {
 
 			my @compats = $rawline =~ /\"([a-zA-Z0-9\-\,\.\+_]+)\"/g;
@@ -3158,7 +3167,7 @@ sub process {
 				my $comment = "";
 				if ($realfile =~ /\.(h|s|S)$/) {
 					$comment = '/*';
-				} elsif ($realfile =~ /\.(c|dts|dtsi)$/) {
+				} elsif ($realfile =~ /\.(c|dts|dtsi|overlay)$/) {
 					$comment = '//';
 				} elsif (($checklicenseline == 2) || $realfile =~ /\.(sh|pl|py|awk|tc|yaml)$/) {
 					$comment = '#';
@@ -3200,7 +3209,7 @@ sub process {
 		}
 
 # check we are in a valid source file if not then ignore this hunk
-		next if ($realfile !~ /\.(h|c|s|S|sh|dtsi|dts)$/);
+		next if ($realfile !~ /\.(h|c|s|S|sh|dtsi|dts|overlay)$/);
 
 # check for using SPDX-License-Identifier on the wrong line number
 		if ($realline != $checklicenseline &&
@@ -3281,12 +3290,14 @@ sub process {
 		}
 
 # check we are in a valid source file C or perl if not then ignore this hunk
-		next if ($realfile !~ /\.(h|c|pl|dtsi|dts)$/);
+		next if ($realfile !~ /\.(h|c|pl|dtsi|dts|overlay)$/);
 
 # at the beginning of a line any tabs must come first and anything
-# more than $tabsize must use tabs.
+# more than $tabsize must use tabs, except multi-line macros which may start
+# with spaces on empty lines
 		if ($rawline =~ /^\+\s* \t\s*\S/ ||
-		    $rawline =~ /^\+\s*        \s*/) {
+		    $rawline =~ /^\+\s*        \s*/ &&
+		    $rawline !~ /^\+\s*\\$/) {
 			my $herevet = "$here\n" . cat_vet($rawline) . "\n";
 			$rpt_cleaners = 1;
 			if (ERROR("CODE_INDENT",
@@ -3528,7 +3539,7 @@ sub process {
 			# known declaration macros
 		      $sline =~ /^\+\s+$declaration_macros/ ||
 			# start of struct or union or enum
-		      $sline =~ /^\+\s+(?:static\s+)?(?:const\s+)?(?:union|struct|enum|typedef)\b/ ||
+		      $sline =~ /^\+\s+(?:volatile\s+)?(?:static\s+)?(?:const\s+)?(?:union|struct|enum|typedef)\b/ ||
 			# start or end of block or continuation of declaration
 		      $sline =~ /^\+\s+(?:$|[\{\}\.\#\"\?\:\(\[])/ ||
 			# bitfield continuation
@@ -3549,7 +3560,9 @@ sub process {
 #  1) within comments
 #  2) indented preprocessor commands
 #  3) hanging labels
-		if ($rawline =~ /^\+ / && $line !~ /^\+ *(?:$;|#|$Ident:)/)  {
+#  4) empty lines in multi-line macros
+		if ($rawline =~ /^\+ / && $line !~ /^\+ *(?:$;|#|$Ident:)/ &&
+		    $rawline !~ /^\+\s+\\$/) {
 			my $herevet = "$here\n" . cat_vet($rawline) . "\n";
 			if (WARN("LEADING_SPACE",
 				 "please, no spaces at the start of a line\n" . $herevet) &&
@@ -3719,7 +3732,7 @@ sub process {
 
 # if/while/etc brace do not go on next line, unless defining a do while loop,
 # or if that brace on the next line is for something else
-		if ($line =~ /(.*)\b((?:if|while|for|switch|(?:[A-Z_]+|)FOR_EACH[A-Z_]+)\s*\(|do\b|else\b)/ && $line !~ /^.\s*\#/) {
+		if ($line =~ /(.*)\b((?:if|while|for|switch|(?:[A-Z_]+|)FOR_EACH(?!_NONEMPTY_TERM)[A-Z_]+)\s*\(|do\b|else\b)/ && $line !~ /^.\s*\#/) {
 			my $pre_ctx = "$1$2";
 
 			my ($level, @ctx) = ctx_statement_level($linenr, $realcnt, 0);
@@ -3765,7 +3778,7 @@ sub process {
 		}
 
 # Check relative indent for conditionals and blocks.
-		if ($line =~ /\b(?:(?:if|while|for|(?:[A-Z_]+|)FOR_EACH[A-Z_]+)\s*\(|(?:do|else)\b)/ && $line !~ /^.\s*#/ && $line !~ /\}\s*while\s*/) {
+		if ($line =~ /\b(?:(?:if|while|for|(?:[A-Z_]+|)FOR_EACH(?!_NONEMPTY_TERM|_IDX|_FIXED_ARG|_IDX_FIXED_ARG)[A-Z_]+)\s*\(|(?:do|else)\b)/ && $line !~ /^.\s*#/ && $line !~ /\}\s*while\s*/) {
 			($stat, $cond, $line_nr_next, $remain_next, $off_next) =
 				ctx_statement_block($linenr, $realcnt, 0)
 					if (!defined $stat);
@@ -4146,13 +4159,15 @@ sub process {
 
 # check for new typedefs, only function parameters and sparse annotations
 # make sense.
-		if ($line =~ /\btypedef\s/ &&
-		    $line !~ /\btypedef\s+$Type\s*\(\s*\*?$Ident\s*\)\s*\(/ &&
-		    $line !~ /\btypedef\s+$Type\s+$Ident\s*\(/ &&
-		    $line !~ /\b$typeTypedefs\b/ &&
-		    $line !~ /\b__bitwise\b/) {
-			WARN("NEW_TYPEDEFS",
-			     "do not add new typedefs\n" . $herecurr);
+		if ($realfile =~ /\/include\/zephyr\/posix\/*.h/) {
+			if ($line =~ /\btypedef\s/ &&
+			$line !~ /\btypedef\s+$Type\s*\(\s*\*?$Ident\s*\)\s*\(/ &&
+			$line !~ /\btypedef\s+$Type\s+$Ident\s*\(/ &&
+			$line !~ /\b$typeTypedefs\b/ &&
+			$line !~ /\b__bitwise\b/) {
+				WARN("NEW_TYPEDEFS",
+				"do not add new typedefs\n" . $herecurr);
+			}
 		}
 
 # * goes on variable not on type
@@ -4399,11 +4414,13 @@ sub process {
 #  1. with a type on the left -- int [] a;
 #  2. at the beginning of a line for slice initialisers -- [0...10] = 5,
 #  3. inside a curly brace -- = { [0...10] = 5 }
+#  4. inside macro arguments, example: #define HCI_ERR(err) [err] = #err
 		while ($line =~ /(.*?\s)\[/g) {
 			my ($where, $prefix) = ($-[1], $1);
 			if ($prefix !~ /$Type\s+$/ &&
 			    ($where != 0 || $prefix !~ /^.\s+$/) &&
 			    $prefix !~ /[{,:]\s+$/ &&
+			    $prefix !~ /\#define\s+.+\s+$/ &&
 			    $prefix !~ /:\s+$/) {
 				if (ERROR("BRACKET_SPACE",
 					  "space prohibited before open square bracket '['\n" . $herecurr) &&
@@ -4919,9 +4936,13 @@ sub process {
 			}
 		}
 
-#goto labels aren't indented, allow a single space however
-		if ($line=~/^.\s+[A-Za-z\d_]+:(?![0-9]+)/ and
-		   !($line=~/^. [A-Za-z\d_]+:/) and !($line=~/^.\s+default:/)) {
+# check that goto labels aren't indented (allow a single space indentation)
+# and ignore bitfield definitions like foo:1
+# Strictly, labels can have whitespace after the identifier and before the :
+# but this is not allowed here as many ?: uses would appear to be labels
+		if ($sline =~ /^.\s+[A-Za-z_][A-Za-z\d_]*:(?!\s*\d+)/ &&
+		    $sline !~ /^. [A-Za-z\d_][A-Za-z\d_]*:/ &&
+		    $sline !~ /^.\s+default:/) {
 			if (WARN("INDENTED_LABEL",
 				 "labels should not be indented\n" . $herecurr) &&
 			    $fix) {
@@ -4978,6 +4999,7 @@ sub process {
 #	only fix matches surrounded by parentheses to avoid incorrect
 #	conversions like "FOO < baz() + 5" being "misfixed" to "baz() > FOO + 5"
 		if ($perl_version_ok &&
+			!($line =~ /^\+(.*)($Constant|[A-Z_][A-Z0-9_]*)\s*($Compare)\s*(.*)($Constant|[A-Z_][A-Z0-9_]*)(.*)/) &&
 		    $line =~ /^\+(.*)\b($Constant|[A-Z_][A-Z0-9_]*)\s*($Compare)\s*($LvalOrFunc)/) {
 			my $lead = $1;
 			my $const = $2;
@@ -5006,8 +5028,11 @@ sub process {
 		if ($sline =~ /\breturn(?:\s*\(+\s*|\s+)(E[A-Z]+)(?:\s*\)+\s*|\s*)[;:,]/) {
 			my $name = $1;
 			if ($name ne 'EOF' && $name ne 'ERROR') {
-				WARN("USE_NEGATIVE_ERRNO",
-				     "return of an errno should typically be negative (ie: return -$1)\n" . $herecurr);
+				# only print this warning if not dealing with 'lib/posix/*.c'
+				if ($realfile =~ /.*\/lib\/posix\/*.c/) {
+					WARN("USE_NEGATIVE_ERRNO",
+						"return of an errno should typically be negative (ie: return -$1)\n" . $herecurr);
+				}
 			}
 		}
 
@@ -5475,8 +5500,9 @@ sub process {
 					my ($whitespace) = ($cond =~ /^((?:\s*\n[+-])*\s*)/s);
 					my $offset = statement_rawlines($whitespace) - 1;
 
-					$allowed[$allow] = 0;
-					#print "COND<$cond> whitespace<$whitespace> offset<$offset>\n";
+					# always allow braces (i.e. require them)
+					$allowed[$allow] = 1;
+					#print "COND<$cond> block<$block> whitespace<$whitespace> offset<$offset>\n";
 
 					# We have looked at and allowed this specific line.
 					$suppress_ifbraces{$ln + $offset} = 1;
@@ -5485,46 +5511,37 @@ sub process {
 					$ln += statement_rawlines($block) - 1;
 
 					substr($block, 0, length($cond), '');
+					#print "COND<$cond> block<$block>\n";
+
+					# Remove any 0x1C characters. The script replaces
+					# comments /* */ with those.
+					$block =~ tr/\x1C//d;
 
 					$seen++ if ($block =~ /^\s*{/);
 
-					#print "cond<$cond> block<$block> allowed<$allowed[$allow]>\n";
-					if (statement_lines($cond) > 1) {
-						#print "APW: ALLOWED: cond<$cond>\n";
-						$allowed[$allow] = 1;
-					}
-					if ($block =~/\b(?:if|for|while)\b/) {
-						#print "APW: ALLOWED: block<$block>\n";
-						$allowed[$allow] = 1;
-					}
-					if (statement_block_size($block) > 1) {
-						#print "APW: ALLOWED: lines block<$block>\n";
-						$allowed[$allow] = 1;
-					}
 					$allow++;
 				}
-				if ($seen) {
-					my $sum_allowed = 0;
-					foreach (@allowed) {
-						$sum_allowed += $_;
-					}
-					if ($sum_allowed == 0) {
-						WARN("BRACES",
-						     "braces {} are not necessary for any arm of this statement\n" . $herectx);
-					} elsif ($sum_allowed != $allow &&
-						 $seen != $allow) {
-						CHK("BRACES",
-						    "braces {} should be used on all arms of this statement\n" . $herectx);
-					}
+				my $sum_allowed = 0;
+				foreach (@allowed) {
+					$sum_allowed += $_;
+				}
+				#print "sum_allowed<$sum_allowed> seen<$seen> allow<$allow>\n";
+				if ($sum_allowed == 0) {
+					WARN("BRACES",
+					     "braces {} are not necessary for any arm of this statement\n" . $herectx);
+				} elsif ($seen != $allow) {
+					WARN("BRACES",
+					    "braces {} must be used on all arms of this statement\n" . $herectx);
 				}
 			}
 		}
 		if (!defined $suppress_ifbraces{$linenr - 1} &&
 					$line =~ /\b(if|while|for|else)\b/) {
 			my $allowed = 0;
-
-			# Check the pre-context.
-			if (substr($line, 0, $-[0]) =~ /(\}\s*)$/) {
+			# Check the pre-context for:
+			# '#': #if
+			# '}': } while()
+			if (substr($line, 0, $-[0]) =~ /([\#\}]\s*)$/) {
 				#print "APW: ALLOWED: pre<$1>\n";
 				$allowed = 1;
 			}
@@ -5534,39 +5551,56 @@ sub process {
 
 			# Check the condition.
 			my ($cond, $block) = @{$chunks[0]};
-			#print "CHECKING<$linenr> cond<$cond> block<$block>\n";
+			#print "level $level CHECKING<$linenr> cond<$cond> block<$block>\n";
 			if (defined $cond) {
 				substr($block, 0, length($cond), '');
 			}
-			if (statement_lines($cond) > 1) {
-				#print "APW: ALLOWED: cond<$cond>\n";
-				$allowed = 1;
-			}
-			if ($block =~/\b(?:if|for|while)\b/) {
-				#print "APW: ALLOWED: block<$block>\n";
-				$allowed = 1;
-			}
-			if (statement_block_size($block) > 1) {
-				#print "APW: ALLOWED: lines block<$block>\n";
-				$allowed = 1;
-			}
-			# Check the post-context.
-			if (defined $chunks[1]) {
-				my ($cond, $block) = @{$chunks[1]};
-				if (defined $cond) {
-					substr($block, 0, length($cond), '');
+			# Remove any 0x1C characters. The script replaces
+			# comments /* */ with those.
+			$block =~ tr/\x1C//d;
+			#print sprintf '%v02X', $block;
+			#print "\n";
+
+			# Detect if the line is part of a macro
+			my $is_macro = 0;
+
+			# Check if the current line is a single-line macro
+			if ($lines[$linenr] =~ /^\+\s*#\s*define\b/) {
+				$is_macro = 1;
+			} else {
+				# Dynamically check upward for multi-line macro
+				my $i = $linenr - 1;
+				while ($i >= 0) {
+					my $line = $lines[$i];
+					last unless defined $line;
+
+					# Stop at non-added/context lines
+					last if $line !~ /^[ +]/;
+
+					# If this is a macro definition line, we're inside a macro
+					if ($line =~ /^\+\s*#\s*define\b/) {
+						$is_macro = 1;
+						last;
+					}
+
+					# Check if previous line ends with backslash (i.e., continuation)
+					if ($i > 0) {
+						my $prev_line = $lines[$i - 1];
+						last if !defined($prev_line) || $prev_line !~ /\\\s*$/;
+					} else {
+						last;
+					}
+
+					$i--;
 				}
-				if ($block =~ /^\s*\{/) {
-					#print "APW: ALLOWED: chunk-1 block<$block>\n";
-					$allowed = 1;
-				}
 			}
-			if ($level == 0 && $block =~ /^\s*\{/ && !$allowed) {
+
+			if ($level == 0 && $block !~ /^\s*\{/ && !$allowed && !$is_macro) {
 				my $cnt = statement_rawlines($block);
 				my $herectx = get_stat_here($linenr, $cnt, $here);
 
 				WARN("BRACES",
-				     "braces {} are not necessary for single statement blocks\n" . $herectx);
+				     "braces {} are required around if/while/for/else\n" . $herectx);
 			}
 		}
 
@@ -6051,6 +6085,7 @@ sub process {
 
 # Check for __attribute__ aligned, prefer __aligned
 		if ($realfile !~ m@\binclude/uapi/@ &&
+		    $realfile !~ m@\binclude/zephyr/toolchain@ &&
 		    $line =~ /\b__attribute__\s*\(\s*\(.*aligned/) {
 			WARN("PREFER_ALIGNED",
 			     "__aligned(size) is preferred over __attribute__((aligned(size)))\n" . $herecurr);
@@ -6516,6 +6551,13 @@ sub process {
 			}
 		}
 
+# check for feature test macros that request C library API extensions, violating rules A.4 and A.5
+
+		if ($line =~ /#\s*define\s+$api_defines/) {
+			ERROR("API_DEFINE",
+			      "do not specify non-standard feature test macros for embedded code\n" . "$here$rawline\n");
+		}
+
 # check for IS_ENABLED() without CONFIG_<FOO> ($rawline for comments too)
 		if ($rawline =~ /\bIS_ENABLED\s*\(\s*(\w+)\s*\)/ && $1 !~ /^CONFIG_/) {
 			WARN("IS_ENABLED_CONFIG",
@@ -6556,6 +6598,13 @@ sub process {
 		while ($line =~ /\b(__(?:DATE|TIME|TIMESTAMP)__)\b/g) {
 			ERROR("DATE_TIME",
 			      "Use of the '$1' macro makes the build non-deterministic\n" . $herecurr);
+		}
+
+# check for uses of __BYTE_ORDER__
+		while ($realfile !~ m@^include/zephyr/toolchain@ &&
+		       $line =~ /\b(__BYTE_ORDER__)\b/g) {
+				ERROR("BYTE_ORDER",
+				      "Use of the '$1' macro is disallowed. Use CONFIG_(BIG|LITTLE)_ENDIAN instead\n" . $herecurr);
 		}
 
 # check for use of yield()

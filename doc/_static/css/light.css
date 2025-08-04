@@ -26,7 +26,7 @@
     --navbar-scrollbar-active-color: #7929d2;
     --navbar-scrollbar-background: #131e2b;
 
-    --link-color: #2980b9;
+    --link-color: #237ab3;
     --link-color-hover: #3091d1;
     --link-color-active: #105078;
     --link-color-visited: #9b59b6;
@@ -85,7 +85,12 @@
     --kbd-shadow-color: #b0b7bf;
     --kbd-text-color: #444d56;
 
+    --guiitems-background-color: #e7f2fa;
+    --guiitems-border-color: #7fbbe3;
+
     --btn-neutral-background-color: #f3f6f6;
     --btn-neutral-hover-background-color: #e5ebeb;
-    --footer-color: #808080;
+    --footer-color: #747474;
+
+    --graphviz-filter: none;
 }

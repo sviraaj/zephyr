@@ -11,6 +11,7 @@
 LOG_MODULE_REGISTER(spi_cc13xx_cc26xx);
 
 #include <zephyr/drivers/spi.h>
+#include <zephyr/drivers/spi/rtio.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/pm/policy.h>
@@ -75,13 +76,14 @@ static int spi_cc13xx_cc26xx_configure(const struct device *dev,
 		return -EINVAL;
 	}
 
-	if (config->operation & SPI_CS_ACTIVE_HIGH && !config->cs) {
+	if (config->operation & SPI_CS_ACTIVE_HIGH && !spi_cs_is_gpio(config)) {
 		LOG_ERR("Active high CS requires emulation through a GPIO line.");
 		return -EINVAL;
 	}
 
-	if (config->frequency < 2000000) {
-		LOG_ERR("Frequencies lower than 2 MHz are not supported");
+	if (config->frequency < CPU_FREQ / (254 * (255 + 1))) {
+		LOG_ERR("Frequencies lower than %d Hz are not supported",
+			CPU_FREQ / (254 * (255 + 1)));
 		return -EINVAL;
 	}
 
@@ -140,7 +142,7 @@ static int spi_cc13xx_cc26xx_transceive(const struct device *dev,
 	uint32_t txd, rxd;
 	int err;
 
-	spi_context_lock(ctx, false, NULL, config);
+	spi_context_lock(ctx, false, NULL, NULL, config);
 	pm_policy_state_lock_get(PM_STATE_STANDBY, PM_ALL_SUBSTATES);
 
 	err = spi_cc13xx_cc26xx_configure(dev, config);
@@ -234,9 +236,12 @@ static int spi_cc13xx_cc26xx_pm_action(const struct device *dev,
 #endif /* CONFIG_PM_DEVICE */
 
 
-static const struct spi_driver_api spi_cc13xx_cc26xx_driver_api = {
+static DEVICE_API(spi, spi_cc13xx_cc26xx_driver_api) = {
 	.transceive = spi_cc13xx_cc26xx_transceive,
 	.release = spi_cc13xx_cc26xx_release,
+#ifdef CONFIG_SPI_RTIO
+	.iodev_submit = spi_rtio_iodev_default_submit,
+#endif
 };
 
 #ifdef CONFIG_PM
@@ -248,7 +253,7 @@ static const struct spi_driver_api spi_cc13xx_cc26xx_driver_api = {
 		} else {						  \
 			Power_setDependency(PowerCC26XX_PERIPH_SSI1);	  \
 		}							  \
-	} while (0)
+	} while (false)
 #else
 #define SPI_CC13XX_CC26XX_POWER_SPI(n)					  \
 	do {								  \
@@ -277,17 +282,17 @@ static const struct spi_driver_api spi_cc13xx_cc26xx_driver_api = {
 		}							  \
 									  \
 		/* SSI should not be accessed until power domain is on. */\
-		while (PRCMPowerDomainStatus(domain) !=			  \
+		while (PRCMPowerDomainsAllOn(domain) !=			  \
 			PRCM_DOMAIN_POWER_ON) {				  \
 			continue;					  \
 		}							  \
-	} while (0)
+	} while (false)
 #endif
 
 #define SPI_CC13XX_CC26XX_DEVICE_INIT(n)				    \
 	PM_DEVICE_DT_INST_DEFINE(n, spi_cc13xx_cc26xx_pm_action);	    \
 									    \
-	DEVICE_DT_INST_DEFINE(n,					    \
+	SPI_DEVICE_DT_INST_DEFINE(n,					    \
 		spi_cc13xx_cc26xx_init_##n,				    \
 		PM_DEVICE_DT_INST_GET(n),				    \
 		&spi_cc13xx_cc26xx_data_##n, &spi_cc13xx_cc26xx_config_##n, \

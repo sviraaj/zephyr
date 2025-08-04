@@ -22,13 +22,20 @@
  * BUILD_ASSERT is included through toolchain.h.
  */
 #include <zephyr/toolchain.h>
+#if !defined(__cplusplus) && !defined(static_assert)
 #define static_assert(expr, msg...) BUILD_ASSERT((expr), "" msg)
+#endif /* static_assert && __cplusplus__ */
 
 /* Convert uses of asm, which is not supported in c99, to __asm */
 #define asm __asm
 
 /* Disable binary info */
 #define PICO_NO_BINARY_INFO 1
+
+#ifdef CONFIG_DT_HAS_RASPBERRYPI_PICO_XOSC_ENABLED
+#include <zephyr/devicetree.h>
+#define PICO_XOSC_STARTUP_DELAY_MULTIPLIER DT_PROP(DT_NODELABEL(xosc), startup_delay_multiplier)
+#endif
 
 /* Zephyr compatible way of forcing inline */
 #ifndef __always_inline
@@ -37,9 +44,5 @@
 
 /* Two definitions required for the flash driver */
 #define __STRING(x) #x
-
-#ifndef __noinline
-#define __noinline __attribute__((noinline))
-#endif
 
 #endif

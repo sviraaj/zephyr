@@ -8,14 +8,15 @@ compatible: "nxp,lpc-syscon"
 include: [clock-controller.yaml, base.yaml]
 
 properties:
-    reg:
-      required: true
+  reg:
+    required: true
 
-    label:
-      required: true
-
-    "#clock-cells":
-      const: 1
+  "#clock-cells":
+    const: 1
 
 clock-cells:
   - name
+
+pinmux-cells:
+  - offset
+  - mask

@@ -9,6 +9,7 @@
 #include <zephyr/drivers/display.h>
 #include <zephyr/drivers/mipi_dsi.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(rm68200, CONFIG_DISPLAY_LOG_LEVEL);
@@ -101,21 +102,6 @@ static int rm68200_write(const struct device *dev, const uint16_t x,
 	return 0;
 }
 
-static int rm68200_read(const struct device *dev, const uint16_t x,
-			const uint16_t y,
-			const struct display_buffer_descriptor *desc,
-			void *buf)
-{
-	LOG_ERR("Read not implemented");
-	return -ENOTSUP;
-}
-
-static void *rm68200_get_framebuffer(const struct device *dev)
-{
-	LOG_ERR("Direct framebuffer access not implemented");
-	return NULL;
-}
-
 static int rm68200_blanking_off(const struct device *dev)
 {
 	const struct rm68200_config *config = dev->config;
@@ -136,20 +122,6 @@ static int rm68200_blanking_on(const struct device *dev)
 	} else {
 		return -ENOTSUP;
 	}
-}
-
-static int rm68200_set_brightness(const struct device *dev,
-				  const uint8_t brightness)
-{
-	LOG_WRN("Set brightness not implemented");
-	return -ENOTSUP;
-}
-
-static int rm68200_set_contrast(const struct device *dev,
-				const uint8_t contrast)
-{
-	LOG_ERR("Set contrast not implemented");
-	return -ENOTSUP;
 }
 
 static int rm68200_set_pixel_format(const struct device *dev,
@@ -187,14 +159,10 @@ static void rm68200_get_capabilities(const struct device *dev,
 	capabilities->current_orientation = DISPLAY_ORIENTATION_NORMAL;
 }
 
-static const struct display_driver_api rm68200_api = {
+static DEVICE_API(display, rm68200_api) = {
 	.blanking_on = rm68200_blanking_on,
 	.blanking_off = rm68200_blanking_off,
 	.write = rm68200_write,
-	.read = rm68200_read,
-	.get_framebuffer = rm68200_get_framebuffer,
-	.set_brightness = rm68200_set_brightness,
-	.set_contrast = rm68200_set_contrast,
 	.get_capabilities = rm68200_get_capabilities,
 	.set_pixel_format = rm68200_set_pixel_format,
 	.set_orientation = rm68200_set_orientation,
@@ -209,6 +177,8 @@ static int rm68200_init(const struct device *dev)
 
 	mdev.data_lanes = config->num_of_lanes;
 	mdev.pixfmt = config->pixel_format;
+	/* RM68200 runs in video mode */
+	mdev.mode_flags = MIPI_DSI_MODE_VIDEO;
 
 	ret = mipi_dsi_attach(config->mipi_dsi, config->channel, &mdev);
 	if (ret < 0) {

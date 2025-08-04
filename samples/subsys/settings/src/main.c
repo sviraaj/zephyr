@@ -12,10 +12,13 @@
 #include <errno.h>
 #include <zephyr/sys/printk.h>
 
-#if IS_ENABLED(CONFIG_SETTINGS_FS)
+#if defined(CONFIG_SETTINGS_FILE)
 #include <zephyr/fs/fs.h>
 #include <zephyr/fs/littlefs.h>
 #endif
+
+#define STORAGE_PARTITION	storage_partition
+#define STORAGE_PARTITION_ID	FIXED_PARTITION_ID(STORAGE_PARTITION)
 
 #define GAMMA_DEFAULT_VAl 0
 #define FAIL_MSG "fail (err %d)\n"
@@ -45,7 +48,7 @@ int beta_handle_export(int (*cb)(const char *name,
 int beta_handle_get(const char *name, char *val, int val_len_max);
 
 /* dynamic main tree handler */
-struct settings_handler alph_handler = {
+struct settings_handler alpha_handler = {
 		.name = "alpha",
 		.h_get = NULL,
 		.h_set = alpha_handle_set,
@@ -419,14 +422,14 @@ static void example_initialization(void)
 {
 	int rc;
 
-#if IS_ENABLED(CONFIG_SETTINGS_FS)
+#if defined(CONFIG_SETTINGS_FILE)
 	FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(cstorage);
 
 	/* mounting info */
 	static struct fs_mount_t littlefs_mnt = {
 	.type = FS_LITTLEFS,
 	.fs_data = &cstorage,
-	.storage_dev = (void *)FLASH_AREA_ID(storage),
+	.storage_dev = (void *)STORAGE_PARTITION_ID,
 	.mnt_point = "/ff"
 	};
 
@@ -435,7 +438,7 @@ static void example_initialization(void)
 		printk("mounting littlefs error: [%d]\n", rc);
 	} else {
 
-		rc = fs_unlink(CONFIG_SETTINGS_FS_FILE);
+		rc = fs_unlink(CONFIG_SETTINGS_FILE_PATH);
 		if ((rc != 0) && (rc != -ENOENT)) {
 			printk("can't delete config file%d\n", rc);
 		} else {
@@ -452,13 +455,13 @@ static void example_initialization(void)
 
 	printk("settings subsys initialization: OK.\n");
 
-	rc = settings_register(&alph_handler);
+	rc = settings_register(&alpha_handler);
 	if (rc) {
 		printk("subtree <%s> handler registered: fail (err %d)\n",
-		       alph_handler.name, rc);
+		       alpha_handler.name, rc);
 	}
 
-	printk("subtree <%s> handler registered: OK\n", alph_handler.name);
+	printk("subtree <%s> handler registered: OK\n", alpha_handler.name);
 	printk("subtree <alpha/beta> has static handler\n");
 }
 
@@ -531,7 +534,7 @@ void example_runtime_usage(void)
 	       source_name_val);
 }
 
-void main(void)
+int main(void)
 {
 
 	int i;
@@ -557,7 +560,7 @@ void main(void)
 		example_direct_load_subtree();
 
 		/*-------------------------
-		 * delete certain kay-value
+		 * delete certain key-value
 		 */
 		example_delete();
 
@@ -573,4 +576,5 @@ void main(void)
 	example_runtime_usage();
 
 	printk("\n*** THE END  ***\n");
+	return 0;
 }

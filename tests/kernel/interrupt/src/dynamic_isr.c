@@ -4,10 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
-#include <interrupt_util.h>
-
-#if defined(CONFIG_DYNAMIC_INTERRUPTS)
+#include <zephyr/ztest.h>
+#include <zephyr/interrupt_util.h>
 
 #define ISR_DYN_ARG	0xab249cfd
 
@@ -22,8 +20,17 @@ static void dyn_isr(const void *arg)
 }
 
 #if defined(CONFIG_GEN_SW_ISR_TABLE)
-extern struct _isr_table_entry __sw_isr_table _sw_isr_table[];
-extern void z_irq_spurious(const void *unused);
+extern
+#ifndef CONFIG_DYNAMIC_INTERRUPTS
+const
+#endif
+struct _isr_table_entry _sw_isr_table[];
+
+#if defined(CONFIG_RISCV_RESERVED_IRQ_ISR_TABLES_OFFSET)
+#define IRQ_OFFSET CONFIG_RISCV_RESERVED_IRQ_ISR_TABLES_OFFSET
+#else
+#define IRQ_OFFSET 0
+#endif
 
 /**
  * @brief Test dynamic ISR installation
@@ -37,7 +44,7 @@ extern void z_irq_spurious(const void *unused);
  *
  * @see arch_irq_connect_dynamic()
  */
-void test_isr_dynamic(void)
+ZTEST(interrupt_feature, test_isr_dynamic)
 {
 	int i;
 	const void *argval;
@@ -58,8 +65,8 @@ void test_isr_dynamic(void)
 	arch_irq_connect_dynamic(i + CONFIG_GEN_IRQ_START_VECTOR, 0, dyn_isr,
 				 argval, 0);
 
-	zassert_true(_sw_isr_table[i].isr == dyn_isr &&
-		     _sw_isr_table[i].arg == argval,
+	zassert_true(_sw_isr_table[i + IRQ_OFFSET].isr == dyn_isr &&
+		     _sw_isr_table[i + IRQ_OFFSET].arg == argval,
 		     "dynamic isr did not install successfully");
 }
 #else
@@ -70,13 +77,13 @@ void test_isr_dynamic(void)
  */
 #if defined(CONFIG_X86)
 #define IV_IRQS 32	/* start of vectors available for x86 IRQs */
-#define TEST_IRQ_DYN_LINE 16
+#define TEST_IRQ_DYN_LINE 25
 
 #elif defined(CONFIG_ARCH_POSIX)
 #define TEST_IRQ_DYN_LINE 5
 #endif
 
-void test_isr_dynamic(void)
+ZTEST(interrupt_feature, test_isr_dynamic)
 {
 	int vector_num;
 
@@ -111,7 +118,7 @@ extern const void *x86_irq_args[];
 
 	/**TESTPOINT: pass word-sized parameter to interrupt */
 	zassert_equal(handler_test_result, ISR_DYN_ARG,
-			"parameter(0x%lx) in handler is not correct",
+			"parameter(0x%" PRIxPTR ") in handler is not correct",
 			handler_test_result);
 
 	trigger_irq(vector_num);
@@ -121,13 +128,6 @@ extern const void *x86_irq_args[];
 			"interrupt triggered but handler has not run(%d)",
 			handler_has_run);
 
+	irq_disable(TEST_IRQ_DYN_LINE);
 }
 #endif /* CONFIG_GEN_SW_ISR_TABLE */
-
-#else
-/* Skip the dynamic interrupt test for the platforms that do not support it */
-void test_isr_dynamic(void)
-{
-	ztest_test_skip();
-}
-#endif /* CONFIG_DYNAMIC_INTERRUPTS */

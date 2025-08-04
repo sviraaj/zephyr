@@ -12,8 +12,7 @@ the standard MikroBus interface with UART pins plus its Espressif AT
 command set. Alternatively, the Zephyr modem driver can be used,
 configuring the module as a native WIFI networking interface.
 
-.. image:: ./wifi_click.jpeg
-   :width: 634px
+.. image:: wifi_click.jpg
    :align: center
    :alt: MikroE WIFI BLE Click
 
@@ -90,13 +89,13 @@ initial log and last message should be the version of the AT firmware flashed.
 Build and Programming
 *********************
 
-Set ``-DSHIELD=<shield designation>`` when you invoke ``west build``.
+Set ``--shield <shield designation>`` when you invoke ``west build``.
 
 See the example below for lpcxpresso55s69 board using Mikrobus serial:
 
 .. zephyr-app-commands::
    :zephyr-app: samples/net/wifi
-   :board: lpcxpresso55s69_cpu0
+   :board: lpcxpresso55s69/lpc55s69/cpu0
    :shield: mikroe_wifi_bt_click_mikrobus
    :goals: build flash
 

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <zephyr/kernel.h>
 
 /* global values and data structures */
@@ -18,12 +18,14 @@ struct fifo_msg {
 #define MSGQ_MSG_SIZE 4
 #define MSGQ_MAX_MSGS 16
 #define MSGQ_MSG_VALUE {'a', 'b', 'c', 'd'}
+#define PIPE_DATA "atad_epip"
 #define STACK_SIZE (1024 + CONFIG_TEST_EXTRA_STACK_SIZE)
 
 /* verify k_poll() without waiting */
 static struct k_sem no_wait_sem;
 static struct k_fifo no_wait_fifo;
 static struct k_poll_signal no_wait_signal;
+K_PIPE_DEFINE(no_wait_pipe, 32, 1);
 static struct k_poll_signal test_signal;
 #ifndef CONFIG_USERSPACE
 static struct k_msgq no_wait_msgq;
@@ -33,6 +35,10 @@ static struct k_thread test_thread;
 static struct k_thread test_loprio_thread;
 K_THREAD_STACK_DEFINE(test_stack, STACK_SIZE);
 K_THREAD_STACK_DEFINE(test_loprio_stack, STACK_SIZE);
+K_MSGQ_DEFINE(msgq_high_prio_thread, sizeof(unsigned int), 4, 4);
+static K_THREAD_STACK_DEFINE(high_prio_stack_area, 4096);
+static struct k_thread high_prio_data;
+static volatile bool wake_up_by_poll = true;
 
 /**
  * @brief Test cases to verify poll
@@ -53,12 +59,13 @@ K_THREAD_STACK_DEFINE(test_loprio_stack, STACK_SIZE);
  * @see K_POLL_EVENT_INITIALIZER(), k_poll_signal_init(),
  * k_poll_signal_raise(), k_poll_signal_check()
  */
-void test_poll_no_wait(void)
+ZTEST_USER(poll_api_1cpu, test_poll_no_wait)
 {
 	struct fifo_msg msg = { NULL, FIFO_MSG_VALUE }, *msg_ptr;
 	unsigned int signaled;
 	char msgq_recv_buf[MSGQ_MSG_SIZE] = {0};
 	char msgq_msg[MSGQ_MSG_SIZE] = MSGQ_MSG_VALUE;
+	char pipe_recv_buf[sizeof(PIPE_DATA) + 4];
 	int result;
 	struct k_msgq *mq;
 #ifdef CONFIG_USERSPACE
@@ -73,6 +80,8 @@ void test_poll_no_wait(void)
 	k_poll_signal_init(&no_wait_signal);
 
 	k_msgq_alloc_init(mq, MSGQ_MSG_SIZE, MSGQ_MAX_MSGS);
+
+	k_pipe_write(&no_wait_pipe, PIPE_DATA, sizeof(PIPE_DATA), K_NO_WAIT);
 
 	struct k_poll_event events[] = {
 		K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_SEM_AVAILABLE,
@@ -90,6 +99,9 @@ void test_poll_no_wait(void)
 		K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_MSGQ_DATA_AVAILABLE,
 					 K_POLL_MODE_NOTIFY_ONLY,
 					 mq),
+		K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_PIPE_DATA_AVAILABLE,
+					 K_POLL_MODE_NOTIFY_ONLY,
+					 &no_wait_pipe),
 	};
 
 #ifdef CONFIG_USERSPACE
@@ -100,11 +112,11 @@ void test_poll_no_wait(void)
 	 * implementation
 	 */
 
-	zassert_equal(k_poll(events, INT_MAX, K_NO_WAIT), -EINVAL, NULL);
-	zassert_equal(k_poll(events, 4096, K_NO_WAIT), -ENOMEM, NULL);
+	zassert_equal(k_poll(events, INT_MAX, K_NO_WAIT), -EINVAL);
+	zassert_equal(k_poll(events, 4096, K_NO_WAIT), -ENOMEM);
 
 	/* Allow zero events */
-	zassert_equal(k_poll(events, 0, K_NO_WAIT), -EAGAIN, NULL);
+	zassert_equal(k_poll(events, 0, K_NO_WAIT), -EAGAIN);
 
 	struct k_poll_event bad_events[] = {
 		K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_SEM_AVAILABLE,
@@ -115,10 +127,13 @@ void test_poll_no_wait(void)
 		      -EINVAL,
 		      NULL);
 
+	/* can't use the initializer to misconstruct this */
 	struct k_poll_event bad_events2[] = {
-		K_POLL_EVENT_INITIALIZER(0xFU,
-					 K_POLL_MODE_NOTIFY_ONLY,
-					 &no_wait_sem),
+		{ .type = 0xFU,
+		  .state = K_POLL_STATE_NOT_READY,
+		  .mode = K_POLL_MODE_NOTIFY_ONLY,
+		  .obj = &no_wait_sem,
+		},
 	};
 	zassert_equal(k_poll(bad_events2, ARRAY_SIZE(bad_events), K_NO_WAIT),
 		      -EINVAL,
@@ -126,9 +141,9 @@ void test_poll_no_wait(void)
 #endif /* CONFIG_USERSPACE */
 
 	/* test polling events that are already ready */
-	zassert_false(k_fifo_alloc_put(&no_wait_fifo, &msg), NULL);
+	zassert_false(k_fifo_alloc_put(&no_wait_fifo, &msg));
 	k_poll_signal_raise(&no_wait_signal, SIGNAL_RESULT);
-	zassert_false(k_msgq_put(mq, msgq_msg, K_NO_WAIT), NULL);
+	zassert_false(k_msgq_put(mq, msgq_msg, K_NO_WAIT));
 
 	zassert_equal(k_poll(events, ARRAY_SIZE(events), K_NO_WAIT), 0, "");
 
@@ -149,8 +164,13 @@ void test_poll_no_wait(void)
 	zassert_equal(events[3].state, K_POLL_STATE_NOT_READY, "");
 
 	zassert_equal(events[4].state, K_POLL_STATE_MSGQ_DATA_AVAILABLE, "");
-	zassert_false(k_msgq_get(mq, msgq_recv_buf, K_NO_WAIT), NULL);
+	zassert_false(k_msgq_get(mq, msgq_recv_buf, K_NO_WAIT));
 	zassert_false(memcmp(msgq_msg, msgq_recv_buf, MSGQ_MSG_SIZE), "");
+
+	zassert_equal(events[5].state, K_POLL_STATE_PIPE_DATA_AVAILABLE);
+	result = k_pipe_read(&no_wait_pipe, pipe_recv_buf, sizeof(pipe_recv_buf), K_NO_WAIT);
+	zassert_equal(result, sizeof(PIPE_DATA));
+	zassert_str_equal(pipe_recv_buf, PIPE_DATA);
 
 	/* verify events are not ready anymore (user has to clear them first) */
 	events[0].state = K_POLL_STATE_NOT_READY;
@@ -158,6 +178,7 @@ void test_poll_no_wait(void)
 	events[2].state = K_POLL_STATE_NOT_READY;
 	events[3].state = K_POLL_STATE_NOT_READY;
 	events[4].state = K_POLL_STATE_NOT_READY;
+	events[5].state = K_POLL_STATE_NOT_READY;
 	k_poll_signal_reset(&no_wait_signal);
 
 	zassert_equal(k_poll(events, ARRAY_SIZE(events), K_NO_WAIT), -EAGAIN,
@@ -167,11 +188,11 @@ void test_poll_no_wait(void)
 	zassert_equal(events[2].state, K_POLL_STATE_NOT_READY, "");
 	zassert_equal(events[3].state, K_POLL_STATE_NOT_READY, "");
 	zassert_equal(events[4].state, K_POLL_STATE_NOT_READY, "");
+	zassert_equal(events[5].state, K_POLL_STATE_NOT_READY, "");
 
 	zassert_not_equal(k_sem_take(&no_wait_sem, K_NO_WAIT), 0, "");
 	zassert_is_null(k_fifo_get(&no_wait_fifo, K_NO_WAIT), "");
-	zassert_not_equal(k_msgq_get(mq, msgq_recv_buf, K_NO_WAIT), 0,
-			  "");
+	zassert_not_equal(k_msgq_get(mq, msgq_recv_buf, K_NO_WAIT), 0, "");
 }
 
 /* verify k_poll() that has to wait */
@@ -185,10 +206,13 @@ static struct k_poll_signal wait_signal =
 
 struct fifo_msg wait_msg = { NULL, FIFO_MSG_VALUE };
 
+K_PIPE_DEFINE(wait_pipe, 32, 1);
+
 #define TAG_0 10
 #define TAG_1 11
 #define TAG_2 12
 #define TAG_3 13
+#define TAG_4 14
 
 struct k_poll_event wait_events[] = {
 	K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_SEM_AVAILABLE,
@@ -206,10 +230,14 @@ struct k_poll_event wait_events[] = {
 	K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_MSGQ_DATA_AVAILABLE,
 					K_POLL_MODE_NOTIFY_ONLY,
 					&wait_msgq, TAG_3),
+	K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_PIPE_DATA_AVAILABLE,
+					K_POLL_MODE_NOTIFY_ONLY,
+					&wait_pipe, TAG_4),
 };
 
 #define USE_FIFO (1 << 0)
 #define USE_MSGQ (1 << 1)
+#define USE_PIPE (1 << 2)
 
 static void poll_wait_helper(void *use_queuelike, void *msgq, void *p3)
 {
@@ -232,6 +260,10 @@ static void poll_wait_helper(void *use_queuelike, void *msgq, void *p3)
 
 		k_msgq_put(msgq, &m[0], K_FOREVER);
 	}
+
+	if (flags & USE_PIPE) {
+		k_pipe_write(&wait_pipe, PIPE_DATA, sizeof(PIPE_DATA), K_NO_WAIT);
+	}
 }
 
 /* check results for multiple events */
@@ -241,6 +273,8 @@ void check_results(struct k_poll_event *events, uint32_t event_type,
 	struct fifo_msg *msg_ptr;
 	char msgq_recv_buf[MSGQ_MSG_SIZE] = {0};
 	char msg[] = MSGQ_MSG_VALUE;
+	char pipe_recv_buf[sizeof(PIPE_DATA) + 4];
+	int result;
 
 	switch (event_type) {
 	case K_POLL_TYPE_SEM_AVAILABLE:
@@ -310,7 +344,20 @@ void check_results(struct k_poll_event *events, uint32_t event_type,
 				      "");
 		}
 		break;
-
+	case K_POLL_TYPE_PIPE_DATA_AVAILABLE:
+		if (is_available) {
+			zassert_equal(events->state, K_POLL_STATE_PIPE_DATA_AVAILABLE);
+			result = k_pipe_read(&wait_pipe, pipe_recv_buf,
+					     sizeof(pipe_recv_buf), K_NO_WAIT);
+			zassert_equal(result, sizeof(PIPE_DATA));
+			zassert_str_equal(pipe_recv_buf, PIPE_DATA);
+			zassert_equal(events->tag, TAG_4);
+			/* reset to not ready */
+			events->state = K_POLL_STATE_NOT_READY;
+		} else {
+			zassert_equal(events->state, K_POLL_STATE_NOT_READY);
+		}
+		break;
 	default:
 		__ASSERT(false, "invalid event type (0x%x)\n", event_type);
 		break;
@@ -366,7 +413,7 @@ void check_results(struct k_poll_event *events, uint32_t event_type,
  *
  * @see k_poll_signal_init(), k_poll()
  */
-void test_poll_wait(void)
+ZTEST(poll_api_1cpu, test_poll_wait)
 {
 	const int main_low_prio = 10;
 
@@ -394,11 +441,11 @@ void test_poll_wait(void)
 	 */
 	k_thread_priority_set(k_current_get(), main_low_prio);
 
-	k_thread_create(&test_thread, test_stack,
+	k_tid_t tid1 = k_thread_create(&test_thread, test_stack,
 			K_THREAD_STACK_SIZEOF(test_stack),
-			poll_wait_helper, (void *)(USE_FIFO | USE_MSGQ), wait_msgq_ptr, 0,
-			main_low_prio - 1, K_USER | K_INHERIT_PERMS,
-			K_NO_WAIT);
+			poll_wait_helper, (void *)(USE_FIFO | USE_MSGQ | USE_PIPE),
+			wait_msgq_ptr, 0, main_low_prio - 1,
+			K_USER | K_INHERIT_PERMS, K_NO_WAIT);
 
 	rc = k_poll(wait_events, ARRAY_SIZE(wait_events), K_NO_WAIT);
 	zassert_equal(rc, -EAGAIN, "should return EAGAIN with K_NO_WAIT");
@@ -415,6 +462,7 @@ void test_poll_wait(void)
 	check_results(&wait_events[2], K_POLL_TYPE_SIGNAL, true);
 	check_results(&wait_events[3], K_POLL_TYPE_IGNORE, true);
 	check_results(&wait_events[4], K_POLL_TYPE_MSGQ_DATA_AVAILABLE, true);
+	check_results(&wait_events[5], K_POLL_TYPE_PIPE_DATA_AVAILABLE, true);
 
 	/* verify events are not ready anymore */
 	zassert_equal(k_poll(wait_events, ARRAY_SIZE(wait_events),
@@ -426,6 +474,7 @@ void test_poll_wait(void)
 	check_results(&wait_events[2], K_POLL_TYPE_SIGNAL, false);
 	check_results(&wait_events[3], K_POLL_TYPE_IGNORE, false);
 	check_results(&wait_events[4], K_POLL_TYPE_MSGQ_DATA_AVAILABLE, false);
+	check_results(&wait_events[5], K_POLL_TYPE_PIPE_DATA_AVAILABLE, false);
 
 	/*
 	 * Wait for 2 out of 4 non-ready events to become ready from a higher
@@ -433,7 +482,7 @@ void test_poll_wait(void)
 	 */
 	k_thread_priority_set(k_current_get(), main_low_prio);
 
-	k_thread_create(&test_thread, test_stack,
+	k_tid_t tid2 = k_thread_create(&test_thread, test_stack,
 			K_THREAD_STACK_SIZEOF(test_stack),
 			poll_wait_helper,
 			0, 0, 0, main_low_prio - 1, 0, K_NO_WAIT);
@@ -448,12 +497,13 @@ void test_poll_wait(void)
 	check_results(&wait_events[1], K_POLL_TYPE_DATA_AVAILABLE, false);
 	check_results(&wait_events[2], K_POLL_TYPE_SIGNAL, true);
 	check_results(&wait_events[4], K_POLL_TYPE_MSGQ_DATA_AVAILABLE, false);
+	check_results(&wait_events[4], K_POLL_TYPE_PIPE_DATA_AVAILABLE, false);
 
 	/*
 	 * Wait for each event to be ready from a lower priority thread, one at
 	 * a time.
 	 */
-	k_thread_create(&test_thread, test_stack,
+	k_tid_t tid3 = k_thread_create(&test_thread, test_stack,
 			K_THREAD_STACK_SIZEOF(test_stack),
 			poll_wait_helper,
 			(void *)(USE_FIFO | USE_MSGQ), wait_msgq_ptr, 0, old_prio + 1,
@@ -466,6 +516,7 @@ void test_poll_wait(void)
 	check_results(&wait_events[1], K_POLL_TYPE_DATA_AVAILABLE, false);
 	check_results(&wait_events[2], K_POLL_TYPE_SIGNAL, false);
 	check_results(&wait_events[4], K_POLL_TYPE_MSGQ_DATA_AVAILABLE, false);
+	check_results(&wait_events[5], K_POLL_TYPE_PIPE_DATA_AVAILABLE, false);
 
 	/* fifo */
 	rc = k_poll(wait_events, ARRAY_SIZE(wait_events), K_SECONDS(1));
@@ -476,6 +527,7 @@ void test_poll_wait(void)
 	check_results(&wait_events[1], K_POLL_TYPE_DATA_AVAILABLE, true);
 	check_results(&wait_events[2], K_POLL_TYPE_SIGNAL, false);
 	check_results(&wait_events[4], K_POLL_TYPE_MSGQ_DATA_AVAILABLE, false);
+	check_results(&wait_events[5], K_POLL_TYPE_PIPE_DATA_AVAILABLE, false);
 
 	/* poll signal */
 	rc = k_poll(wait_events, ARRAY_SIZE(wait_events), K_SECONDS(1));
@@ -486,6 +538,7 @@ void test_poll_wait(void)
 	check_results(&wait_events[1], K_POLL_TYPE_DATA_AVAILABLE, false);
 	check_results(&wait_events[2], K_POLL_TYPE_SIGNAL, true);
 	check_results(&wait_events[4], K_POLL_TYPE_MSGQ_DATA_AVAILABLE, false);
+	check_results(&wait_events[5], K_POLL_TYPE_PIPE_DATA_AVAILABLE, false);
 
 	/* message queue */
 	rc = k_poll(wait_events, ARRAY_SIZE(wait_events), K_SECONDS(1));
@@ -496,7 +549,11 @@ void test_poll_wait(void)
 	check_results(&wait_events[1], K_POLL_TYPE_DATA_AVAILABLE, false);
 	check_results(&wait_events[2], K_POLL_TYPE_SIGNAL, false);
 	check_results(&wait_events[4], K_POLL_TYPE_MSGQ_DATA_AVAILABLE, true);
+	check_results(&wait_events[5], K_POLL_TYPE_PIPE_DATA_AVAILABLE, false);
 
+	k_thread_abort(tid1);
+	k_thread_abort(tid2);
+	k_thread_abort(tid3);
 }
 
 /* verify k_poll() that waits on object which gets cancellation */
@@ -552,7 +609,7 @@ void test_poll_cancel(bool is_main_low_prio)
 		k_thread_priority_set(k_current_get(), main_low_prio);
 	}
 
-	k_thread_create(&test_thread, test_stack,
+	k_tid_t tid = k_thread_create(&test_thread, test_stack,
 			K_THREAD_STACK_SIZEOF(test_stack),
 			poll_cancel_helper, (void *)1, 0, 0,
 			main_low_prio - 1, K_USER | K_INHERIT_PERMS,
@@ -581,14 +638,16 @@ void test_poll_cancel(bool is_main_low_prio)
 		zassert_equal(cancel_events[1].state,
 			      K_POLL_STATE_NOT_READY, "");
 	}
+
+	k_thread_abort(tid);
 }
 
-void test_poll_cancel_main_low_prio(void)
+ZTEST(poll_api_1cpu, test_poll_cancel_main_low_prio)
 {
 	test_poll_cancel(true);
 }
 
-void test_poll_cancel_main_high_prio(void)
+ZTEST(poll_api_1cpu, test_poll_cancel_main_high_prio)
 {
 	test_poll_cancel(false);
 }
@@ -639,7 +698,7 @@ static K_SEM_DEFINE(multi_ready_sem, 1, 1);
  *
  * @see K_POLL_EVENT_INITIALIZER(), k_poll(), k_poll_event_init()
  */
-void test_poll_multi(void)
+ZTEST(poll_api, test_poll_multi)
 {
 	int old_prio = k_thread_priority_get(k_current_get());
 	const int main_low_prio = 10;
@@ -656,7 +715,7 @@ void test_poll_multi(void)
 
 	k_thread_priority_set(k_current_get(), main_low_prio);
 
-	k_thread_create(&test_thread, test_stack,
+	k_tid_t tid1 = k_thread_create(&test_thread, test_stack,
 			K_THREAD_STACK_SIZEOF(test_stack),
 			multi, 0, 0, 0, main_low_prio - 1,
 			K_USER | K_INHERIT_PERMS, K_NO_WAIT);
@@ -665,7 +724,7 @@ void test_poll_multi(void)
 	 * create additional thread to add multiple(more than one)
 	 * pending threads in events list to improve code coverage.
 	 */
-	k_thread_create(&test_loprio_thread, test_loprio_stack,
+	k_tid_t tid2 = k_thread_create(&test_loprio_thread, test_loprio_stack,
 			K_THREAD_STACK_SIZEOF(test_loprio_stack),
 			multi_lowprio, 0, 0, 0, main_low_prio + 1,
 			K_USER | K_INHERIT_PERMS, K_NO_WAIT);
@@ -691,6 +750,9 @@ void test_poll_multi(void)
 	/* wait for polling threads to complete execution */
 	k_thread_priority_set(k_current_get(), old_prio);
 	k_sleep(K_MSEC(250));
+
+	k_thread_abort(tid1);
+	k_thread_abort(tid2);
 }
 
 static struct k_poll_signal signal;
@@ -721,7 +783,7 @@ static void threadstate(void *p1, void *p2, void *p3)
  * @see K_POLL_EVENT_INITIALIZER(), k_poll(), k_poll_signal_init(),
  * k_poll_signal_check(), k_poll_signal_raise()
  */
-void test_poll_threadstate(void)
+ZTEST(poll_api_1cpu, test_poll_threadstate)
 {
 	unsigned int signaled;
 	const int main_low_prio = 10;
@@ -739,7 +801,7 @@ void test_poll_threadstate(void)
 	k_thread_priority_set(k_current_get(), main_low_prio);
 	k_tid_t ztest_tid = k_current_get();
 
-	k_thread_create(&test_thread, test_stack,
+	k_tid_t tid = k_thread_create(&test_thread, test_stack,
 			K_THREAD_STACK_SIZEOF(test_stack), threadstate,
 			ztest_tid, 0, 0, main_low_prio - 1, K_INHERIT_PERMS,
 			K_NO_WAIT);
@@ -755,18 +817,55 @@ void test_poll_threadstate(void)
 	k_poll_signal_reset(&signal);
 	/* teardown */
 	k_thread_priority_set(k_current_get(), old_prio);
+
+	k_thread_abort(tid);
 }
 
-void test_poll_grant_access(void)
+void poll_test_grant_access(void)
 {
 	k_thread_access_grant(k_current_get(), &no_wait_sem, &no_wait_fifo,
 			      &no_wait_signal, &wait_sem, &wait_fifo,
 			      &cancel_fifo, &non_cancel_fifo,
 			      &wait_signal, &test_thread, &test_signal,
-			      &test_stack, &multi_sem, &multi_reply);
+			      &test_stack, &multi_sem, &multi_reply,
+			      &no_wait_pipe, &wait_pipe);
 }
 
-void test_poll_zero_events(void)
+
+static void high_prio_main(void *param1, void *param2, void *param3)
+{
+	static struct k_poll_event poll_events[1];
+
+	/* Setup wake-up for message queue */
+	k_poll_event_init(&poll_events[0], K_POLL_TYPE_MSGQ_DATA_AVAILABLE, K_POLL_MODE_NOTIFY_ONLY,
+			  &msgq_high_prio_thread);
+	(void)k_poll(poll_events, 1, K_FOREVER);
+
+	zassert_equal(poll_events[0].state, K_POLL_STATE_MSGQ_DATA_AVAILABLE);
+	zassert_equal(wake_up_by_poll, true);
+}
+
+ZTEST(poll_api_1cpu, test_poll_msgq)
+{
+	int low_prio_thread_priority = 1;
+	int high_prio_thread_priority = -2;
+	unsigned int data_to_high_prio = 0x1234;
+
+	k_thread_priority_set(k_current_get(), low_prio_thread_priority);
+
+	/* Create high priority thread */
+	(void)k_thread_create(&high_prio_data, high_prio_stack_area,
+			      K_THREAD_STACK_SIZEOF(high_prio_stack_area), high_prio_main, NULL,
+			      NULL, NULL, high_prio_thread_priority, 0, K_NO_WAIT);
+	k_sleep(K_MSEC(1));
+	/* Send message to high-priority thread */
+	(void)k_msgq_put(&msgq_high_prio_thread, &data_to_high_prio, K_NO_WAIT);
+
+	/* low priority thread should not execute here before wake up high priority task */
+	wake_up_by_poll = false;
+}
+
+ZTEST(poll_api_1cpu, test_poll_zero_events)
 {
 	struct k_poll_event event;
 
@@ -775,52 +874,5 @@ void test_poll_zero_events(void)
 	k_poll_event_init(&event, K_POLL_TYPE_SEM_AVAILABLE,
 			  K_POLL_MODE_NOTIFY_ONLY, &zero_events_sem);
 
-	zassert_equal(k_poll(&event, 0, K_MSEC(50)), -EAGAIN, NULL);
-}
-
-/* subthread entry */
-void polling_event(void *p1, void *p2, void *p3)
-{
-	k_poll(p1, 1, K_FOREVER);
-}
-
-/**
- * @brief Detect is_polling is false in signal_poll_event()
- *
- * @details
- * Define and initialize a signal event, and spawn a thread to
- * poll event, and set dticks as invalid, check if the value
- * of is_polling in function signal_poll_event().
- *
- * @ingroup kernel_poll_tests
- */
-void test_detect_is_polling(void)
-{
-	k_poll_signal_init(&test_signal);
-
-	struct k_thread *p = &test_thread;
-	struct k_poll_event events[1] = {
-		K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_SIGNAL,
-				K_POLL_MODE_NOTIFY_ONLY,
-				&test_signal),
-	};
-
-	k_thread_create(&test_thread, test_stack,
-		K_THREAD_STACK_SIZEOF(test_stack), polling_event,
-		events, NULL, NULL, K_PRIO_PREEMPT(0),
-		K_INHERIT_PERMS, K_NO_WAIT);
-
-	/* Set up the thread timeout value to check if
-	 * what happened if dticks is invalid.
-	 */
-	p->base.timeout.dticks = _EXPIRED;
-	/* Wait for register event successfully */
-	k_sleep(K_MSEC(50));
-
-	/* Raise a signal */
-	int ret = k_poll_signal_raise(&test_signal, 0x1337);
-
-	zassert_true(ret == -EAGAIN, "thread expired failed\n");
-	zassert_true(events[0].poller->is_polling == false,
-		"the value of is_polling is invalid\n");
+	zassert_equal(k_poll(&event, 0, K_MSEC(50)), -EAGAIN);
 }

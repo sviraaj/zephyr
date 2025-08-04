@@ -6,6 +6,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdbool.h>
+#include <stdint.h>
+
+#include <zephyr/sys/slist.h>
+
 /** Key size used in Bluetooth's ECC domain. */
 #define BT_ECC_KEY_SIZE            32
 /** Length of a Bluetooth ECC public key coordinate. */
@@ -38,11 +43,21 @@ struct bt_pub_key_cb {
  *  Compare the Public key to the Bluetooth specification defined debug public
  *  key.
  *
- *  @param pub_key The public key to compare.
+ *  @param cmp_pub_key The public key to compare.
  *
  *  @return True if the public key is the debug public key.
  */
-bool bt_pub_key_is_debug(uint8_t *pub_key);
+bool bt_pub_key_is_debug(uint8_t *cmp_pub_key);
+
+/*  @brief Check if public key is valid.
+ *
+ *  Verify that the public key is valid, e.g. that its coordinates lie on the elliptic curve.
+ *
+ *  @param key The public key to validate.
+ *
+ *  @return True if the public key is valid.
+ */
+bool bt_pub_key_is_valid(const uint8_t key[BT_PUB_KEY_LEN]);
 
 /*  @brief Generate a new Public Key.
  *
@@ -58,6 +73,12 @@ bool bt_pub_key_is_debug(uint8_t *pub_key);
  *  @return Zero on success or negative error code otherwise
  */
 int bt_pub_key_gen(struct bt_pub_key_cb *cb);
+
+/*  @brief Cleanup public key callbacks when HCI is disrupted.
+ *
+ *  Clear the pub_key_cb_slist and clear the BT_DEV_PUB_KEY_BUSY flag.
+ */
+void bt_pub_key_hci_disrupted(void);
 
 /*  @brief Get the current Public Key.
  *

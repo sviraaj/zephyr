@@ -212,12 +212,15 @@
 #define APDS9960_DEFAULT_GPULSE		0xC9
 #define APDS9960_DEFAULT_GCONF3		0
 
+/* Polling Wait Times (ms) */
+#define APDS9960_DEFAULT_WAIT_TIME      2.78
+#define APDS9960_MAX_WAIT_TIME          10000
+
 struct apds9960_config {
-	char *i2c_name;
-	char *gpio_name;
-	uint8_t gpio_pin;
-	unsigned int gpio_flags;
-	uint8_t i2c_address;
+	struct i2c_dt_spec i2c;
+#ifdef CONFIG_APDS9960_FETCH_MODE_INTERRUPT
+	struct gpio_dt_spec int_gpio;
+#endif
 	uint8_t pgain;
 	uint8_t again;
 	uint8_t ppcount;
@@ -225,34 +228,31 @@ struct apds9960_config {
 };
 
 struct apds9960_data {
-	const struct device *i2c;
-	const struct device *gpio;
 	struct gpio_callback gpio_cb;
 	struct k_work work;
 	const struct device *dev;
 	uint16_t sample_crgb[4];
 	uint8_t pdata;
-	uint8_t gpio_pin;
 
 #ifdef CONFIG_APDS9960_TRIGGER
 	sensor_trigger_handler_t p_th_handler;
-	struct sensor_trigger p_th_trigger;
-#else
+	const struct sensor_trigger *p_th_trigger;
+#elif CONFIG_APDS9960_FETCH_MODE_INTERRUPT
 	struct k_sem data_sem;
 #endif
 };
 
-static inline void apds9960_setup_int(struct apds9960_data *drv_data,
+#ifdef CONFIG_APDS9960_FETCH_MODE_INTERRUPT
+static inline void apds9960_setup_int(const struct apds9960_config *cfg,
 				      bool enable)
 {
 	unsigned int flags = enable
 		? GPIO_INT_EDGE_TO_ACTIVE
 		: GPIO_INT_DISABLE;
 
-	gpio_pin_interrupt_configure(drv_data->gpio,
-				     drv_data->gpio_pin,
-				     flags);
+	gpio_pin_interrupt_configure_dt(&cfg->int_gpio, flags);
 }
+#endif
 
 #ifdef CONFIG_APDS9960_TRIGGER
 void apds9960_work_cb(struct k_work *work);

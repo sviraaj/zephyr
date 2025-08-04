@@ -8,6 +8,8 @@
 
 #include <errno.h>
 #include <zephyr/drivers/i2c.h>
+#include <zephyr/irq.h>
+#include <zephyr/kernel.h>
 #include <soc.h>
 #include <zephyr/sys/util.h>
 #include <altera_common.h>
@@ -33,7 +35,7 @@ i2c_nios2_configure(const struct device *dev, uint32_t dev_config)
 	int32_t rc = 0;
 
 	k_sem_take(&data->sem_lock, K_FOREVER);
-	if (!(I2C_MODE_MASTER & dev_config)) {
+	if (!(I2C_MODE_CONTROLLER & dev_config)) {
 		LOG_ERR("i2c config mode error\n");
 		rc = -EINVAL;
 		goto i2c_cfg_err;
@@ -150,9 +152,12 @@ static void i2c_nios2_isr(const struct device *dev)
 
 static int i2c_nios2_init(const struct device *dev);
 
-static struct i2c_driver_api i2c_nios2_driver_api = {
+static DEVICE_API(i2c, i2c_nios2_driver_api) = {
 	.configure = i2c_nios2_configure,
 	.transfer = i2c_nios2_transfer,
+#ifdef CONFIG_I2C_RTIO
+	.iodev_submit = i2c_iodev_submit_fallback,
+#endif
 };
 
 static struct i2c_nios2_data i2c_nios2_dev_data = {
@@ -173,7 +178,7 @@ static int i2c_nios2_init(const struct device *dev)
 	k_sem_init(&data->sem_lock, 1, 1);
 
 	rc = i2c_nios2_configure(dev,
-			I2C_MODE_MASTER |
+			I2C_MODE_CONTROLLER |
 			I2C_SPEED_SET(I2C_SPEED_STANDARD));
 	if (rc) {
 		LOG_ERR("i2c configure failed %d\n", rc);

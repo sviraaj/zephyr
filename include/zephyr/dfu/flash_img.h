@@ -21,6 +21,7 @@
  * @brief Abstraction layer to write firmware images to flash
  *
  * @defgroup flash_img_api Flash image API
+ * @ingroup os_services
  * @{
  */
 
@@ -109,6 +110,13 @@ int flash_img_buffered_write(struct flash_img_context *ctx, const uint8_t *data,
 int flash_img_check(struct flash_img_context *ctx,
 		    const struct flash_img_check *fic,
 		    uint8_t area_id);
+
+/**
+ * @brief Get the flash area id for the image upload slot.
+ *
+ * @return flash area id for the image upload slot
+ */
+uint8_t flash_img_get_upload_slot(void);
 
 #ifdef __cplusplus
 }

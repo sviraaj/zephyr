@@ -6,7 +6,7 @@
 
 / {
 	soc {
-		sram: sram@400000 {
+		sram: sram@4000000 {
 			ranges = <0x4000000 0x4000000 0x20000000>;
 		};
 
@@ -17,3 +17,7 @@
 };
 
 #include "nxp_lpc55S1x_common.dtsi"
+
+&iap {
+	status = "okay";
+};

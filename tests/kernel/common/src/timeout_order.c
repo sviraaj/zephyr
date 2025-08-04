@@ -6,7 +6,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 #define NUM_TIMEOUTS 3
 
@@ -36,7 +36,12 @@ static K_THREAD_STACK_ARRAY_DEFINE(stacks, NUM_TIMEOUTS, STACKSIZE);
 static struct k_thread threads[NUM_TIMEOUTS];
 
 /**
- * @addtogroup kernel_common_tests
+ * @defgroup kernel_timeout_tests Timeout Order
+ * @ingroup all_tests
+ * @{
+ * @}
+ *
+ * @addtogroup kernel_timeout_tests
  * @{
  */
 
@@ -48,7 +53,7 @@ static struct k_thread threads[NUM_TIMEOUTS];
  *
  * @see k_timer_start()
  */
-void test_timeout_order(void)
+ZTEST(common_1cpu, test_timeout_order)
 {
 	int ii, prio = k_thread_priority_get(k_current_get()) + 1;
 
@@ -66,9 +71,7 @@ void test_timeout_order(void)
 
 	/* sync on tick */
 	while (uptime == k_uptime_get_32()) {
-#if defined(CONFIG_ARCH_POSIX)
-		k_busy_wait(50);
-#endif
+		Z_SPIN_DELAY(50);
 	}
 
 	for (ii = 0; ii < NUM_TIMEOUTS; ii++) {
@@ -93,3 +96,6 @@ void test_timeout_order(void)
 /**
  * @}
  */
+extern void *common_setup(void);
+ZTEST_SUITE(common_1cpu, NULL, common_setup,
+		ztest_simple_1cpu_before, ztest_simple_1cpu_after, NULL);

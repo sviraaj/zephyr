@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <soc.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
@@ -19,7 +19,7 @@ LOG_MODULE_REGISTER(test);
 #define CALC_HCLK_FREQ __LL_RCC_CALC_HCLK_FREQ
 #endif
 
-static void test_hclk_freq(void)
+ZTEST(stm32_sysclck_config, test_hclk_freq)
 {
 	uint32_t soc_hclk_freq;
 
@@ -31,59 +31,59 @@ static void test_hclk_freq(void)
 			CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC, soc_hclk_freq);
 }
 
-static void test_sysclk_src(void)
+ZTEST(stm32_sysclck_config, test_sysclk_src)
 {
 	int sys_clk_src = __HAL_RCC_GET_SYSCLK_SOURCE();
 
 #if STM32_SYSCLK_SRC_PLL
 	zassert_equal(RCC_SYSCLKSOURCE_STATUS_PLLCLK, sys_clk_src,
-			"Expected sysclk src: PLL. Actual sysclk src: %d",
-			sys_clk_src);
+			"Expected sysclk src: PLL (0x%x). Actual: 0x%x",
+			(int)RCC_SYSCLKSOURCE_STATUS_PLLCLK, sys_clk_src);
 #elif STM32_SYSCLK_SRC_HSE
 	zassert_equal(RCC_SYSCLKSOURCE_STATUS_HSE, sys_clk_src,
-			"Expected sysclk src: HSE. Actual sysclk src: %d",
-			sys_clk_src);
+			"Expected sysclk src: HSE (0x%x). Actual: 0x%x",
+			(int)RCC_SYSCLKSOURCE_STATUS_HSE, sys_clk_src);
 #elif STM32_SYSCLK_SRC_HSI
 	zassert_equal(RCC_SYSCLKSOURCE_STATUS_HSI, sys_clk_src,
-			"Expected sysclk src: HSI. Actual sysclk src: %d",
-			sys_clk_src);
+			"Expected sysclk src: HSI (0x%x). Actual: 0x%x",
+			(int)RCC_SYSCLKSOURCE_STATUS_HSI, sys_clk_src);
 #elif STM32_SYSCLK_SRC_MSI
 	zassert_equal(RCC_SYSCLKSOURCE_STATUS_MSI, sys_clk_src,
-			"Expected sysclk src: MSI. Actual sysclk src: %d",
-			sys_clk_src);
+			"Expected sysclk src: MSI (0x%x). Actual: 0x%x",
+			(int)RCC_SYSCLKSOURCE_STATUS_MSI, sys_clk_src);
 #else
 	/* Case not expected */
 	zassert_true((STM32_SYSCLK_SRC_PLL ||
 		      STM32_SYSCLK_SRC_HSE ||
 		      STM32_SYSCLK_SRC_HSI ||
 		      STM32_SYSCLK_SRC_MSI),
-		      "Not expected. sys_clk_src: %d\n", sys_clk_src);
+		      "Not expected. sys_clk_src: 0x%x\n", sys_clk_src);
 #endif
 
 }
 
-static void test_pll_src(void)
+ZTEST(stm32_sysclck_config, test_pll_src)
 {
 	uint32_t pll_src = __HAL_RCC_GET_PLL_OSCSOURCE();
 
 #if STM32_PLL_SRC_HSE
 	zassert_equal(RCC_PLLSOURCE_HSE, pll_src,
 			"Expected PLL src: HSE (%d). Actual PLL src: %d",
-			RCC_PLLSOURCE_HSE, pll_src);
+			(uint32_t)RCC_PLLSOURCE_HSE, pll_src);
 #elif STM32_PLL_SRC_HSI
 #if defined(CONFIG_SOC_SERIES_STM32F1X)
 	zassert_equal(RCC_PLLSOURCE_HSI_DIV2, pll_src,
 			"Expected PLL src: HSI (%d). Actual PLL src: %d",
-			RCC_PLLSOURCE_HSI_DIV2, pll_src);
+			(uint32_t)RCC_PLLSOURCE_HSI_DIV2, pll_src);
 #else
 	zassert_equal(RCC_PLLSOURCE_HSI, pll_src,
 			"Expected PLL src: HSI (%d). Actual PLL src: %d",
-			RCC_PLLSOURCE_HSI, pll_src);
+			(uint32_t)RCC_PLLSOURCE_HSI, pll_src);
 #endif /* CONFIG_SOC_SERIES_STM32F1X */
 #elif STM32_PLL_SRC_MSI
 	zassert_equal(RCC_PLLSOURCE_MSI, pll_src,
 			"Expected PLL src: MSI (%d). Actual PLL src: %d",
-			RCC_PLLSOURCE_MSI, pll_src);
+			(uint32_t)RCC_PLLSOURCE_MSI, pll_src);
 #else /* --> RCC_PLLSOURCE_NONE */
 #if defined(CONFIG_SOC_SERIES_STM32L0X) || defined(CONFIG_SOC_SERIES_STM32L1X) || \
 	defined(CONFIG_SOC_SERIES_STM32F0X) || defined(CONFIG_SOC_SERIES_STM32F1X) || \
@@ -106,13 +106,16 @@ static void test_pll_src(void)
 
 }
 
-void test_main(void)
+#if STM32_HSE_ENABLED
+ZTEST(stm32_sysclck_config, test_hse_css)
 {
-	printk("testing clock config on %s\n", CONFIG_BOARD);
-	ztest_test_suite(test_stm32_syclck_config,
-		ztest_unit_test(test_hclk_freq),
-		ztest_unit_test(test_sysclk_src),
-		ztest_unit_test(test_pll_src)
-			 );
-	ztest_run_test_suite(test_stm32_syclck_config);
+	/* there is no function to read CSS status, so read directly from the register */
+#if STM32_HSE_CSS
+	zassert_true(READ_BIT(RCC->CR, RCC_CR_CSSON), "HSE CSS is not enabled");
+#else
+	zassert_false(READ_BIT(RCC->CR, RCC_CR_CSSON), "HSE CSS unexpectedly enabled");
+#endif /* STM32_HSE_CSS */
+
 }
+#endif /* STM32_HSE_ENABLED */
+ZTEST_SUITE(stm32_sysclck_config, NULL, NULL, NULL, NULL, NULL);

@@ -18,12 +18,22 @@
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include <zephyr/net/net_pkt.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 #include <zephyr/net/net_ip.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/loopback.h>
 
 #include <zephyr/net/dummy.h>
+
+/* Allow network tests to control the IP addresses swapping */
+#if defined(CONFIG_NET_TEST)
+static bool loopback_dont_swap_addresses;
+
+void loopback_enable_address_swap(bool swap_addresses)
+{
+	loopback_dont_swap_addresses = !swap_addresses;
+}
+#endif /* CONFIG_NET_TEST */
 
 int loopback_dev_init(const struct device *dev)
 {
@@ -42,12 +52,15 @@ static void loopback_init(struct net_if *iface)
 
 	if (IS_ENABLED(CONFIG_NET_IPV4)) {
 		struct in_addr ipv4_loopback = INADDR_LOOPBACK_INIT;
+		struct in_addr netmask = { { { 255, 0, 0, 0 } } };
 
 		ifaddr = net_if_ipv4_addr_add(iface, &ipv4_loopback,
 					      NET_ADDR_AUTOCONF, 0);
 		if (!ifaddr) {
 			LOG_ERR("Failed to register IPv4 loopback address");
 		}
+
+		net_if_ipv4_set_netmask_by_addr(iface, &ipv4_loopback, &netmask);
 	}
 
 	if (IS_ENABLED(CONFIG_NET_IPV6)) {
@@ -57,6 +70,15 @@ static void loopback_init(struct net_if *iface)
 					      NET_ADDR_AUTOCONF, 0);
 		if (!ifaddr) {
 			LOG_ERR("Failed to register IPv6 loopback address");
+		}
+	}
+
+	if (IS_ENABLED(CONFIG_NET_INTERFACE_NAME)) {
+		int ret;
+
+		ret = net_if_set_name(iface, "lo");
+		if (ret < 0) {
+			LOG_ERR("Failed to set loopback interface name (%d)", ret);
 		}
 	}
 }
@@ -89,29 +111,22 @@ static int loopback_send(const struct device *dev, struct net_pkt *pkt)
 
 	ARG_UNUSED(dev);
 
+#ifdef CONFIG_NET_LOOPBACK_SIMULATE_PACKET_DROP
+	/* Drop packets based on the loopback_packet_drop_ratio
+	 * a ratio of 0.2 will drop one every 5 packets
+	 */
+	loopback_packet_drop_state += loopback_packet_drop_ratio;
+	if (loopback_packet_drop_state >= 1.0f) {
+		/* Administrate we dropped a packet */
+		loopback_packet_drop_state -= 1.0f;
+		loopback_packet_dropped_count++;
+		return 0;
+	}
+#endif
+
 	if (!pkt->frags) {
 		LOG_ERR("No data to send");
 		return -ENODATA;
-	}
-
-	/* We need to swap the IP addresses because otherwise
-	 * the packet will be dropped.
-	 */
-
-	if (net_pkt_family(pkt) == AF_INET6) {
-		struct in6_addr addr;
-
-		net_ipv6_addr_copy_raw((uint8_t *)&addr, NET_IPV6_HDR(pkt)->src);
-		net_ipv6_addr_copy_raw(NET_IPV6_HDR(pkt)->src,
-				       NET_IPV6_HDR(pkt)->dst);
-		net_ipv6_addr_copy_raw(NET_IPV6_HDR(pkt)->dst, (uint8_t *)&addr);
-	} else {
-		struct in_addr addr;
-
-		net_ipv4_addr_copy_raw((uint8_t *)&addr, NET_IPV4_HDR(pkt)->src);
-		net_ipv4_addr_copy_raw(NET_IPV4_HDR(pkt)->src,
-				       NET_IPV4_HDR(pkt)->dst);
-		net_ipv4_addr_copy_raw(NET_IPV4_HDR(pkt)->dst, (uint8_t *)&addr);
 	}
 
 	/* We should simulate normal driver meaning that if the packet is
@@ -125,24 +140,26 @@ static int loopback_send(const struct device *dev, struct net_pkt *pkt)
 		goto out;
 	}
 
-#ifdef CONFIG_NET_LOOPBACK_SIMULATE_PACKET_DROP
-	/* Drop packets based on the loopback_packet_drop_ratio
-	 * a ratio of 0.2 will drop one every 5 packets
+	/* We need to swap the IP addresses because otherwise
+	 * the packet will be dropped.
+	 *
+	 * Some of the network tests require that addresses are not swapped so allow
+	 * the test to control this remotely.
 	 */
-	loopback_packet_drop_state += loopback_packet_drop_ratio;
-	if (loopback_packet_drop_state >= 1.0f) {
-		/* Administrate we dropped a packet */
-		loopback_packet_drop_state -= 1.0f;
-		loopback_packet_dropped_count++;
-
-		/* Clean up the packet */
-		net_pkt_unref(cloned);
-		/* Pretent everything was fine */
-		res = 0;
-
-		goto out;
+	if (!COND_CODE_1(CONFIG_NET_TEST, (loopback_dont_swap_addresses), (false))) {
+		if (net_pkt_family(pkt) == AF_INET6) {
+			net_ipv6_addr_copy_raw(NET_IPV6_HDR(cloned)->src,
+					       NET_IPV6_HDR(pkt)->dst);
+			net_ipv6_addr_copy_raw(NET_IPV6_HDR(cloned)->dst,
+					       NET_IPV6_HDR(pkt)->src);
+		} else {
+			net_ipv4_addr_copy_raw(NET_IPV4_HDR(cloned)->src,
+					       NET_IPV4_HDR(pkt)->dst);
+			net_ipv4_addr_copy_raw(NET_IPV4_HDR(cloned)->dst,
+					       NET_IPV4_HDR(pkt)->src);
+		}
 	}
-#endif
+
 	res = net_recv_data(net_pkt_iface(cloned), cloned);
 	if (res < 0) {
 		LOG_ERR("Data receive failed.");
@@ -165,4 +182,4 @@ NET_DEVICE_INIT(loopback, "lo",
 		loopback_dev_init, NULL, NULL, NULL,
 		CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
 		&loopback_api, DUMMY_L2,
-		NET_L2_GET_CTX_TYPE(DUMMY_L2), 576);
+		NET_L2_GET_CTX_TYPE(DUMMY_L2), CONFIG_NET_LOOPBACK_MTU);

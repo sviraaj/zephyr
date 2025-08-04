@@ -3,7 +3,7 @@
  * Copyright (c) 2019 Intel Corp.
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/counter.h>
 
@@ -44,13 +44,14 @@ void timer(void)
 	printk("TIMER: unknown");
 #endif
 
-	printk(", configured frequency = %dHz\n",
+	printk(", configured frequency = %uHz\n",
 		sys_clock_hw_cycles_per_sec());
 
 #if defined(CONFIG_COUNTER_CMOS)
-	const struct device *cmos = device_get_binding("CMOS");
-	if (cmos == NULL) {
-		printk("\tCan't get reference CMOS clock device.\n");
+	const struct device *const cmos = DEVICE_DT_GET_ONE(motorola_mc146818);
+
+	if (!device_is_ready(cmos)) {
+		printk("\tCMOS clock device is not ready.\n");
 	} else {
 		uint64_t sum = 0;
 

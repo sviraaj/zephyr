@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: BSD-3-Clause-UC */
+/* SPDX-License-Identifier: BSD-3-Clause */
 
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
@@ -55,7 +55,7 @@ long long strtoll(const char *nptr, char **endptr, register int base)
 	 */
 	do {
 		c = *s++;
-	} while (isspace(c));
+	} while (isspace(c) != 0);
 	if (c == '-') {
 		neg = 1;
 		c = *s++;
@@ -94,10 +94,10 @@ long long strtoll(const char *nptr, char **endptr, register int base)
 	cutlim = cutoff % (unsigned long long)base;
 	cutoff /= (unsigned long long)base;
 	for (acc = 0, any = 0;; c = *s++) {
-		if (isdigit(c)) {
+		if (isdigit(c) != 0) {
 			c -= '0';
-		} else if (isalpha(c)) {
-			c -= isupper(c) ? 'A' - 10 : 'a' - 10;
+		} else if (isalpha(c) != 0) {
+			c -= isupper(c) != 0 ? 'A' - 10 : 'a' - 10;
 		} else {
 			break;
 		}
@@ -114,7 +114,11 @@ long long strtoll(const char *nptr, char **endptr, register int base)
 	}
 
 	if (any < 0) {
-		acc = neg ? LLONG_MIN : LLONG_MAX;
+		if (neg) {
+			acc = (unsigned long long)(-(LLONG_MIN + 1)) + 1;
+		} else {
+			acc = LLONG_MAX;
+		}
 		errno = ERANGE;
 	} else if (neg) {
 		acc = -acc;

@@ -207,7 +207,7 @@ int arc_core_mpu_get_max_domain_partition_regions(void)
 /**
  * @brief validate the given buffer is user accessible or not
  */
-int arc_core_mpu_buffer_validate(void *addr, size_t size, int write)
+int arc_core_mpu_buffer_validate(const void *addr, size_t size, int write)
 {
 	/*
 	 * For ARC MPU, smaller region number takes priority.
@@ -238,16 +238,14 @@ int arc_core_mpu_buffer_validate(void *addr, size_t size, int write)
  * This function provides the default configuration mechanism for the Memory
  * Protection Unit (MPU).
  */
-static int arc_mpu_init(const struct device *arg)
+void arc_mpu_init(void)
 {
-	ARG_UNUSED(arg);
 
 	uint32_t num_regions = get_num_regions();
 
 	if (mpu_config.num_regions > num_regions) {
 		__ASSERT(0, "Request to configure: %u regions (supported: %u)\n",
 			 mpu_config.num_regions, num_regions);
-		return -EINVAL;
 	}
 
 	/* Disable MPU */
@@ -279,10 +277,7 @@ static int arc_mpu_init(const struct device *arg)
 
 	/* Enable MPU */
 	arc_core_mpu_enable();
-
-	return 0;
 }
 
-SYS_INIT(arc_mpu_init, PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
 
 #endif /* ZEPHYR_ARCH_ARC_CORE_MPU_ARC_MPU_COMMON_INTERNAL_H_ */

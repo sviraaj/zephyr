@@ -1,6 +1,7 @@
+# Copyright (c) 2023 Bjarki Arge Andreasen
 # SPDX-License-Identifier: Apache-2.0
 
-description: quectel BG95 modem
+description: Quectel BG95 modem
 
 compatible: "quectel,bg95"
 

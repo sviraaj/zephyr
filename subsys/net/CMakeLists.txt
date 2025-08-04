@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 zephyr_library()
-zephyr_library_sources_ifdef(CONFIG_NET_BUF             buf.c)
+zephyr_library_property(ALLOW_EMPTY TRUE)
 zephyr_library_sources_ifdef(CONFIG_NET_HOSTNAME_ENABLE hostname.c)
 
 if(CONFIG_NETWORKING)
@@ -16,3 +16,7 @@ if(CONFIG_NETWORKING)
 endif()
 
 add_subdirectory(lib)
+
+if(CONFIG_NET_CONNECTION_MANAGER)
+  add_subdirectory(conn_mgr)
+endif()

@@ -247,7 +247,7 @@ static int mhz19b_sample_fetch(const struct device *dev, enum sensor_channel cha
 	return -ENOTSUP;
 }
 
-static const struct sensor_driver_api mhz19b_api_funcs = {
+static DEVICE_API(sensor, mhz19b_api_funcs) = {
 	.attr_set = mhz19b_attr_set,
 	.attr_get = mhz19b_attr_get,
 	.sample_fetch = mhz19b_sample_fetch,
@@ -341,7 +341,8 @@ static int mhz19b_init(const struct device *dev)
 		.cb = mhz19b_uart_isr,								\
 	};											\
 												\
-	DEVICE_DT_INST_DEFINE(inst, mhz19b_init, NULL, &mhz19b_data_##inst, &mhz19b_cfg_##inst, \
+	SENSOR_DEVICE_DT_INST_DEFINE(inst, mhz19b_init, NULL,					\
+			      &mhz19b_data_##inst, &mhz19b_cfg_##inst,				\
 			      POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY, &mhz19b_api_funcs);
 
 DT_INST_FOREACH_STATUS_OKAY(MHZ19B_INIT)

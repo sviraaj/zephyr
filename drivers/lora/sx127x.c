@@ -8,7 +8,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/lora.h>
 #include <zephyr/drivers/spi.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 
 #include "sx12xx_common.h"
 
@@ -362,7 +362,7 @@ void SX127xIoIrqInit(DioIrqHandler **irqHandlers)
 			continue;
 		}
 
-		if (!device_is_ready(sx127x_dios[i].port)) {
+		if (!gpio_is_ready_dt(&sx127x_dios[i])) {
 			LOG_ERR("GPIO port %s not ready",
 				sx127x_dios[i].port->name);
 			return;
@@ -582,7 +582,7 @@ static int sx127x_lora_init(const struct device *dev)
 	int ret;
 	uint8_t regval;
 
-	if (!spi_is_ready(&dev_config.bus)) {
+	if (!spi_is_ready_dt(&dev_config.bus)) {
 		LOG_ERR("SPI device not ready");
 		return -ENODEV;
 	}
@@ -625,7 +625,7 @@ static int sx127x_lora_init(const struct device *dev)
 	return 0;
 }
 
-static const struct lora_driver_api sx127x_lora_api = {
+static DEVICE_API(lora, sx127x_lora_api) = {
 	.config = sx12xx_lora_config,
 	.send = sx12xx_lora_send,
 	.send_async = sx12xx_lora_send_async,

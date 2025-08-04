@@ -13,40 +13,172 @@ LOG_MODULE_REGISTER(net_virtual, CONFIG_NET_L2_VIRTUAL_LOG_LEVEL);
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/virtual.h>
 #include <zephyr/net/virtual_mgmt.h>
-#include <zephyr/random/rand32.h>
+#include <zephyr/random/random.h>
 
 #include "net_private.h"
+#include "net_stats.h"
 
 #define NET_BUF_TIMEOUT K_MSEC(100)
 
 static enum net_verdict virtual_recv(struct net_if *iface,
 				     struct net_pkt *pkt)
 {
-	ARG_UNUSED(iface);
-	ARG_UNUSED(pkt);
+	struct virtual_interface_context *ctx, *tmp;
+	const struct virtual_interface_api *api;
+	struct net_if *filtered_iface = NULL;
+	enum net_verdict verdict;
+	sys_slist_t *interfaces;
 
-	return NET_CONTINUE;
+	interfaces = &iface->config.virtual_interfaces;
+
+	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(interfaces, ctx, tmp, node) {
+		if (ctx->virtual_iface == NULL) {
+			continue;
+		}
+
+		api = net_if_get_device(ctx->virtual_iface)->api;
+		if (!api || api->recv == NULL) {
+			continue;
+		}
+
+		if (!net_if_is_up(ctx->virtual_iface)) {
+			NET_DBG("Interface %d is down.",
+				net_if_get_by_iface(ctx->virtual_iface));
+			continue;
+		}
+
+		if (IS_ENABLED(CONFIG_NET_PKT_FILTER)) {
+			struct net_if *tmp_iface;
+
+			tmp_iface = net_pkt_iface(pkt);
+			net_pkt_set_iface(pkt, ctx->virtual_iface);
+
+			if (!net_pkt_filter_recv_ok(pkt)) {
+				/* We cannot update the statistics here because
+				 * the interface might not be the correct one for
+				 * the packet. We would know that only after the
+				 * call to api->recv() which is too late. So mark
+				 * the interface as filtered and continue and
+				 * update the filter statistics out of the loop.
+				 */
+				net_pkt_set_iface(pkt, tmp_iface);
+				filtered_iface = tmp_iface;
+				continue;
+			}
+
+			net_pkt_set_iface(pkt, tmp_iface);
+		}
+
+		verdict = api->recv(ctx->virtual_iface, pkt);
+		if (verdict == NET_CONTINUE) {
+			continue;
+		}
+
+		if (IS_ENABLED(CONFIG_NET_STATISTICS)) {
+			size_t pkt_len;
+
+			pkt_len = net_pkt_get_len(pkt);
+
+			NET_DBG("Received pkt %p len %zu", pkt, pkt_len);
+
+			net_stats_update_bytes_recv(ctx->virtual_iface,
+						    pkt_len);
+		}
+
+		if (verdict == NET_DROP) {
+			net_stats_update_processing_error(ctx->virtual_iface);
+		}
+
+		return verdict;
+	}
+
+	if (IS_ENABLED(CONFIG_NET_PKT_FILTER) && filtered_iface != NULL) {
+		/* We need to update the statistics for the filtered iface here.
+		 */
+		net_stats_update_filter_rx_drop(filtered_iface);
+		goto silent_drop;
+	}
+
+	/* If there are no virtual interfaces attached, then pass the packet
+	 * to the actual virtual network interface.
+	 */
+	api = net_if_get_device(iface)->api;
+	if (!api || api->recv == NULL) {
+		goto drop;
+	}
+
+	if (!net_if_is_up(iface)) {
+		NET_DBG("Interface %d is down.", net_if_get_by_iface(iface));
+		goto silent_drop;
+	}
+
+	if (!net_pkt_filter_recv_ok(pkt)) {
+		net_stats_update_filter_rx_drop(iface);
+		goto silent_drop;
+	}
+
+	verdict = api->recv(iface, pkt);
+
+	if (IS_ENABLED(CONFIG_NET_STATISTICS)) {
+		size_t pkt_len;
+
+		pkt_len = net_pkt_get_len(pkt);
+
+		NET_DBG("Received pkt %p len %zu", pkt, pkt_len);
+
+		net_stats_update_bytes_recv(iface, pkt_len);
+	}
+
+	if (verdict == NET_DROP) {
+		net_stats_update_processing_error(iface);
+	}
+
+	return verdict;
+
+drop:
+	NET_DBG("No handler, dropping pkt %p len %zu", pkt, net_pkt_get_len(pkt));
+
+silent_drop:
+	return NET_DROP;
 }
 
 static int virtual_send(struct net_if *iface, struct net_pkt *pkt)
 {
 	const struct virtual_interface_api *api = net_if_get_device(iface)->api;
+	size_t pkt_len;
+	int ret;
 
 	if (!api) {
 		return -ENOENT;
 	}
 
+	if (!net_if_is_up(iface)) {
+		NET_DBG("Interface %d is down.",
+			net_if_get_by_iface(iface));
+		return -ENETDOWN;
+	}
+
+	if (IS_ENABLED(CONFIG_NET_STATISTICS)) {
+		pkt_len = net_pkt_get_len(pkt);
+	}
+
 	/* As we are just passing data through, the net_pkt is not freed here.
 	 */
+	ret = api->send(iface, pkt);
 
-	return api->send(iface, pkt);
+	if (IS_ENABLED(CONFIG_NET_STATISTICS) && ret == 0) {
+		NET_DBG("Sent pkt %p len %zu", pkt, pkt_len);
+		net_stats_update_bytes_sent(iface, pkt_len);
+	}
+
+	return ret;
 }
 
 static int virtual_enable(struct net_if *iface, bool state)
 {
 	const struct virtual_interface_api *virt;
-	struct virtual_interface_context *ctx, *tmp, *ctx_up, *ctx_orig;
-	sys_slist_t *interfaces;
+	struct virtual_interface_context *ctx;
+	int ret = 0;
 
 	virt = net_if_get_device(iface)->api;
 	if (!virt) {
@@ -81,38 +213,17 @@ static int virtual_enable(struct net_if *iface, bool state)
 		}
 
 		if (virt->start) {
-			virt->start(net_if_get_device(iface));
+			ret = virt->start(net_if_get_device(iface));
 		}
 
-		return 0;
-	}
-
-	/* Propagate the status upstream */
-	if (ctx->virtual_iface) {
-		interfaces = &ctx->virtual_iface->config.virtual_interfaces;
-		ctx_orig = ctx;
-
-		SYS_SLIST_FOR_EACH_CONTAINER_SAFE(interfaces, ctx_up, tmp,
-						  node) {
-			if (!net_if_is_up(ctx->iface)) {
-				continue;
-			}
-
-			net_if_down(ctx_up->virtual_iface);
-		}
-
-		if (net_if_is_up(ctx_orig->virtual_iface)) {
-			NET_DBG("Taking iface %d down",
-				net_if_get_by_iface(ctx_orig->virtual_iface));
-			net_if_carrier_down(ctx_orig->virtual_iface);
-		}
+		return ret;
 	}
 
 	if (virt->stop) {
-		virt->stop(net_if_get_device(iface));
+		ret = virt->stop(net_if_get_device(iface));
 	}
 
-	return 0;
+	return ret;
 }
 
 enum net_l2_flags virtual_flags(struct net_if *iface)
@@ -122,16 +233,29 @@ enum net_l2_flags virtual_flags(struct net_if *iface)
 	return ctx->virtual_l2_flags;
 }
 
+#if defined(CONFIG_NET_L2_ETHERNET_RESERVE_HEADER) && defined(CONFIG_NET_VLAN)
+extern int vlan_alloc_buffer(struct net_if *iface, struct net_pkt *pkt,
+			     size_t size, uint16_t proto, k_timeout_t timeout);
+
+static int virtual_l2_alloc(struct net_if *iface, struct net_pkt *pkt,
+			    size_t size, enum net_ip_protocol proto,
+			    k_timeout_t timeout)
+{
+	return vlan_alloc_buffer(iface, pkt, size, proto, timeout);
+}
+#else
+#define virtual_l2_alloc NULL
+#endif
+
 NET_L2_INIT(VIRTUAL_L2, virtual_recv, virtual_send, virtual_enable,
-	    virtual_flags);
+	    virtual_flags, virtual_l2_alloc);
 
 static void random_linkaddr(uint8_t *linkaddr, size_t len)
 {
-	int i;
+	sys_rand_get(linkaddr, len);
 
-	for (i = 0; i < len; i++) {
-		linkaddr[i] = sys_rand32_get();
-	}
+	linkaddr[0] |= 0x02;  /* force LAA bit */
+	linkaddr[0] &= ~0x01; /* clear multicast bit */
 }
 
 int net_virtual_interface_attach(struct net_if *virtual_iface,
@@ -231,12 +355,28 @@ void net_virtual_disable(struct net_if *iface)
 
 	interfaces = &iface->config.virtual_interfaces;
 	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(interfaces, ctx, tmp, node) {
-		const struct net_l2 *l2;
+		NET_DBG("Iface %d down, setting virtual iface %d carrier off",
+			net_if_get_by_iface(iface),
+			net_if_get_by_iface(ctx->virtual_iface));
+		net_if_carrier_off(ctx->virtual_iface);
+	}
+}
 
-		l2 = net_if_l2(ctx->virtual_iface);
-		if (l2 && l2->enable) {
-			l2->enable(ctx->virtual_iface, false);
-		}
+void net_virtual_enable(struct net_if *iface)
+{
+	struct virtual_interface_context *ctx, *tmp;
+	sys_slist_t *interfaces;
+
+	if (net_if_get_by_iface(iface) < 0) {
+		return;
+	}
+
+	interfaces = &iface->config.virtual_interfaces;
+	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(interfaces, ctx, tmp, node) {
+		NET_DBG("Iface %d up, setting virtual iface %d carrier on",
+			net_if_get_by_iface(iface),
+			net_if_get_by_iface(ctx->virtual_iface));
+		net_if_carrier_on(ctx->virtual_iface);
 	}
 }
 
@@ -291,8 +431,8 @@ void net_virtual_set_name(struct net_if *iface, const char *name)
 
 	ctx = net_if_l2_data(iface);
 
-	strncpy(ctx->name, name, CONFIG_NET_L2_VIRTUAL_MAX_NAME_LEN);
-	ctx->name[CONFIG_NET_L2_VIRTUAL_MAX_NAME_LEN - 1] = '\0';
+	strncpy(ctx->name, name, ARRAY_SIZE(ctx->name) - 1);
+	ctx->name[ARRAY_SIZE(ctx->name) - 1] = '\0';
 }
 
 enum net_l2_flags net_virtual_set_flags(struct net_if *iface,
@@ -314,60 +454,6 @@ enum net_l2_flags net_virtual_set_flags(struct net_if *iface,
 	ctx->virtual_l2_flags = flags;
 
 	return old_flags;
-}
-
-enum net_verdict net_virtual_input(struct net_if *input_iface,
-				   struct net_addr *remote_addr,
-				   struct net_pkt *pkt)
-{
-	struct virtual_interface_context *ctx, *tmp;
-	const struct virtual_interface_api *virt;
-	struct net_pkt_cursor hdr_start;
-	enum net_verdict verdict;
-	sys_slist_t *interfaces;
-	uint8_t iptype;
-
-	net_pkt_cursor_backup(pkt, &hdr_start);
-
-	if (net_pkt_read_u8(pkt, &iptype)) {
-		return NET_DROP;
-	}
-
-	net_pkt_cursor_restore(pkt, &hdr_start);
-
-	switch (iptype & 0xf0) {
-	case 0x60:
-		net_pkt_set_family(pkt, AF_INET6);
-		break;
-	case 0x40:
-		net_pkt_set_family(pkt, AF_INET);
-		break;
-	default:
-		return NET_DROP;
-	}
-
-	interfaces = &input_iface->config.virtual_interfaces;
-
-	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(interfaces, ctx, tmp, node) {
-		if (ctx->virtual_iface == NULL) {
-			continue;
-		}
-
-		virt = net_if_get_device(ctx->virtual_iface)->api;
-		if (!virt || virt->input == NULL) {
-			continue;
-		}
-
-		verdict = virt->input(input_iface, ctx->virtual_iface,
-				      remote_addr, pkt);
-		if (verdict == NET_OK) {
-			continue;
-		}
-
-		return verdict;
-	}
-
-	return NET_DROP;
 }
 
 void net_virtual_init(struct net_if *iface)

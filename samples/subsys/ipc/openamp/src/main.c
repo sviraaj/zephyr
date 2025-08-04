@@ -6,7 +6,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/drivers/ipm.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/device.h>
@@ -16,7 +16,6 @@
 #include <zephyr/init.h>
 
 #include <openamp/open_amp.h>
-#include <metal/device.h>
 
 #include "common.h"
 
@@ -24,28 +23,10 @@
 K_THREAD_STACK_DEFINE(thread_stack, APP_TASK_STACK_SIZE);
 static struct k_thread thread_data;
 
-static const struct device *ipm_handle;
+static const struct device *const ipm_handle =
+	DEVICE_DT_GET(DT_CHOSEN(zephyr_ipc));
 
 static metal_phys_addr_t shm_physmap[] = { SHM_START_ADDR };
-static struct metal_device shm_device = {
-	.name = SHM_DEVICE_NAME,
-	.bus = NULL,
-	.num_regions = 1,
-	{
-		{
-			.virt       = (void *) SHM_START_ADDR,
-			.physmap    = shm_physmap,
-			.size       = SHM_SIZE,
-			.page_shift = 0xffffffff,
-			.page_mask  = 0xffffffff,
-			.mem_flags  = 0,
-			.ops        = { NULL },
-		},
-	},
-	.node = { NULL },
-	.irq_num = 0,
-	.irq_info = NULL
-};
 
 static volatile unsigned int received_data;
 
@@ -59,30 +40,30 @@ static struct virtio_vring_info rvrings[2] = {
 };
 static struct virtio_device vdev;
 static struct rpmsg_virtio_device rvdev;
-static struct metal_io_region *io;
-static struct virtqueue *vq[2];
+static struct metal_io_region shm_io_data;
+static struct metal_io_region *io = &shm_io_data;
+static struct virtqueue *vqueue[2];
 
-static unsigned char virtio_get_status(struct virtio_device *vdev)
+static unsigned char ipc_virtio_get_status(struct virtio_device *dev)
 {
 	return VIRTIO_CONFIG_STATUS_DRIVER_OK;
 }
 
-static void virtio_set_status(struct virtio_device *vdev, unsigned char status)
+static void ipc_virtio_set_status(struct virtio_device *dev, unsigned char status)
 {
 	sys_write8(status, VDEV_STATUS_ADDR);
 }
 
-static uint32_t virtio_get_features(struct virtio_device *vdev)
+static uint32_t ipc_virtio_get_features(struct virtio_device *dev)
 {
 	return 1 << VIRTIO_RPMSG_F_NS;
 }
 
-static void virtio_set_features(struct virtio_device *vdev,
-				uint32_t features)
+static void ipc_virtio_set_features(struct virtio_device *dev, uint32_t features)
 {
 }
 
-static void virtio_notify(struct virtqueue *vq)
+static void ipc_virtio_notify(struct virtqueue *vq)
 {
 #if defined(CONFIG_SOC_MPS2_AN521) || \
 	defined(CONFIG_SOC_V2M_MUSCA_B1)
@@ -97,11 +78,11 @@ static void virtio_notify(struct virtqueue *vq)
 }
 
 struct virtio_dispatch dispatch = {
-	.get_status = virtio_get_status,
-	.set_status = virtio_set_status,
-	.get_features = virtio_get_features,
-	.set_features = virtio_set_features,
-	.notify = virtio_notify,
+	.get_status = ipc_virtio_get_status,
+	.set_status = ipc_virtio_set_status,
+	.get_features = ipc_virtio_get_features,
+	.set_features = ipc_virtio_set_features,
+	.notify = ipc_virtio_notify,
 };
 
 static K_SEM_DEFINE(data_sem, 0, 1);
@@ -150,7 +131,7 @@ static unsigned int receive_message(void)
 		int status = k_sem_take(&data_sem, K_FOREVER);
 
 		if (status == 0) {
-			virtqueue_notification(vq[0]);
+			virtqueue_notification(vqueue[0]);
 		}
 	}
 	return received_data;
@@ -168,9 +149,9 @@ void app_task(void *arg1, void *arg2, void *arg3)
 	ARG_UNUSED(arg1);
 	ARG_UNUSED(arg2);
 	ARG_UNUSED(arg3);
+
 	int status = 0;
 	unsigned int message = 0U;
-	struct metal_device *device;
 	struct metal_init_params metal_params = METAL_INIT_DEFAULTS;
 
 	printk("\r\nOpenAMP[master] demo started\r\n");
@@ -181,28 +162,12 @@ void app_task(void *arg1, void *arg2, void *arg3)
 		return;
 	}
 
-	status = metal_register_generic_device(&shm_device);
-	if (status != 0) {
-		printk("Couldn't register shared memory device: %d\n", status);
-		return;
-	}
-
-	status = metal_device_open("generic", SHM_DEVICE_NAME, &device);
-	if (status != 0) {
-		printk("metal_device_open failed: %d\n", status);
-		return;
-	}
-
-	io = metal_device_io_region(device, 0);
-	if (io == NULL) {
-		printk("metal_device_io_region failed to get region\n");
-		return;
-	}
+	/* declare shared memory region */
+	metal_io_init(io, (void *)SHM_START_ADDR, shm_physmap, SHM_SIZE, -1, 0, NULL);
 
 	/* setup IPM */
-	ipm_handle = device_get_binding(CONFIG_OPENAMP_IPC_DEV_NAME);
-	if (ipm_handle == NULL) {
-		printk("device_get_binding failed to find device\n");
+	if (!device_is_ready(ipm_handle)) {
+		printk("IPM device is not ready\n");
 		return;
 	}
 
@@ -215,14 +180,14 @@ void app_task(void *arg1, void *arg2, void *arg3)
 	}
 
 	/* setup vdev */
-	vq[0] = virtqueue_allocate(VRING_SIZE);
-	if (vq[0] == NULL) {
-		printk("virtqueue_allocate failed to alloc vq[0]\n");
+	vqueue[0] = virtqueue_allocate(VRING_SIZE);
+	if (vqueue[0] == NULL) {
+		printk("virtqueue_allocate failed to alloc vqueue[0]\n");
 		return;
 	}
-	vq[1] = virtqueue_allocate(VRING_SIZE);
-	if (vq[1] == NULL) {
-		printk("virtqueue_allocate failed to alloc vq[1]\n");
+	vqueue[1] = virtqueue_allocate(VRING_SIZE);
+	if (vqueue[1] == NULL) {
+		printk("virtqueue_allocate failed to alloc vqueue[1]\n");
 		return;
 	}
 
@@ -233,13 +198,13 @@ void app_task(void *arg1, void *arg2, void *arg3)
 	rvrings[0].info.vaddr = (void *)VRING_TX_ADDRESS;
 	rvrings[0].info.num_descs = VRING_SIZE;
 	rvrings[0].info.align = VRING_ALIGNMENT;
-	rvrings[0].vq = vq[0];
+	rvrings[0].vq = vqueue[0];
 
 	rvrings[1].io = io;
 	rvrings[1].info.vaddr = (void *)VRING_RX_ADDRESS;
 	rvrings[1].info.num_descs = VRING_SIZE;
 	rvrings[1].info.align = VRING_ALIGNMENT;
-	rvrings[1].vq = vq[1];
+	rvrings[1].vq = vqueue[1];
 
 	vdev.vrings_info = &rvrings[0];
 
@@ -255,7 +220,7 @@ void app_task(void *arg1, void *arg2, void *arg3)
 	 * from NS setup and than we need to process it
 	 */
 	k_sem_take(&data_sem, K_FOREVER);
-	virtqueue_notification(vq[0]);
+	virtqueue_notification(vqueue[0]);
 
 	/* Wait til nameservice ep is setup */
 	k_sem_take(&ept_sem, K_FOREVER);
@@ -281,11 +246,11 @@ _cleanup:
 	printk("OpenAMP demo ended.\n");
 }
 
-void main(void)
+int main(void)
 {
 	printk("Starting application thread!\n");
 	k_thread_create(&thread_data, thread_stack, APP_TASK_STACK_SIZE,
-			(k_thread_entry_t)app_task,
+			app_task,
 			NULL, NULL, NULL, K_PRIO_COOP(7), 0, K_NO_WAIT);
 
 #if defined(CONFIG_SOC_MPS2_AN521) || \
@@ -293,14 +258,15 @@ void main(void)
 	wakeup_cpu1();
 	k_msleep(500);
 #endif /* #if defined(CONFIG_SOC_MPS2_AN521) */
+	return 0;
 }
 
 /* Make sure we clear out the status flag very early (before we bringup the
  * secondary core) so the secondary core see's the proper status
  */
-int init_status_flag(const struct device *arg)
+int init_status_flag(void)
 {
-	virtio_set_status(NULL, 0);
+	ipc_virtio_set_status(NULL, 0);
 
 	return 0;
 }

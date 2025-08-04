@@ -13,6 +13,7 @@
 
 #define LOG_LEVEL CONFIG_IPM_LOG_LEVEL
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(ipm_nrfx_ipc);
 
 struct ipm_nrf_data {
@@ -25,22 +26,17 @@ static struct ipm_nrf_data nrfx_ipm_data;
 static void gipm_init(void);
 static void gipm_send(uint32_t id);
 
-#if IS_ENABLED(CONFIG_IPM_NRF_SINGLE_INSTANCE)
+#if defined(CONFIG_IPM_NRF_SINGLE_INSTANCE)
 
-static void nrfx_ipc_handler(uint32_t event_mask, void *p_context)
+static void nrfx_ipc_handler(uint8_t event_idx, void *p_context)
 {
 	if (nrfx_ipm_data.callback) {
-		while (event_mask) {
-			uint8_t event_idx = __CLZ(__RBIT(event_mask));
-
-			__ASSERT(event_idx < NRFX_IPC_ID_MAX_VALUE,
-				 "Illegal event_idx: %d", event_idx);
-			event_mask &= ~BIT(event_idx);
-			nrfx_ipm_data.callback(DEVICE_DT_INST_GET(0),
-					       nrfx_ipm_data.user_data,
-					       event_idx,
-					       NULL);
-		}
+		__ASSERT(event_idx < NRFX_IPC_ID_MAX_VALUE,
+			 "Illegal event_idx: %d", event_idx);
+		nrfx_ipm_data.callback(DEVICE_DT_INST_GET(0),
+				       nrfx_ipm_data.user_data,
+				       event_idx,
+				       NULL);
 	}
 }
 
@@ -100,7 +96,7 @@ static int ipm_nrf_init(const struct device *dev)
 	return 0;
 }
 
-static const struct ipm_driver_api ipm_nrf_driver_api = {
+static DEVICE_API(ipm, ipm_nrf_driver_api) = {
 	.send = ipm_nrf_send,
 	.register_callback = ipm_nrf_register_callback,
 	.max_data_size_get = ipm_nrf_max_data_size_get,
@@ -123,21 +119,16 @@ struct vipm_nrf_data {
 
 static struct vipm_nrf_data nrfx_vipm_data;
 
-static void vipm_dispatcher(uint32_t event_mask, void *p_context)
+static void vipm_dispatcher(uint8_t event_idx, void *p_context)
 {
-	while (event_mask) {
-		uint8_t event_idx = __CLZ(__RBIT(event_mask));
-
-		__ASSERT(event_idx < NRFX_IPC_ID_MAX_VALUE,
-			 "Illegal event_idx: %d", event_idx);
-		event_mask &= ~BIT(event_idx);
-		if (nrfx_vipm_data.callback[event_idx] != NULL) {
-			nrfx_vipm_data.callback[event_idx]
-				(nrfx_vipm_data.ipm_device[event_idx],
-				 nrfx_vipm_data.user_data[event_idx],
-				 0,
-				 NULL);
-		}
+	__ASSERT(event_idx < NRFX_IPC_ID_MAX_VALUE,
+		 "Illegal event_idx: %d", event_idx);
+	if (nrfx_vipm_data.callback[event_idx] != NULL) {
+		nrfx_vipm_data.callback[event_idx]
+			(nrfx_vipm_data.ipm_device[event_idx],
+			 nrfx_vipm_data.user_data[event_idx],
+			 0,
+			 NULL);
 	}
 }
 
@@ -217,7 +208,7 @@ static int vipm_nrf_##_idx##_set_enabled(const struct device *dev, int enable)\
 	return 0;							\
 }									\
 									\
-static const struct ipm_driver_api vipm_nrf_##_idx##_driver_api = {	\
+static DEVICE_API(ipm, vipm_nrf_##_idx##_driver_api) = {	\
 	.send = vipm_nrf_##_idx##_send,					\
 	.register_callback = vipm_nrf_##_idx##_register_callback,	\
 	.max_data_size_get = vipm_nrf_max_data_size_get,		\
@@ -240,7 +231,7 @@ LISTIFY(NRFX_IPC_ID_MAX_VALUE, VIPM_DEVICE, (;), _);
 static void gipm_init(void)
 {
 	/* Init IPC */
-#if IS_ENABLED(CONFIG_IPM_NRF_SINGLE_INSTANCE)
+#if defined(CONFIG_IPM_NRF_SINGLE_INSTANCE)
 	nrfx_ipc_init(0, nrfx_ipc_handler, (void *)&nrfx_ipm_data);
 #else
 	nrfx_ipc_init(0, vipm_dispatcher, (void *)&nrfx_ipm_data);

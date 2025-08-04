@@ -42,7 +42,7 @@ BUILD_ASSERT(ARRAY_SIZE(GMAC->GMAC_TBQBAPQ) + 1 == GMAC_QUEUE_NUM,
 #define GMAC_ACTIVE_PRIORITY_QUEUE_NUM  (GMAC_ACTIVE_QUEUE_NUM - 1)
 
 /** RX descriptors count for main queue */
-#define MAIN_QUEUE_RX_DESC_COUNT        CONFIG_ETH_SAM_GMAC_BUF_RX_COUNT
+#define MAIN_QUEUE_RX_DESC_COUNT        (CONFIG_ETH_SAM_GMAC_BUF_RX_COUNT + 1)
 /** TX descriptors count for main queue */
 #define MAIN_QUEUE_TX_DESC_COUNT        (CONFIG_NET_BUF_TX_COUNT + 1)
 
@@ -208,7 +208,7 @@ enum queue_idx {
 #endif
 
 /** Minimal ring buffer implementation */
-struct ring_buf {
+struct ring_buffer {
 	uint32_t *buf;
 	uint16_t len;
 	uint16_t head;
@@ -242,9 +242,9 @@ struct gmac_queue {
 	struct net_buf **rx_frag_list;
 
 #if GMAC_MULTIPLE_TX_PACKETS == 1
-	struct ring_buf tx_frag_list;
+	struct ring_buffer tx_frag_list;
 #if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
-	struct ring_buf tx_frames;
+	struct ring_buffer tx_frames;
 #endif
 #endif
 
@@ -261,10 +261,10 @@ struct gmac_queue {
 /* Device constant configuration parameters */
 struct eth_sam_dev_cfg {
 	Gmac *regs;
-	const struct pinctrl_dev_config *pcfg;
-#ifdef CONFIG_SOC_FAMILY_SAM
-	uint32_t periph_id;
+#ifdef CONFIG_SOC_FAMILY_ATMEL_SAM
+	const struct atmel_sam_pmc_config clock_cfg;
 #endif
+	const struct pinctrl_dev_config *pcfg;
 	void (*config_func)(void);
 	const struct device *phy_dev;
 };

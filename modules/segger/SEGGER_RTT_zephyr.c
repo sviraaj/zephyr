@@ -5,29 +5,25 @@
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/irq.h>
 #include <zephyr/init.h>
 #include "SEGGER_RTT.h"
 
-/*
- * Common mutex for locking access to terminal buffer.
- * Note that SEGGER uses same lock macros for both SEGGER_RTT_Write and
- * SEGGER_RTT_Read functions. Because of this we are not able generally
- * separate up and down access using two mutexes until SEGGER library fix
- * this.
- *
- * If sharing access cause performance problems, consider using another
- * non terminal buffers.
- */
-
-K_MUTEX_DEFINE(rtt_term_mutex);
-
-static int rtt_init(const struct device *unused)
+static int rtt_init(void)
 {
-	ARG_UNUSED(unused);
-
 	SEGGER_RTT_Init();
 
 	return 0;
+}
+
+unsigned int zephyr_rtt_irq_lock(void)
+{
+	return irq_lock();
+}
+
+void zephyr_rtt_irq_unlock(unsigned int key)
+{
+	irq_unlock(key);
 }
 
 SYS_INIT(rtt_init, PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_OBJECTS);

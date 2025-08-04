@@ -5,31 +5,13 @@
 
 mainmenu "Networking VLAN sample application"
 
-config SAMPLE_VLAN_TAG
-	int "Virtual lan tag used in VLAN sample app"
-	default 100
-	range 0 4094
-	depends on NET_VLAN
+config NET_SAMPLE_IFACE_MY_IPV6_PREFIXLEN
+	int "IPv6 address prefix length for the interfaces"
+	default 64
+	range 0 128
 	help
-	  Set virtual lan tag (id) that is used in VLAN sample application.
+	  Set the IPv6 address prefix length (netmask) for the interfaces
+	  that is used in the sample application.
 
-config SAMPLE_VLAN_TAG_2
-	int "Second VLAN tag used in VLAN sample app"
-	default 200
-	range 0 4094
-	depends on NET_VLAN
-	help
-	  Set virtual lan tag (id) that is used in VLAN sample application.
-
-config SAMPLE_IPV6_ADDR_2
-	string "My IPv6 address for second interface"
-	help
-	  The value depends on your network setup.
-
-config SAMPLE_IPV4_ADDR_2
-	string "My IPv4 address for second interface"
-	help
-	  The value depends on your network setup.
-
-
+source "samples/net/common/Kconfig"
 source "Kconfig.zephyr"

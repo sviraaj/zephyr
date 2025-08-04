@@ -5,92 +5,76 @@ Signing Binaries
 
 The ``west sign`` :ref:`extension <west-extensions>` command can be used to
 sign a Zephyr application binary for consumption by a bootloader using an
-external tool. Run ``west sign -h`` for command line help.
+external tool. In some configurations, ``west sign`` is also used to invoke
+an external, post-processing tool that "stitches" the final components of
+the image together. Run ``west sign -h`` for command line help.
 
-MCUboot / imgtool
-*****************
+rimage
+******
 
-The Zephyr build system has special support for signing binaries for use with
-the `MCUboot`_ bootloader using the `imgtool`_ program provided by its
-developers. You can both build and sign this type of application binary in one
-step by setting some Kconfig options. If you do, ``west flash`` will use the
-signed binaries.
+rimage configuration uses an approach that does not rely on Kconfig or CMake
+but on :ref:`west config<west-config>`, similar to
+:ref:`west-building-cmake-config`.
 
-If you use this feature, you don't need to run ``west sign`` yourself; the
-build system will do it for you.
+Signing involves a number of "wrapper" scripts stacked on top of each other: ``west
+flash`` invokes ``west build`` which invokes ``cmake`` and ``ninja`` which invokes
+``west sign`` which invokes ``imgtool`` or `rimage`_. As long as the signing
+parameters desired are the default ones and fairly static, these indirections are
+not a problem. On the other hand, passing ``imgtool`` or ``rimage`` options through
+all these layers can causes issues typical when the layers don't abstract
+anything. First, this usually requires boilerplate code in each layer. Quoting
+whitespace or other special characters through all the wrappers can be
+difficult. Reproducing a lower ``west sign`` command to debug some build-time issue
+can be very time-consuming: it requires at least enabling and searching verbose
+build logs to find which exact options were used. Copying these options from the
+build logs can be unreliable: it may produce different results because of subtle
+environment differences. Last and worst: new signing feature and options are
+impossible to use until more boilerplate code has been added in each layer.
 
-Here is an example workflow, which builds and flashes MCUboot, as well as the
-:ref:`hello_world` application for chain-loading by MCUboot. Run these commands
-from the :file:`zephyrproject` workspace you created in the
-:ref:`getting_started`.
+To avoid these issues, ``rimage`` parameters can bet set in ``west config``.
+Here's a ``workspace/.west/config`` example:
 
-.. code-block:: console
+.. code-block:: ini
 
-   west build -b YOUR_BOARD -s bootloader/mcuboot/boot/zephyr -d build-mcuboot
-   west build -b YOUR_BOARD -s zephyr/samples/hello_world -d build-hello-signed -- \
-        -DCONFIG_BOOTLOADER_MCUBOOT=y \
-        -DCONFIG_MCUBOOT_SIGNATURE_KEY_FILE=\"bootloader/mcuboot/root-rsa-2048.pem\"
+   [sign]
+   # Not needed when invoked from CMake
+   tool = rimage
 
-   west flash -d build-mcuboot
-   west flash -d build-hello-signed
+   [rimage]
+   # Quoting is optional and works like in Unix shells
+   # Not needed when rimage can be found in the default PATH
+   path = "/home/me/zworkspace/build-rimage/rimage"
 
-Notes on the above commands:
+   # Not needed when using the default development key
+   extra-args = -i 4 -k 'keys/key argument with space.pem'
 
-- ``YOUR_BOARD`` should be changed to match your board
-- The ``CONFIG_MCUBOOT_SIGNATURE_KEY_FILE`` value is the insecure default
-  provided and used by by MCUboot for development and testing
-- You can change the ``hello_world`` application directory to any other
-  application that can be loaded by MCUboot, such as the :ref:`smp_svr_sample`
+In order to support quoting, values are parsed by Python's ``shlex.split()`` like in
+:ref:`west-building-cmake-args`.
 
-For more information on these and other related configuration options, see:
+The ``extra-args`` are passed directly to the ``rimage`` command. The example
+above has the same effect as appending them on command line after ``--`` like this:
+``west sign --tool rimage -- -i 4 -k 'keys/key argument with space.pem'``. In case
+both are used, the command-line arguments go last.
 
-- :kconfig:option:`CONFIG_BOOTLOADER_MCUBOOT`: build the application for loading by
-  MCUboot
-- :kconfig:option:`CONFIG_MCUBOOT_SIGNATURE_KEY_FILE`: the key file to use with ``west
-  sign``. If you have your own key, change this appropriately
-- :kconfig:option:`CONFIG_MCUBOOT_EXTRA_IMGTOOL_ARGS`: optional additional command line
-  arguments for ``imgtool``
-- :kconfig:option:`CONFIG_MCUBOOT_GENERATE_CONFIRMED_IMAGE`: also generate a confirmed
-  image, which may be more useful for flashing in production environments than
-  the OTA-able default image
-- On Windows, if you get "Access denied" issues, the recommended fix is
-  to run ``pip3 install imgtool``, then retry with a pristine build directory.
+.. _rimage:
+   https://github.com/thesofproject/rimage
 
-If your ``west flash`` :ref:`runner <west-runner>` uses an image format
-supported by imgtool, you should see something like this on your device's
-serial console when you run ``west flash -d build-mcuboot``:
 
-.. code-block:: none
+silabs_commander
+****************
 
-   *** Booting Zephyr OS build zephyr-v2.3.0-2310-gcebac69c8ae1  ***
-   [00:00:00.004,669] <inf> mcuboot: Starting bootloader
-   [00:00:00.011,169] <inf> mcuboot: Primary image: magic=unset, swap_type=0x1, copy_done=0x3, image_ok=0x3
-   [00:00:00.021,636] <inf> mcuboot: Boot source: none
-   [00:00:00.027,313] <wrn> mcuboot: Failed reading image headers; Image=0
-   [00:00:00.035,064] <err> mcuboot: Unable to find bootable image
+The ``silabs_commander`` tool is used to apply sign or MIC or encrypt binaries for Silicon Labs
+devices. It can be invoked either by ``west sign`` when the ``sign.tool`` configuration is set to
+``silabs_commander`` or by ``west build`` if ``CONFIG_SIWX91X_SIGN_KEY`` or
+``CONFIG_SIWX91X_MIC_KEY`` is set.
 
-Then, you should see something like this when you run ``west flash -d
-build-hello-signed``:
+If one of ``CONFIG_SIWX91X_SIGN_KEY`` or ``CONFIG_SIWX91X_MIC_KEY`` is set, ``west flash`` will
+automatically flash the signed version of the binary.
 
-.. code-block:: none
+``silabs_commander`` require `Simplicity Commander`_ to be install on the host. The provisionning of the
+key on the device is described in `UG574 SiWx917 SoC Manufacturing Utility User Guide`_.
 
-   *** Booting Zephyr OS build zephyr-v2.3.0-2310-gcebac69c8ae1  ***
-   [00:00:00.004,669] <inf> mcuboot: Starting bootloader
-   [00:00:00.011,169] <inf> mcuboot: Primary image: magic=unset, swap_type=0x1, copy_done=0x3, image_ok=0x3
-   [00:00:00.021,636] <inf> mcuboot: Boot source: none
-   [00:00:00.027,374] <inf> mcuboot: Swap type: none
-   [00:00:00.115,142] <inf> mcuboot: Bootloader chainload address offset: 0xc000
-   [00:00:00.123,168] <inf> mcuboot: Jumping to the first image slot
-   *** Booting Zephyr OS build zephyr-v2.3.0-2310-gcebac69c8ae1  ***
-   Hello World! nrf52840dk_nrf52840
-
-Whether ``west flash`` supports this feature depends on your runner. The
-``nrfjprog`` and ``pyocd`` runners work with the above flow. If your runner
-does not support this flow and you would like it to, please send a patch or
-file an issue for adding support.
-
-.. _MCUboot:
-   https://mcuboot.com/
-
-.. _imgtool:
-   https://pypi.org/project/imgtool/
+.. _Simplicity Commander:
+   https://www.silabs.com/developer-tools/simplicity-studio/simplicity-commander?tab=downloads
+.. _UG574 SiWx917 SoC Manufacturing Utility User Guide:
+   https://www.silabs.com/documents/public/user-guides/ug574-siwx917-soc-manufacturing-utility-user-guide.pdf

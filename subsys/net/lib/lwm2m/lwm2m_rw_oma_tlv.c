@@ -69,9 +69,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include "lwm2m_rw_oma_tlv.h"
 #include "lwm2m_engine.h"
-#ifdef CONFIG_LWM2M_RD_CLIENT_SUPPORT
 #include "lwm2m_rd_client.h"
-#endif
 #include "lwm2m_util.h"
 
 enum {
@@ -497,6 +495,12 @@ static int put_s64(struct lwm2m_output_context *out,
 	return len;
 }
 
+
+static int put_time(struct lwm2m_output_context *out, struct lwm2m_obj_path *path, time_t value)
+{
+	return put_s64(out, path, (int64_t)value);
+}
+
 static int put_string(struct lwm2m_output_context *out,
 		      struct lwm2m_obj_path *path, char *buf, size_t buflen)
 {
@@ -624,6 +628,17 @@ static int get_s64(struct lwm2m_input_context *in, int64_t *value)
 	return get_number(in, value, 8);
 }
 
+static int get_time(struct lwm2m_input_context *in, time_t *value)
+{
+	int64_t temp64;
+	int ret;
+
+	ret = get_number(in, &temp64, 8);
+	*value = (time_t)temp64;
+
+	return ret;
+}
+
 static int get_s32(struct lwm2m_input_context *in, int32_t *value)
 {
 	int64_t temp;
@@ -730,14 +745,13 @@ static int get_opaque(struct lwm2m_input_context *in, uint8_t *value,
 	int size;
 
 	/* Get the TLV header only on first read. */
-	if (opaque->remaining == 0) {
+	if (opaque->offset == 0) {
 		size = oma_tlv_get(&tlv, in, false);
 		if (size < 0) {
 			return size;
 		}
 
 		opaque->len = tlv.length;
-		opaque->remaining = tlv.length;
 	}
 
 	return lwm2m_engine_get_opaque_more(in, value, buflen,
@@ -772,7 +786,7 @@ const struct lwm2m_writer oma_tlv_writer = {
 	.put_s64 = put_s64,
 	.put_string = put_string,
 	.put_float = put_float,
-	.put_time = put_s64,
+	.put_time = put_time,
 	.put_bool = put_bool,
 	.put_opaque = put_opaque,
 	.put_objlnk = put_objlnk,
@@ -782,7 +796,7 @@ const struct lwm2m_reader oma_tlv_reader = {
 	.get_s32 = get_s32,
 	.get_s64 = get_s64,
 	.get_string = get_string,
-	.get_time = get_s64,
+	.get_time = get_time,
 	.get_float = get_float,
 	.get_bool = get_bool,
 	.get_opaque = get_opaque,
@@ -870,7 +884,7 @@ static int write_tlv_resource(struct lwm2m_message *msg, struct oma_tlv *tlv)
 	int ret;
 
 	if (msg->in.block_ctx) {
-		msg->in.block_ctx->res_id = tlv->id;
+		msg->in.block_ctx->path.res_id = tlv->id;
 	}
 
 	msg->path.res_id = tlv->id;
@@ -892,6 +906,27 @@ static int write_tlv_resource(struct lwm2m_message *msg, struct oma_tlv *tlv)
 	return 0;
 }
 
+#if defined(CONFIG_LWM2M_VERSION_1_1)
+static int write_tlv_resource_instance(struct lwm2m_message *msg, struct oma_tlv *tlv)
+{
+	int ret;
+
+	if (msg->in.block_ctx) {
+		msg->in.block_ctx->path.res_inst_id = tlv->id;
+	}
+
+	msg->path.res_inst_id = tlv->id;
+	msg->path.level = LWM2M_PATH_LEVEL_RESOURCE_INST;
+	ret = do_write_op_tlv_item(msg);
+
+	if (ret < 0) {
+		return ret;
+	}
+
+	return 0;
+}
+#endif
+
 static int lwm2m_multi_resource_tlv_parse(struct lwm2m_message *msg,
 					  struct oma_tlv *multi_resource_tlv)
 {
@@ -901,7 +936,7 @@ static int lwm2m_multi_resource_tlv_parse(struct lwm2m_message *msg,
 	int ret;
 
 	if (msg->in.block_ctx) {
-		msg->in.block_ctx->res_id = multi_resource_tlv->id;
+		msg->in.block_ctx->path.res_id = multi_resource_tlv->id;
 	}
 
 	if (multi_resource_tlv->length == 0U) {
@@ -944,19 +979,20 @@ int do_write_op_tlv(struct lwm2m_message *msg)
 	struct oma_tlv tlv;
 	int ret;
 
-	/* In case of block transfer go directly to the
-	 * message processing - consecutive blocks will not carry the TLV
-	 * header.
+	/* In case of block transfer, check if there are any fragments
+	 * left from the previous resource (instance). If this is the
+	 * case, proceed directly to processing the message -
+	 * consecutive blocks from the same resource do not carry the
+	 * TLV header.
 	 */
 	if (msg->in.block_ctx != NULL && msg->in.block_ctx->ctx.current > 0) {
-		msg->path.res_id = msg->in.block_ctx->res_id;
+		msg->path.res_id = msg->in.block_ctx->path.res_id;
 		msg->path.level = 3U;
 		ret = do_write_op_tlv_item(msg);
 		if (ret < 0) {
 			return ret;
 		}
 
-		return 0;
 	}
 
 	while (true) {
@@ -986,11 +1022,9 @@ int do_write_op_tlv(struct lwm2m_message *msg)
 					return ret;
 				}
 
-#ifdef CONFIG_LWM2M_RD_CLIENT_SUPPORT
 				if (!msg->ctx->bootstrap_mode) {
 					engine_trigger_update(true);
 				}
-#endif
 			}
 
 			while (pos < tlv.length &&
@@ -1030,6 +1064,16 @@ int do_write_op_tlv(struct lwm2m_message *msg)
 			if (ret) {
 				return ret;
 			}
+#if defined(CONFIG_LWM2M_VERSION_1_1)
+		} else if (tlv.type == OMA_TLV_TYPE_RESOURCE_INSTANCE) {
+			if (msg->path.level < LWM2M_PATH_LEVEL_OBJECT_INST) {
+				return -ENOTSUP;
+			}
+			ret = write_tlv_resource_instance(msg, &tlv);
+			if (ret) {
+				return ret;
+			}
+#endif
 		} else {
 			return -ENOTSUP;
 		}

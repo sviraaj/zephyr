@@ -7,14 +7,22 @@
 #ifndef TEST_GPIO_API_H_
 #define TEST_GPIO_API_H_
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
-#if DT_NODE_HAS_PROP(DT_ALIAS(led0), gpios)
-#define TEST_DEV             DT_GPIO_LABEL(DT_ALIAS(led0), gpios)
-#define TEST_PIN             DT_GPIO_PIN(DT_ALIAS(led0), gpios)
-#define TEST_PIN_DTS_FLAGS   DT_GPIO_FLAGS(DT_ALIAS(led0), gpios)
+/* If possible, use a dedicated GPIO with an external pulldown resistor.
+ * Otherwise, fallback to repurposing led0 as a GPIO. The latter won't always
+ * work as expected when reconfigured as an input.
+ */
+#if DT_NODE_HAS_STATUS(DT_INST(0, test_gpio_external_pulldown), okay)
+#define TEST_NODE          DT_GPIO_CTLR(DT_INST(0, test_gpio_external_pulldown), gpios)
+#define TEST_PIN           DT_GPIO_PIN(DT_INST(0, test_gpio_external_pulldown), gpios)
+#define TEST_PIN_DTS_FLAGS DT_GPIO_FLAGS(DT_INST(0, test_gpio_external_pulldown), gpios)
+#elif DT_NODE_HAS_PROP(DT_ALIAS(led0), gpios)
+#define TEST_NODE          DT_GPIO_CTLR(DT_ALIAS(led0), gpios)
+#define TEST_PIN           DT_GPIO_PIN(DT_ALIAS(led0), gpios)
+#define TEST_PIN_DTS_FLAGS DT_GPIO_FLAGS(DT_ALIAS(led0), gpios)
 #else
 #error Unsupported board
 #endif
@@ -46,8 +54,10 @@ void test_gpio_int_edge_falling(void);
 void test_gpio_int_edge_both(void);
 void test_gpio_int_edge_to_active(void);
 void test_gpio_int_edge_to_inactive(void);
-void test_gpio_int_level_high(void);
-void test_gpio_int_level_low(void);
+void test_gpio_int_level_high_interrupt_count_1(void);
+void test_gpio_int_level_high_interrupt_count_5(void);
+void test_gpio_int_level_low_interrupt_count_1(void);
+void test_gpio_int_level_low_interrupt_count_5(void);
 void test_gpio_int_level_active(void);
 void test_gpio_int_level_inactive(void);
 

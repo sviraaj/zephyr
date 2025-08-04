@@ -15,7 +15,6 @@
 #include <zephyr/init.h>
 #include <string.h>
 
-#include <zephyr/zephyr.h>
 
 #include <zephyr/cache.h>
 
@@ -87,8 +86,8 @@ static void vtd_flush_irte_from_cache(const struct device *dev,
 	struct vtd_ictl_data *data = dev->data;
 
 	if (!data->pwc) {
-		sys_cache_data_range(&data->irte[irte_idx],
-				     sizeof(union vtd_irte), K_CACHE_WB);
+		cache_data_flush_range(&data->irte[irte_idx],
+				       sizeof(union vtd_irte));
 	}
 }
 
@@ -524,7 +523,7 @@ out:
 	return ret;
 }
 
-static const struct vtd_driver_api vtd_api = {
+static DEVICE_API(vtd, vtd_api) = {
 	.allocate_entries = vtd_ictl_allocate_entries,
 	.remap_msi = vtd_ictl_remap_msi,
 	.remap = vtd_ictl_remap,

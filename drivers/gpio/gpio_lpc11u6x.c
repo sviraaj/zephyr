@@ -18,10 +18,11 @@
 
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/irq.h>
 
 #include <soc.h>
 
-#include "gpio_utils.h"
+#include <zephyr/drivers/gpio/gpio_utils.h>
 
 /* Offset from syscon base address. */
 #define LPC11U6X_PINTSEL_REGS	0x178
@@ -79,7 +80,7 @@ struct lpc11u6x_pint_regs {
  * ports: GPIO and SYSCON registers base addresses, clock name and subsystem.
  */
 struct gpio_lpc11u6x_shared {
-	char *clock_controller_name;
+	const struct device *clock_dev;
 	clock_control_subsys_t clock_subsys;
 	uint32_t gpio_base;
 	uint32_t syscon_base;
@@ -138,10 +139,11 @@ static int gpio_lpc11u6x_pin_configure(const struct device *port,
 
 	if (flags & GPIO_SINGLE_ENDED) {
 		/* Open source mode is not supported. */
-		if (flags & GPIO_LINE_OPEN_DRAIN)
+		if (flags & GPIO_LINE_OPEN_DRAIN) {
 			func |= IOCON_PIO_OD(1);
-		else
+		} else {
 			return -ENOTSUP;
+		}
 	}
 
 	if (flags & GPIO_PULL_UP) {
@@ -370,23 +372,26 @@ static int gpio_lpc11u6x_pin_interrupt_configure(const struct device *port,
 		/* Select edge interrupt mode. */
 		pint_regs->isel &= ~BIT(irq);
 		/* Enable interrupts on falling and/or rising edges. */
-		if (trig & GPIO_INT_TRIG_LOW)
+		if (trig & GPIO_INT_TRIG_LOW) {
 			pint_regs->sienf |= BIT(irq);
-		else
+		} else {
 			pint_regs->cienf |= BIT(irq);
-		if (trig & GPIO_INT_TRIG_HIGH)
+		}
+		if (trig & GPIO_INT_TRIG_HIGH) {
 			pint_regs->sienr |= BIT(irq);
-		else
+		} else {
 			pint_regs->cienr |= BIT(irq);
+		}
 		break;
 	case GPIO_INT_MODE_LEVEL:
 		/* Select level interrupt mode. */
 		pint_regs->isel |= BIT(irq);
 		/* Set active level. */
-		if (trig & GPIO_INT_TRIG_LOW)
+		if (trig & GPIO_INT_TRIG_LOW) {
 			pint_regs->cienf |= BIT(irq);
-		else
+		} else {
 			pint_regs->sienf |= BIT(irq);
+		}
 		/* Enable level interrupt. */
 		pint_regs->sienr |= BIT(irq);
 		break;
@@ -454,21 +459,21 @@ static void gpio_lpc11u6x_isr(const void *arg)
 		}
 	}
 	/* For each port with active pins, fire the GPIO interrupt callbacks. */
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio0), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio0))
 	if (pins[0]) {
 		port = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 		data = port->data;
 		gpio_fire_callbacks(&data->cb_list, port, pins[0]);
 	}
 #endif
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio1), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio1))
 	if (pins[1]) {
 		port = DEVICE_DT_GET(DT_NODELABEL(gpio1));
 		data = port->data;
 		gpio_fire_callbacks(&data->cb_list, port, pins[1]);
 	}
 #endif
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio2), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio2))
 	if (pins[2]) {
 		port = DEVICE_DT_GET(DT_NODELABEL(gpio2));
 		data = port->data;
@@ -477,7 +482,7 @@ static void gpio_lpc11u6x_isr(const void *arg)
 #endif
 }
 
-static const struct gpio_driver_api gpio_lpc11u6x_driver_api = {
+static DEVICE_API(gpio, gpio_lpc11u6x_driver_api) = {
 	.pin_configure = gpio_lpc11u6x_pin_configure,
 	.port_get_raw = gpio_lpc11u6x_port_get_raw,
 	.port_set_masked_raw = gpio_lpc11u6x_port_set_masked_raw,
@@ -495,7 +500,7 @@ static const struct gpio_driver_api gpio_lpc11u6x_driver_api = {
  */
 
 static const struct gpio_lpc11u6x_shared gpio_lpc11u6x_shared = {
-	.clock_controller_name = DT_LABEL(DT_INST_PHANDLE(0, clocks)),
+	.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(0)),
 	.clock_subsys = (clock_control_subsys_t) DT_INST_PHA(0, clocks, clkid),
 	.gpio_base = DT_INST_REG_ADDR_BY_IDX(0, 0),
 	.syscon_base = DT_INST_REG_ADDR_BY_IDX(0, 1),
@@ -508,12 +513,11 @@ do {							                \
 		    DT_INST_IRQ_BY_IDX(0, n, priority),			\
 		    gpio_lpc11u6x_isr, &gpio_lpc11u6x_shared, 0);	\
 	irq_enable(DT_INST_IRQ_BY_IDX(0, n, irq));			\
-} while (0)
+} while (false)
 
 static int gpio_lpc11u6x_init(const struct device *dev)
 {
 	const struct gpio_lpc11u6x_config *config = dev->config;
-	const struct device *clock_dev;
 	int ret;
 	static bool gpio_ready;
 
@@ -522,13 +526,12 @@ static int gpio_lpc11u6x_init(const struct device *dev)
 		return 0;
 	}
 
-	/* Enable GPIO and PINT clocks. */
-	clock_dev = device_get_binding(config->shared->clock_controller_name);
-	if (!clock_dev) {
+	if (!device_is_ready(config->shared->clock_dev)) {
 		return -ENODEV;
 	}
 
-	ret = clock_control_on(clock_dev, config->shared->clock_subsys);
+	/* Enable GPIO and PINT clocks. */
+	ret = clock_control_on(config->shared->clock_dev, config->shared->clock_subsys);
 	if (ret < 0) {
 		return ret;
 	}
@@ -586,14 +589,14 @@ DEVICE_DT_DEFINE(DT_NODELABEL(gpio##id),				\
 		    PRE_KERNEL_2, CONFIG_GPIO_INIT_PRIORITY,		\
 		    &gpio_lpc11u6x_driver_api)
 
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio0), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio0))
 GPIO_LPC11U6X_INIT(0);
 #endif
 
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio1), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio1))
 GPIO_LPC11U6X_INIT(1);
 #endif
 
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio2), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(gpio2))
 GPIO_LPC11U6X_INIT(2);
 #endif

@@ -16,7 +16,6 @@ include: "jedec,jesd216.yaml"
 properties:
   requires-ulbpr:
     type: boolean
-    required: false
     description: |
       Indicates the device requires the ULBPR (0x98) command.
 
@@ -27,7 +26,6 @@ properties:
 
   has-dpd:
     type: boolean
-    required: false
     description: |
       Indicates the device supports the DPD (0xB9) command.
 
@@ -40,7 +38,6 @@ properties:
 
   dpd-wakeup-sequence:
     type: array
-    required: false
     description: |
       Specifies wakeup durations for devices without RDPD.
 
@@ -57,7 +54,6 @@ properties:
 
   t-enter-dpd:
     type: int
-    required: false
     description: |
       Duration required to complete the DPD command.
 
@@ -69,7 +65,6 @@ properties:
 
   t-exit-dpd:
     type: int
-    required: false
     description: |
       Duration required to complete the RDPD command.
 
@@ -81,7 +76,6 @@ properties:
 
   has-lock:
     type: int
-    required: false
     description: |
       Bit mask of bits of the status register that should be cleared on
       startup.
@@ -95,3 +89,47 @@ properties:
 
       This value, when present, identifies bits in the status register
       that should be cleared when the device is initialized.
+
+  mxicy,mx25r-power-mode:
+    type: string
+    enum:
+      - "low-power"
+      - "high-performance"
+    description:
+      Select to configure flash to use ultra low power mode or high
+      performance mode (L/H switch). The high performance mode has
+      faster write and erase performance, but use more power than ultra
+      low power mode.
+
+      Only supported on Macronix MX25R Ultra Low Power series.
+
+  use-4b-addr-opcodes:
+    type: boolean
+    description: |
+      Indicates the device uses special 4-byte address opcodes.
+      Instead of switching to 4-byte addressing mode, the device uses
+      special opcodes for 4-byte addressing.
+
+      Some devices support 4-byte address opcodes for read/write/erase
+      operations.  Use this property to indicate that the device supports
+      4-byte address opcodes.
+
+  use-flag-status-register:
+    type: boolean
+    description: |
+      Indicates the device supports a flag status register.
+
+      Some devices (Micron and possibly others) support a flag status register
+      which indicates more details on the status of program or erase operations.
+      In some cases, program operations will not function properly if the flag
+      status register is not read after the operation.
+
+  use-fast-read:
+    type: boolean
+    description: |
+      Indicates the device supports fast read.
+
+      Most SPI NOR devices support a fast read command that allows the device to
+      output data at a higher clock rate than the standard read command.  This
+      property indicates that the device supports the fast read command with
+      8 dummy cycles after the address phase of the command.

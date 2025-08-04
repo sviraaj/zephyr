@@ -15,6 +15,8 @@
 #include <zephyr/sys/__assert.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
 #include <zephyr/drivers/clock_control.h>
+#include <zephyr/irq.h>
+#include <zephyr/sys_clock.h>
 
 #include "wdt_wwdg_stm32.h"
 
@@ -87,11 +89,11 @@ static void wwdg_stm32_irq_config(const struct device *dev);
 
 static uint32_t wwdg_stm32_get_pclk(const struct device *dev)
 {
-	const struct device *clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
+	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 	const struct wwdg_stm32_config *cfg = WWDG_STM32_CFG(dev);
 	uint32_t pclk_rate;
 
-	if (clock_control_get_rate(clk, (clock_control_subsys_t *) &cfg->pclken,
+	if (clock_control_get_rate(clk, (clock_control_subsys_t) &cfg->pclken,
 			       &pclk_rate) < 0) {
 		LOG_ERR("Failed call clock_control_get_rate");
 		return -EIO;
@@ -168,7 +170,7 @@ static int wwdg_stm32_setup(const struct device *dev, uint8_t options)
 		LL_APB1_GRP2_EnableClock(LL_APB1_GRP2_PERIPH_DBGMCU);
 #elif defined(CONFIG_SOC_SERIES_STM32L0X)
 		LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_DBGMCU);
-#elif defined(CONFIG_SOC_SERIES_STM32G0X)
+#elif defined(CONFIG_SOC_SERIES_STM32C0X) || defined(CONFIG_SOC_SERIES_STM32G0X)
 		LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_DBGMCU);
 #endif
 #if defined(CONFIG_SOC_SERIES_STM32H7X)
@@ -268,7 +270,7 @@ void wwdg_stm32_isr(const struct device *dev)
 	}
 }
 
-static const struct wdt_driver_api wwdg_stm32_api = {
+static DEVICE_API(wdt, wwdg_stm32_api) = {
 	.setup = wwdg_stm32_setup,
 	.disable = wwdg_stm32_disable,
 	.install_timeout = wwdg_stm32_install_timeout,
@@ -277,12 +279,23 @@ static const struct wdt_driver_api wwdg_stm32_api = {
 
 static int wwdg_stm32_init(const struct device *dev)
 {
-	const struct device *clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
+	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 	const struct wwdg_stm32_config *cfg = WWDG_STM32_CFG(dev);
 
+	if (!device_is_ready(clk)) {
+		LOG_ERR("clock control device not ready");
+		return -ENODEV;
+	}
+
+	if (clock_control_on(clk, (clock_control_subsys_t)&cfg->pclken) != 0) {
+		LOG_ERR("clock control on failed");
+		return -EIO;
+	}
+
+	/* Enable IRQ, especially EWKUP, once the peripheral is clocked */
 	wwdg_stm32_irq_config(dev);
 
-	return clock_control_on(clk, (clock_control_subsys_t *) &cfg->pclken);
+	return 0;
 }
 
 static struct wwdg_stm32_data wwdg_stm32_dev_data = {
@@ -311,5 +324,7 @@ static void wwdg_stm32_irq_config(const struct device *dev)
 		    DT_INST_IRQ(0, priority),
 		    wwdg_stm32_isr, DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQN(0));
+
+	LL_WWDG_ClearFlag_EWKUP(wwdg);
 	LL_WWDG_EnableIT_EWKUP(wwdg);
 }

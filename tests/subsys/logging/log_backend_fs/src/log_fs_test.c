@@ -12,9 +12,11 @@
 
 #include <stdbool.h>
 #include <stdlib.h>
-#include <zephyr/zephyr.h>
-#include <ztest.h>
+#include <zephyr/kernel.h>
+#include <zephyr/ztest.h>
 #include <zephyr/fs/fs.h>
+#include <zephyr/fff.h>
+#include <zephyr/logging/log_backend.h>
 
 #define DT_DRV_COMPAT zephyr_fstab_littlefs
 #define TEST_AUTOMOUNT DT_PROP(DT_DRV_INST(0), automount)
@@ -27,11 +29,16 @@ FS_FSTAB_DECLARE_ENTRY(PARTITION_NODE);
 #define MAX_PATH_LEN (256 + 7)
 
 static const char *log_prefix = CONFIG_LOG_BACKEND_FS_FILE_PREFIX;
+static const struct log_backend *backend;
+
+DEFINE_FFF_GLOBALS;
+FAKE_VOID_FUNC(log_output_dropped_process, const struct log_output *, uint32_t);
+FAKE_VALUE_FUNC(log_format_func_t, log_format_func_t_get, uint32_t);
 
 int write_log_to_file(uint8_t *data, size_t length, void *ctx);
 
 
-static void test_fs_nonexist(void)
+ZTEST(test_log_backend_fs, test_fs_nonexist)
 {
 	#if TEST_AUTOMOUNT
 	ztest_test_skip();
@@ -48,7 +55,7 @@ static void test_fs_nonexist(void)
 	#endif
 }
 
-static void test_wipe_fs_logs(void)
+ZTEST(test_log_backend_fs, test_wipe_fs_logs)
 {
 	int rc;
 	struct fs_dir_t dir;
@@ -86,7 +93,7 @@ static void test_wipe_fs_logs(void)
 	(void)fs_closedir(&dir);
 }
 
-static void test_log_fs_file_content(void)
+ZTEST(test_log_backend_fs, test_log_fs_file_content)
 {
 	int rc;
 	struct fs_file_t file;
@@ -97,6 +104,7 @@ static void test_log_fs_file_content(void)
 	fs_file_t_init(&file);
 
 	rc = write_log_to_file(to_log, sizeof(to_log), NULL);
+	backend->api->notify(backend, LOG_BACKEND_EVT_PROCESS_THREAD_DONE, NULL);
 
 	sprintf(fname, "%s/%s0000", CONFIG_LOG_BACKEND_FS_DIR, log_prefix);
 
@@ -112,7 +120,9 @@ static void test_log_fs_file_content(void)
 	zassert_equal(fs_close(&file), 0, "Can not close log file.");
 
 	to_log[sizeof(to_log)-2] = '2';
+
 	rc = write_log_to_file(to_log, sizeof(to_log), NULL);
+	backend->api->notify(backend, LOG_BACKEND_EVT_PROCESS_THREAD_DONE, NULL);
 
 	zassert_equal(fs_open(&file, fname, FS_O_READ), 0,
 		      "Can not open log file.");
@@ -129,7 +139,7 @@ static void test_log_fs_file_content(void)
 	zassert_equal(fs_close(&file), 0, "Can not close log file.");
 }
 
-static void test_log_fs_file_size(void)
+ZTEST(test_log_backend_fs, test_log_fs_file_size)
 {
 	int rc;
 	int i;
@@ -153,6 +163,8 @@ static void test_log_fs_file_size(void)
 		/* Written length not tracked here. */
 		ARG_UNUSED(rc);
 	}
+
+	backend->api->notify(backend, LOG_BACKEND_EVT_PROCESS_THREAD_DONE, NULL);
 
 	zassert_equal(fs_stat(fname, &entry), 0, "Can not get file info.");
 	size_t exp_size = CONFIG_LOG_BACKEND_FS_FILE_SIZE -
@@ -186,7 +198,7 @@ static void test_log_fs_file_size(void)
 	zassert_equal(file_ctr, 2, "File changing failed");
 }
 
-static void test_log_fs_files_max(void)
+ZTEST(test_log_backend_fs, test_log_fs_files_max)
 {
 	int rc;
 	int i;
@@ -207,6 +219,8 @@ static void test_log_fs_files_max(void)
 		/* Written length not tracked here. */
 		ARG_UNUSED(rc);
 	}
+
+	backend->api->notify(backend, LOG_BACKEND_EVT_PROCESS_THREAD_DONE, NULL);
 
 	rc = fs_opendir(&dir, CONFIG_LOG_BACKEND_FS_DIR);
 	zassert_equal(rc, 0, "Can not open directory.");
@@ -230,14 +244,26 @@ static void test_log_fs_files_max(void)
 	zassert_equal(test_mask, 0b11110, "Unexpected file numeration");
 }
 
-/* Test case main entry. */
-void test_main(void)
+static const struct log_backend *backend_find(char const *name)
 {
-	ztest_test_suite(test_log_backend_fs,
-			 ztest_unit_test(test_fs_nonexist),
-			 ztest_unit_test(test_wipe_fs_logs),
-			 ztest_unit_test(test_log_fs_file_content),
-			 ztest_unit_test(test_log_fs_file_size),
-			 ztest_unit_test(test_log_fs_files_max));
-	ztest_run_test_suite(test_log_backend_fs);
+	size_t slen = strlen(name);
+
+	STRUCT_SECTION_FOREACH(log_backend, backend) {
+		if (strncmp(name, backend->name, slen) == 0) {
+			return backend;
+		}
+	}
+
+	return NULL;
 }
+
+
+void *suite_setup(void)
+{
+	backend = backend_find("log_backend_fs");
+	zassert_not_null(backend);
+
+	return NULL;
+}
+
+ZTEST_SUITE(test_log_backend_fs, NULL, suite_setup, NULL, NULL, NULL);

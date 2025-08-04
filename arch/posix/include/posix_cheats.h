@@ -16,8 +16,8 @@
  * If you do see a link error telling you that zap_something is undefined, it is
  * likely that you forgot to select the corresponding Zephyr POSIX API.
  *
- * This header is included automatically when targeting POSIX ARCH boards
- * (for ex. native_posix).
+ * This header is included automatically when targeting old POSIX ARCH boards
+ * based on the CONFIG_NATIVE_APPLICATION architecture.
  * It will be included in _all_ Zephyr and application source files
  * (it is passed with the option "-include" to the compiler call)
  *
@@ -34,28 +34,23 @@
 
 /*
  * Normally main() is the main entry point of a C executable.
- * When compiling for native_posix, the Zephyr "application" is not the actual
+ * When compiling using CONFIG_NATIVE_APPLICATION, the Zephyr "application" is not the actual
  * entry point of the executable but something the Zephyr OS calls during
  * boot.
  * Therefore we need to rename this application main something else, so
  * we free the function name "main" for its normal purpose
  */
 #ifndef main
-#define main(...) zephyr_app_main(__VA_ARGS__)
+#define main(...) _posix_zephyr_main(__VA_ARGS__)
 #endif
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#if defined(__cplusplus)
 /* To be able to define main() in C++ code we need to have its prototype
  * defined somewhere visibly. Otherwise name mangling will prevent the linker
- * from finding it. Zephyr assumes a void main(void) prototype and therefore
+ * from finding it. Zephyr assumes an int main(void) prototype and therefore
  * this will be the prototype after renaming:
  */
-void zephyr_app_main(void);
-
-#ifdef __cplusplus
-}
+extern "C" int _posix_zephyr_main(void);
 #endif
 
 #ifdef CONFIG_POSIX_API
@@ -63,7 +58,7 @@ void zephyr_app_main(void);
 /*
  * The defines below in this header exist only to enable the Zephyr POSIX API
  * (include/posix/), and applications using it, to be compiled on top of
- * native_posix.
+ * the deprecated CONFIG_NATIVE_APPLICATION targets.
  *
  * Without this header, both the Zephyr POSIX API functions and the equivalent
  * host OS functions would have the same name. This would result in the linker
@@ -77,8 +72,8 @@ void zephyr_app_main(void);
  * into something which is unlikely to collide with other real functions
  * (Any unlikely string would have done)
  *
- * If you want to link an external library together with Zephyr code for the
- * native_posix target, where that external library calls into the Zephyr
+ * If you want to link an external library together with Zephyr code for a
+ * CONFIG_NATIVE_APPLICATION based target, where that external library calls into the Zephyr
  * POSIX API, you may want to include this header when compiling that library,
  * or rename the calls to match the ones in the defines below.
  */
@@ -156,6 +151,8 @@ void zephyr_app_main(void);
 #define sched_yield(...)		zap_sched_yield(__VA_ARGS__)
 #define sched_get_priority_min(...)	zap_sched_get_priority_min(__VA_ARGS__)
 #define sched_get_priority_max(...)	zap_sched_get_priority_max(__VA_ARGS__)
+#define sched_getparam(...)		zap_sched_getparam(__VA_ARGS__)
+#define sched_getscheduler(...)		zap_sched_getscheduler(__VA_ARGS__)
 
 /* Sleep */
 #define sleep(...)			zap_sleep(__VA_ARGS__)

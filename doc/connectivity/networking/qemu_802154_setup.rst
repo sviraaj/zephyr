@@ -20,13 +20,13 @@ For the steps below, you will need two terminal windows:
 * Terminal #2 is terminal window with ``echo-client`` Zephyr sample application.
 
 If you want to capture the transferred network data, you must compile the
-``monitor_15_4`` program in ``net-tools`` directory.
+``monitor_15_4`` program in the ``tools/net-tools`` directory.
 
 Open a terminal window and type:
 
 .. code-block:: console
 
-   cd $ZEPHYR_BASE/../net-tools
+   cd $ZEPHYR_BASE/../tools/net-tools
    make monitor_15_4
 
 
@@ -40,7 +40,7 @@ In terminal #1, type:
    :host-os: unix
    :board: qemu_x86
    :build-dir: server
-   :gen-args: -DOVERLAY_CONFIG=overlay-qemu_802154.conf
+   :gen-args: -DEXTRA_CONF_FILE=overlay-qemu_802154.conf
    :goals: server
    :compact:
 
@@ -51,7 +51,7 @@ If you want to capture the network traffic between the two QEMUs, type:
    :host-os: unix
    :board: qemu_x86
    :build-dir: server
-   :gen-args: -G'Unix Makefiles' -DOVERLAY_CONFIG=overlay-qemu_802154.conf -DPCAP=capture.pcap
+   :gen-args: -G'Unix Makefiles' -DEXTRA_CONF_FILE=overlay-qemu_802154.conf -DPCAP=capture.pcap
    :goals: server
    :compact:
 
@@ -69,7 +69,7 @@ In terminal #2, type:
    :host-os: unix
    :board: qemu_x86
    :build-dir: client
-   :gen-args: -DOVERLAY_CONFIG=overlay-qemu_802154.conf
+   :gen-args: -DEXTRA_CONF_FILE=overlay-qemu_802154.conf
    :goals: client
    :compact:
 

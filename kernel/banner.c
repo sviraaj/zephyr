@@ -5,47 +5,44 @@
  */
 
 #include <zephyr/kernel.h>
-#include <zephyr/sys/util.h>
 #include <zephyr/init.h>
 #include <zephyr/device.h>
-#include <version.h>
+#include <zephyr/version.h>
 
-/* boot banner items */
-#if defined(CONFIG_MULTITHREADING) && defined(CONFIG_BOOT_DELAY) &&            \
-	CONFIG_BOOT_DELAY > 0
-#define BOOT_DELAY_BANNER " (delayed boot " STRINGIFY(CONFIG_BOOT_DELAY) "ms)"
+#if defined(CONFIG_BOOT_DELAY) && (CONFIG_BOOT_DELAY > 0)
+#define DELAY_STR STRINGIFY(CONFIG_BOOT_DELAY)
+#define BANNER_POSTFIX " (delayed boot " DELAY_STR "ms)"
 #else
-#define BOOT_DELAY_BANNER ""
-#endif
+#define BANNER_POSTFIX ""
+#endif /* defined(CONFIG_BOOT_DELAY) && (CONFIG_BOOT_DELAY > 0) */
 
-#if defined(CONFIG_BOOT_DELAY) || CONFIG_BOOT_DELAY > 0
+#ifndef BANNER_VERSION
+#if defined(BUILD_VERSION) && !IS_EMPTY(BUILD_VERSION)
+#define BANNER_VERSION STRINGIFY(BUILD_VERSION)
+#else
+#define BANNER_VERSION KERNEL_VERSION_STRING
+#endif /* BUILD_VERSION */
+#endif /* !BANNER_VERSION */
+
 void boot_banner(void)
 {
-#if defined(CONFIG_BOOT_DELAY) && CONFIG_BOOT_DELAY > 0
-	static const unsigned int boot_delay = CONFIG_BOOT_DELAY;
-#else
-	static const unsigned int boot_delay;
-#endif
+#if defined(CONFIG_BOOT_DELAY) && (CONFIG_BOOT_DELAY > 0)
+#ifdef CONFIG_BOOT_BANNER
+	printk("***** delaying boot " DELAY_STR "ms (per build configuration) *****\n");
+#endif /* CONFIG_BOOT_BANNER */
+	k_busy_wait(CONFIG_BOOT_DELAY * USEC_PER_MSEC);
+#endif /* defined(CONFIG_BOOT_DELAY) && (CONFIG_BOOT_DELAY > 0) */
 
-	if (boot_delay > 0 && IS_ENABLED(CONFIG_MULTITHREADING)) {
-		printk("***** delaying boot " STRINGIFY(
-			CONFIG_BOOT_DELAY) "ms (per build configuration) *****\n");
-		k_busy_wait(CONFIG_BOOT_DELAY * USEC_PER_MSEC);
-	}
+#if defined(CONFIG_BOOT_CLEAR_SCREEN)
+	 /* \x1b[ = escape sequence
+	  * 3J = erase scrollback
+	  * 2J = erase screen
+	  * H = move cursor to top left
+	  */
+	printk("\x1b[3J\x1b[2J\x1b[H");
+#endif /* CONFIG_BOOT_CLEAR_SCREEN */
 
-#if defined(CONFIG_BOOT_BANNER)
-#ifdef BUILD_VERSION
-	printk("*** Booting Zephyr OS build %s %s ***\n",
-	       STRINGIFY(BUILD_VERSION), BOOT_DELAY_BANNER);
-#else
-	printk("*** Booting Zephyr OS version %s %s ***\n",
-	       KERNEL_VERSION_STRING, BOOT_DELAY_BANNER);
-#endif
-#endif
+#ifdef CONFIG_BOOT_BANNER
+	printk("*** " CONFIG_BOOT_BANNER_STRING " " BANNER_VERSION BANNER_POSTFIX " ***\n");
+#endif /* CONFIG_BOOT_BANNER */
 }
-#else
-void boot_banner(void)
-{
-	/* do nothing */
-}
-#endif

@@ -26,8 +26,8 @@ extern "C" {
 #define MDM_HL7800_IMEI_SIZE 16
 #define MDM_HL7800_IMEI_STRLEN (MDM_HL7800_IMEI_SIZE - 1)
 
-#define MDM_HL7800_ICCID_SIZE 21
-#define MDM_HL7800_ICCID_STRLEN (MDM_HL7800_ICCID_SIZE - 1)
+#define MDM_HL7800_ICCID_MAX_SIZE 21
+#define MDM_HL7800_ICCID_MAX_STRLEN (MDM_HL7800_ICCID_MAX_SIZE - 1)
 
 #define MDM_HL7800_SERIAL_NUMBER_SIZE 15
 #define MDM_HL7800_SERIAL_NUMBER_STRLEN (MDM_HL7800_SERIAL_NUMBER_SIZE - 1)
@@ -111,6 +111,12 @@ enum mdm_hl7800_event {
 	HL7800_EVENT_POLTE_LOCATE_STATUS,
 	HL7800_EVENT_POLTE,
 	HL7800_EVENT_SITE_SURVEY,
+	HL7800_EVENT_STATE,
+};
+
+enum mdm_hl7800_state {
+	HL7800_STATE_NOT_READY = 0,
+	HL7800_STATE_INITIALIZED,
 };
 
 enum mdm_hl7800_startup_state {
@@ -227,28 +233,34 @@ struct mdm_hl7800_polte_location_data {
 
 /**
  * event - The type of event
- * event_data - Pointer to event specific data structure
- * HL7800_EVENT_NETWORK_STATE_CHANGE - compound event
+ * event_data - Pointer to event specific data structure:
+ * HL7800_EVENT_NETWORK_STATE_CHANGE - mdm_hl7800_compound_event
  * HL7800_EVENT_APN_UPDATE - struct mdm_hl7800_apn
  * HL7800_EVENT_RSSI - int
  * HL7800_EVENT_SINR - int
- * HL7800_EVENT_STARTUP_STATE_CHANGE - compound event
- * HL7800_EVENT_SLEEP_STATE_CHANGE - compound event
+ * HL7800_EVENT_STARTUP_STATE_CHANGE - mdm_hl7800_compound_event
+ * HL7800_EVENT_SLEEP_STATE_CHANGE - mdm_hl7800_compound_event
  * HL7800_EVENT_RAT - int
  * HL7800_EVENT_BANDS - string
  * HL7800_EVENT_ACTIVE_BANDS - string
- * HL7800_EVENT_FOTA_STATE - compound event
+ * HL7800_EVENT_FOTA_STATE - mdm_hl7800_compound_event
  * HL7800_EVENT_FOTA_COUNT - uint32_t
  * HL7800_EVENT_REVISION - string
- * HL7800_EVENT_GPS - compound event
+ * HL7800_EVENT_GPS - mdm_hl7800_compound_event
  * HL7800_EVENT_GPS_POSITION_STATUS int
  * HL7800_EVENT_POLTE_REGISTRATION mdm_hl7800_polte_registration_event_data
  * HL7800_EVENT_POLTE mdm_hl7800_polte_location_data
  * HL7800_EVENT_POLTE_LOCATE_STATUS int
  * HL7800_EVENT_SITE_SURVEY mdm_hl7800_site_survey
+ * HL7800_EVENT_STATE mdm_hl7800_compound_event
  */
 typedef void (*mdm_hl7800_event_callback_t)(enum mdm_hl7800_event event,
 					    void *event_data);
+
+struct mdm_hl7800_callback_agent {
+	sys_snode_t node;
+	mdm_hl7800_event_callback_t event_callback;
+};
 
 /**
  * @brief Power off the HL7800
@@ -260,7 +272,7 @@ int32_t mdm_hl7800_power_off(void);
 /**
  * @brief Reset the HL7800 (and allow it to reconfigure).
  *
- * @return int32_t 0 for success
+ * @return int32_t >= 0 for success, < 0 for failure
  */
 int32_t mdm_hl7800_reset(void);
 
@@ -274,12 +286,18 @@ void mdm_hl7800_wakeup(bool awake);
 
 /**
  * @brief Send an AT command to the HL7800.
- * @note this API should only be used for debug purposes.
+ * @note This API should only be used for debug purposes.
+ *   It is possible to break the driver using this API.
  *
  * @param data AT command string
+ * @param resp_timeout Timeout in seconds to wait for the response
+ * @param resp Pointer to the response buffer. This can be NULL to ignore the response.
+ * @param resp_len Input: length of the response buffer, Output: length of the response.
+ *   This can be NULL.
  * @return int32_t 0 for success
  */
-int32_t mdm_hl7800_send_at_cmd(const uint8_t *data);
+int32_t mdm_hl7800_send_at_cmd(const uint8_t *data, uint8_t resp_timeout, char *resp,
+			       uint16_t *resp_len);
 
 /**
  * @brief Get the signal quality of the HL7800.
@@ -290,8 +308,8 @@ int32_t mdm_hl7800_send_at_cmd(const uint8_t *data);
  *
  * @param rsrp Reference Signals Received Power (dBm)
  *             Range = -140 dBm to -44 dBm
- * @param sinr Signal to Interference plus Noise Ratio (dBm)
- *             Range = -128 dBm to 40dBm
+ * @param sinr Signal to Interference plus Noise Ratio (dB)
+ *             Range = -128 dB to 40 dB
  */
 void mdm_hl7800_get_signal_quality(int *rsrp, int *sinr);
 
@@ -346,10 +364,22 @@ bool mdm_hl7800_valid_rat(uint8_t value);
 
 /**
  * @brief Register a function that is called when a modem event occurs.
+ * Multiple users registering for callbacks is supported.
  *
- * @param cb event callback
+ * @param agent event callback agent
+ *
+ * @retval 0 on success, negative on failure
  */
-void mdm_hl7800_register_event_callback(mdm_hl7800_event_callback_t cb);
+int mdm_hl7800_register_event_callback(struct mdm_hl7800_callback_agent *agent);
+
+/**
+ * @brief Unregister a callback event function
+ *
+ * @param agent event callback agent
+ *
+ * @retval 0 on success, negative on failure
+ */
+int mdm_hl7800_unregister_event_callback(struct mdm_hl7800_callback_agent *agent);
 
 /**
  * @brief Force modem module to generate status events.
@@ -371,7 +401,7 @@ int32_t mdm_hl7800_get_local_time(struct tm *tm, int32_t *offset);
 #ifdef CONFIG_MODEM_HL7800_FW_UPDATE
 /**
  * @brief Update the HL7800 via XMODEM protocol.  During the firmware update
- * no other modem fuctions will be available.
+ * no other modem functions will be available.
  *
  * @param file_path Absolute path of the update file
  *
@@ -501,14 +531,27 @@ void mdm_hl7800_register_gpio6_callback(void (*func)(int state));
 void mdm_hl7800_register_cts_callback(void (*func)(int state));
 
 /**
- * @brief Set the bands available for the LTE connection
+ * @brief Set the bands available for the LTE connection.
+ * NOTE: This will cause the modem to reboot. This call returns before the reboot.
  *
  * @param bands Band bitmap in hexadecimal format without the 0x prefix.
- * Leading 0's for the value can be ommited.
+ * Leading 0's for the value can be omitted.
  *
  * @return int32_t negative errno, 0 on success
  */
 int32_t mdm_hl7800_set_bands(const char *bands);
+
+/**
+ * @brief Set the log level for the modem.
+ *
+ * @note It cannot be set higher than CONFIG_MODEM_LOG_LEVEL.
+ * If debug level is desired, then it must be compiled with that level.
+ *
+ * @param level 0 (None) - 4 (Debug)
+ *
+ * @retval new log level
+ */
+uint32_t mdm_hl7800_log_filter_set(uint32_t level);
 
 #ifdef __cplusplus
 }

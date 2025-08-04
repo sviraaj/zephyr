@@ -17,12 +17,16 @@
 /**
  * @brief Clock Control Interface
  * @defgroup clock_control_interface Clock Control Interface
+ * @since 1.0
+ * @version 1.0.0
  * @ingroup io_interfaces
  * @{
  */
 
-#include <zephyr/types.h>
+#include <errno.h>
 #include <stddef.h>
+
+#include <zephyr/types.h>
 #include <zephyr/device.h>
 #include <zephyr/sys/__assert.h>
 #include <zephyr/sys/slist.h>
@@ -43,7 +47,6 @@ enum clock_control_status {
 	CLOCK_CONTROL_STATUS_STARTING,
 	CLOCK_CONTROL_STATUS_OFF,
 	CLOCK_CONTROL_STATUS_ON,
-	CLOCK_CONTROL_STATUS_UNAVAILABLE,
 	CLOCK_CONTROL_STATUS_UNKNOWN
 };
 
@@ -96,7 +99,7 @@ typedef int (*clock_control_configure_fn)(const struct device *dev,
 					  clock_control_subsys_t sys,
 					  void *data);
 
-struct clock_control_driver_api {
+__subsystem struct clock_control_driver_api {
 	clock_control			on;
 	clock_control			off;
 	clock_control_async_on_fn	async_on;
@@ -122,12 +125,12 @@ struct clock_control_driver_api {
 static inline int clock_control_on(const struct device *dev,
 				   clock_control_subsys_t sys)
 {
-	if (!device_is_ready(dev)) {
-		return -ENODEV;
-	}
-
 	const struct clock_control_driver_api *api =
 		(const struct clock_control_driver_api *)dev->api;
+
+	if (api->on == NULL) {
+		return -ENOSYS;
+	}
 
 	return api->on(dev, sys);
 }
@@ -145,12 +148,12 @@ static inline int clock_control_on(const struct device *dev,
 static inline int clock_control_off(const struct device *dev,
 				    clock_control_subsys_t sys)
 {
-	if (!device_is_ready(dev)) {
-		return -ENODEV;
-	}
-
 	const struct clock_control_driver_api *api =
 		(const struct clock_control_driver_api *)dev->api;
+
+	if (api->off == NULL) {
+		return -ENOSYS;
+	}
 
 	return api->off(dev, sys);
 }
@@ -184,10 +187,6 @@ static inline int clock_control_async_on(const struct device *dev,
 		return -ENOSYS;
 	}
 
-	if (!device_is_ready(dev)) {
-		return -ENODEV;
-	}
-
 	return api->async_on(dev, sys, cb, user_data);
 }
 
@@ -209,10 +208,6 @@ static inline enum clock_control_status clock_control_get_status(const struct de
 		return CLOCK_CONTROL_STATUS_UNKNOWN;
 	}
 
-	if (!device_is_ready(dev)) {
-		return CLOCK_CONTROL_STATUS_UNAVAILABLE;
-	}
-
 	return api->get_status(dev, sys);
 }
 
@@ -222,15 +217,16 @@ static inline enum clock_control_status clock_control_get_status(const struct de
  *        instance
  * @param sys A pointer to an opaque data representing the sub-system
  * @param[out] rate Subsystem clock rate
+ * @retval 0 on successful rate reading.
+ * @retval -EAGAIN if rate cannot be read. Some drivers do not support returning the rate when the
+ *         clock is off.
+ * @retval -ENOTSUP if reading the clock rate is not supported for the given sub-system.
+ * @retval -ENOSYS if the interface is not implemented.
  */
 static inline int clock_control_get_rate(const struct device *dev,
 					 clock_control_subsys_t sys,
 					 uint32_t *rate)
 {
-	if (!device_is_ready(dev)) {
-		return -ENODEV;
-	}
-
 	const struct clock_control_driver_api *api =
 		(const struct clock_control_driver_api *)dev->api;
 
@@ -261,10 +257,6 @@ static inline int clock_control_set_rate(const struct device *dev,
 		clock_control_subsys_t sys,
 		clock_control_subsys_rate_t rate)
 {
-	if (!device_is_ready(dev)) {
-		return -ENODEV;
-	}
-
 	const struct clock_control_driver_api *api =
 		(const struct clock_control_driver_api *)dev->api;
 
@@ -301,10 +293,6 @@ static inline int clock_control_configure(const struct device *dev,
 					  clock_control_subsys_t sys,
 					  void *data)
 {
-	if (!device_is_ready(dev)) {
-		return -ENODEV;
-	}
-
 	const struct clock_control_driver_api *api =
 		(const struct clock_control_driver_api *)dev->api;
 

@@ -18,14 +18,14 @@ static inline bool is_hw_caps_supported(const struct device *dev,
 {
 	const struct ethernet_api *api = dev->api;
 
-	if (!api) {
+	if (!api || !api->get_capabilities) {
 		return false;
 	}
 
-	return !!(api->get_capabilities(dev) & caps);
+	return ((api->get_capabilities(dev) & caps) != 0);
 }
 
-static int ethernet_set_config(uint32_t mgmt_request,
+static int ethernet_set_config(uint64_t mgmt_request,
 			       struct net_if *iface,
 			       void *data, size_t len)
 {
@@ -47,52 +47,8 @@ static int ethernet_set_config(uint32_t mgmt_request,
 		return -EINVAL;
 	}
 
-	if (mgmt_request == NET_REQUEST_ETHERNET_SET_AUTO_NEGOTIATION) {
-		if (!is_hw_caps_supported(dev,
-					  ETHERNET_AUTO_NEGOTIATION_SET)) {
-			return -ENOTSUP;
-		}
-
-		config.auto_negotiation = params->auto_negotiation;
-		type = ETHERNET_CONFIG_TYPE_AUTO_NEG;
-	} else if (mgmt_request == NET_REQUEST_ETHERNET_SET_LINK) {
-		type = ETHERNET_CONFIG_TYPE_LINK;
-
-		if (params->l.link_10bt) {
-			if (!is_hw_caps_supported(dev,
-						  ETHERNET_LINK_10BASE_T)) {
-				return -ENOTSUP;
-			}
-
-			config.l.link_10bt = true;
-		} else if (params->l.link_100bt) {
-			if (!is_hw_caps_supported(dev,
-						  ETHERNET_LINK_100BASE_T)) {
-				return -ENOTSUP;
-			}
-
-			config.l.link_100bt = true;
-		} else if (params->l.link_1000bt) {
-			if (!is_hw_caps_supported(dev,
-						  ETHERNET_LINK_1000BASE_T)) {
-				return -ENOTSUP;
-			}
-
-			config.l.link_1000bt = true;
-		} else {
-			return -EINVAL;
-		}
-
-		type = ETHERNET_CONFIG_TYPE_LINK;
-	} else if (mgmt_request == NET_REQUEST_ETHERNET_SET_DUPLEX) {
-		if (!is_hw_caps_supported(dev, ETHERNET_DUPLEX_SET)) {
-			return -ENOTSUP;
-		}
-
-		config.full_duplex = params->full_duplex;
-		type = ETHERNET_CONFIG_TYPE_DUPLEX;
-	} else if (mgmt_request == NET_REQUEST_ETHERNET_SET_MAC_ADDRESS) {
-		if (net_if_is_up(iface)) {
+	if (mgmt_request == NET_REQUEST_ETHERNET_SET_MAC_ADDRESS) {
+		if (net_if_is_admin_up(iface)) {
 			return -EACCES;
 		}
 
@@ -100,7 +56,8 @@ static int ethernet_set_config(uint32_t mgmt_request,
 		 * generated from old MAC address, from network interface if
 		 * needed.
 		 */
-		if (IS_ENABLED(CONFIG_NET_IPV6)) {
+		if (IS_ENABLED(CONFIG_NET_NATIVE_IPV6) &&
+		    IS_ENABLED(CONFIG_NET_IPV6_IID_EUI_64)) {
 			struct in6_addr iid;
 
 			net_ipv6_addr_create_iid(&iid,
@@ -194,21 +151,34 @@ static int ethernet_set_config(uint32_t mgmt_request,
 
 		config.promisc_mode = params->promisc_mode;
 		type = ETHERNET_CONFIG_TYPE_PROMISC_MODE;
+	} else if (mgmt_request == NET_REQUEST_ETHERNET_SET_T1S_PARAM) {
+		if (net_if_is_up(iface)) {
+			return -EACCES;
+		}
+
+		memcpy(&config.t1s_param, &params->t1s_param,
+		       sizeof(struct ethernet_t1s_param));
+		type = ETHERNET_CONFIG_TYPE_T1S_PARAM;
+	} else if (mgmt_request == NET_REQUEST_ETHERNET_SET_TXINJECTION_MODE) {
+		if (!is_hw_caps_supported(dev, ETHERNET_TXINJECTION_MODE)) {
+			return -ENOTSUP;
+		}
+
+		config.txinjection_mode = params->txinjection_mode;
+		type = ETHERNET_CONFIG_TYPE_TXINJECTION_MODE;
+	} else if (mgmt_request == NET_REQUEST_ETHERNET_SET_MAC_FILTER) {
+		if (!is_hw_caps_supported(dev, ETHERNET_HW_FILTERING)) {
+			return -ENOTSUP;
+		}
+
+		memcpy(&config.filter, &params->filter, sizeof(struct ethernet_filter));
+		type = ETHERNET_CONFIG_TYPE_FILTER;
 	} else {
 		return -EINVAL;
 	}
 
 	return api->set_config(net_if_get_device(iface), type, &config);
 }
-
-NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_ETHERNET_SET_AUTO_NEGOTIATION,
-				  ethernet_set_config);
-
-NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_ETHERNET_SET_LINK,
-				  ethernet_set_config);
-
-NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_ETHERNET_SET_DUPLEX,
-				  ethernet_set_config);
 
 NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_ETHERNET_SET_MAC_ADDRESS,
 				  ethernet_set_config);
@@ -228,7 +198,16 @@ NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_ETHERNET_SET_TXTIME_PARAM,
 NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_ETHERNET_SET_PROMISC_MODE,
 				  ethernet_set_config);
 
-static int ethernet_get_config(uint32_t mgmt_request,
+NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_ETHERNET_SET_T1S_PARAM,
+				  ethernet_set_config);
+
+NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_ETHERNET_SET_TXINJECTION_MODE,
+				  ethernet_set_config);
+
+NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_ETHERNET_SET_MAC_FILTER,
+				  ethernet_set_config);
+
+static int ethernet_get_config(uint64_t mgmt_request,
 			       struct net_if *iface,
 			       void *data, size_t len)
 {
@@ -421,6 +400,19 @@ static int ethernet_get_config(uint32_t mgmt_request,
 				config.txtime_param.enable_txtime;
 			break;
 		}
+	} else if (mgmt_request == NET_REQUEST_ETHERNET_GET_TXINJECTION_MODE) {
+		if (!is_hw_caps_supported(dev, ETHERNET_TXINJECTION_MODE)) {
+			return -ENOTSUP;
+		}
+
+		type = ETHERNET_CONFIG_TYPE_TXINJECTION_MODE;
+
+		ret = api->get_config(dev, type, &config);
+		if (ret) {
+			return ret;
+		}
+
+		params->txinjection_mode = config.txinjection_mode;
 	} else {
 		return -EINVAL;
 	}
@@ -444,6 +436,9 @@ NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_ETHERNET_GET_QBU_PARAM,
 				  ethernet_get_config);
 
 NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_ETHERNET_GET_TXTIME_PARAM,
+				  ethernet_get_config);
+
+NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_ETHERNET_GET_TXINJECTION_MODE,
 				  ethernet_get_config);
 
 void ethernet_mgmt_raise_carrier_on_event(struct net_if *iface)

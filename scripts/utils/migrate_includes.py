@@ -2,6 +2,10 @@
 Utility script to migrate Zephyr-based projects to the new <zephyr/...> include
 prefix.
 
+.. note::
+    The script will also migrate <zephyr.h> or <zephyr/zephyr.h> to
+    <zephyr/kernel.h>.
+
 Usage::
 
     python $ZEPHYR_BASE/scripts/utils/migrate_includes.py \
@@ -12,14 +16,13 @@ SPDX-License-Identifier: Apache-2.0
 """
 
 import argparse
-from pathlib import Path
 import re
 import sys
-
+from pathlib import Path
 
 ZEPHYR_BASE = Path(__file__).parents[2]
 
-EXTENSIONS = ("c", "cpp", "h", "dts", "dtsi", "rst", "S", "overlay", "ld")
+EXTENSIONS = ("c", "cpp", "h", "hpp", "dts", "dtsi", "rst", "S", "overlay", "ld")
 
 
 def update_includes(project, dry_run):
@@ -38,7 +41,15 @@ def update_includes(project, dry_run):
         migrate = False
         for line in lines:
             m = re.match(r"^(.*)#include <(.*\.h)>(.*)$", line)
-            if (
+            if m and m.group(2) in ("zephyr.h", "zephyr/zephyr.h"):
+                content += (
+                    m.group(1)
+                    + "#include <zephyr/kernel.h>"
+                    + m.group(3)
+                    + "\n"
+                )
+                migrate = True
+            elif (
                 m
                 and not m.group(2).startswith("zephyr/")
                 and (ZEPHYR_BASE / "include" / "zephyr" / m.group(2)).exists()
@@ -63,7 +74,7 @@ def update_includes(project, dry_run):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.add_argument(
         "-p", "--project", type=Path, required=True, help="Zephyr-based project path"
     )

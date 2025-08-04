@@ -9,12 +9,13 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <limits.h>
 #include <zephyr/kernel.h>
 
 #include <zephyr/settings/settings.h>
 #include "settings_priv.h"
 #include <zephyr/types.h>
-
+#include <zephyr/sys/iterable_sections.h>
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(settings, CONFIG_SETTINGS_LOG_LEVEL);
 
@@ -36,7 +37,7 @@ void settings_init(void)
 }
 
 #if defined(CONFIG_SETTINGS_DYNAMIC_HANDLERS)
-int settings_register(struct settings_handler *handler)
+int settings_register_with_cprio(struct settings_handler *handler, int cprio)
 {
 	int rc = 0;
 
@@ -55,11 +56,18 @@ int settings_register(struct settings_handler *handler)
 			goto end;
 		}
 	}
+
+	handler->cprio = cprio;
 	sys_slist_append(&settings_handlers, &handler->node);
 
 end:
 	k_mutex_unlock(&settings_lock);
 	return rc;
+}
+
+int settings_register(struct settings_handler *handler)
+{
+	return settings_register_with_cprio(handler, 0);
 }
 #endif /* CONFIG_SETTINGS_DYNAMIC_HANDLERS */
 
@@ -218,12 +226,12 @@ int settings_call_set_handler(const char *name,
 
 		if (rc != 0) {
 			LOG_ERR("set-value failure. key: %s error(%d)",
-				log_strdup(name), rc);
+				name, rc);
 			/* Ignoring the error */
 			rc = 0;
 		} else {
 			LOG_DBG("set-value OK. key: %s",
-				log_strdup(name));
+				name);
 		}
 	}
 	return rc;
@@ -234,39 +242,80 @@ int settings_commit(void)
 	return settings_commit_subtree(NULL);
 }
 
+static int set_next_cprio(int handler_cprio, int cprio, int next_cprio)
+{
+	if (handler_cprio <= cprio) {
+		return next_cprio;
+	}
+
+	/* If cprio and next_cprio are identical then next_cprio has not
+	 * yet been set to any value and its initialized to the first
+	 * handler_cprio above cprio.
+	 */
+	if (cprio == next_cprio) {
+		return handler_cprio;
+	}
+
+	return MIN(handler_cprio, next_cprio);
+}
+
 int settings_commit_subtree(const char *subtree)
 {
 	int rc;
 	int rc2;
+	int cprio = INT_MIN;
 
 	rc = 0;
 
-	STRUCT_SECTION_FOREACH(settings_handler_static, ch) {
-		if (subtree && !settings_name_steq(ch->name, subtree, NULL)) {
-			continue;
-		}
-		if (ch->h_commit) {
-			rc2 = ch->h_commit();
-			if (!rc) {
-				rc = rc2;
-			}
-		}
-	}
+	while (true) {
+		int next_cprio = cprio;
 
-#if defined(CONFIG_SETTINGS_DYNAMIC_HANDLERS)
-	struct settings_handler *ch;
-	SYS_SLIST_FOR_EACH_CONTAINER(&settings_handlers, ch, node) {
-		if (subtree && !settings_name_steq(ch->name, subtree, NULL)) {
-			continue;
-		}
-		if (ch->h_commit) {
-			rc2 = ch->h_commit();
-			if (!rc) {
-				rc = rc2;
+		STRUCT_SECTION_FOREACH(settings_handler_static, ch) {
+			if (subtree && !settings_name_steq(ch->name, subtree, NULL)) {
+				continue;
+			}
+
+			if (ch->h_commit) {
+				next_cprio = set_next_cprio(ch->cprio, cprio, next_cprio);
+				if (ch->cprio != cprio) {
+					continue;
+				}
+
+				rc2 = ch->h_commit();
+				if (!rc) {
+					rc = rc2;
+				}
 			}
 		}
+
+		if (IS_ENABLED(CONFIG_SETTINGS_DYNAMIC_HANDLERS)) {
+			struct settings_handler *ch;
+
+			SYS_SLIST_FOR_EACH_CONTAINER(&settings_handlers, ch, node) {
+				if (subtree && !settings_name_steq(ch->name, subtree, NULL)) {
+					continue;
+				}
+
+				if (ch->h_commit) {
+					next_cprio = set_next_cprio(ch->cprio, cprio, next_cprio);
+					if (ch->cprio != cprio) {
+						continue;
+					}
+
+					rc2 = ch->h_commit();
+					if (!rc) {
+						rc = rc2;
+					}
+				}
+			}
+		}
+
+		if (cprio == next_cprio) {
+			break;
+		}
+
+		cprio = next_cprio;
 	}
-#endif /* CONFIG_SETTINGS_DYNAMIC_HANDLERS */
 
 	return rc;
 }

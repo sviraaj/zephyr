@@ -21,22 +21,15 @@ import struct
 import sys
 
 import dictionary_parser.log_database
-from dictionary_parser.log_database import LogDatabase
-from dictionary_parser.utils import extract_one_string_in_section
-from dictionary_parser.utils import find_string_in_mappings
-
 import elftools
+from dictionary_parser.log_database import LogDatabase
+from dictionary_parser.utils import extract_one_string_in_section, find_string_in_mappings
+from elftools.dwarf.descriptions import describe_DWARF_expr
+from elftools.dwarf.locationlists import LocationExpr, LocationParser
 from elftools.elf.constants import SH_FLAGS
-from elftools.elf.elffile import ELFFile
 from elftools.elf.descriptions import describe_ei_data
+from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
-from elftools.dwarf.descriptions import (
-    describe_DWARF_expr
-)
-from elftools.dwarf.locationlists import (
-    LocationExpr, LocationParser
-)
-
 
 LOGGER_FORMAT = "%(name)s: %(levelname)s: %(message)s"
 logger = logging.getLogger(os.path.basename(sys.argv[0]))
@@ -47,6 +40,11 @@ STATIC_STRING_SECTIONS = [
     'rodata',
     '.rodata',
     'pinned.rodata',
+]
+
+# Sections that contains static strings but are not part of the binary (allocable).
+REMOVED_STRING_SECTIONS = [
+    'log_strings'
 ]
 
 
@@ -74,7 +72,7 @@ ACCEPTABLE_ESCAPE_CHARS = [
 
 def parse_args():
     """Parse command line arguments"""
-    argparser = argparse.ArgumentParser()
+    argparser = argparse.ArgumentParser(allow_abbrev=False)
 
     argparser.add_argument("elffile", help="Zephyr ELF binary")
     argparser.add_argument("--build", help="Build ID")
@@ -94,7 +92,7 @@ def parse_args():
     return argparser.parse_args()
 
 
-def extract_elf_code_data_sections(elf):
+def extract_elf_code_data_sections(elf, wildcards = None):
     """Find all sections in ELF file"""
     sections = {}
 
@@ -103,9 +101,9 @@ def extract_elf_code_data_sections(elf):
         # since they actually have code/data.
         #
         # On contrary, BSS is allocated but NOBITS.
-        if (
-            (sect['sh_flags'] & SH_FLAGS.SHF_ALLOC) == SH_FLAGS.SHF_ALLOC
-            and sect['sh_type'] == 'SHT_PROGBITS'
+        if (((wildcards is not None) and (sect.name in wildcards)) or
+            ((sect['sh_flags'] & SH_FLAGS.SHF_ALLOC) == SH_FLAGS.SHF_ALLOC
+            and sect['sh_type'] == 'SHT_PROGBITS')
         ):
             sections[sect.name] = {
                     'name'    : sect.name,
@@ -138,7 +136,7 @@ def find_elf_sections(elf, sh_name):
 def get_kconfig_symbols(elf):
     """Get kconfig symbols from the ELF file"""
     for section in elf.iter_sections():
-        if isinstance(section, SymbolTableSection):
+        if isinstance(section, SymbolTableSection) and section['sh_type'] != 'SHT_DYNSYM':
             return {sym.name: sym.entry.st_value
                     for sym in section.iter_symbols()
                        if sym.name.startswith("CONFIG_")}
@@ -161,13 +159,13 @@ def find_log_const_symbols(elf):
             continue
 
         for symbol in section.iter_symbols():
-            if symbol.name.startswith("log_const_"):
+            if symbol.name.startswith("log_const_") or symbol.name.startswith("_log_const_"):
                 ret_list.append(symbol)
 
     return ret_list
 
 
-def parse_log_const_symbols(database, log_const_section, log_const_symbols, string_mappings):
+def parse_log_const_symbols(database, log_const_area, log_const_symbols, string_mappings):
     """Find the log instances and map source IDs to names"""
     if database.is_tgt_little_endian():
         formatter = "<"
@@ -192,20 +190,24 @@ def parse_log_const_symbols(database, log_const_section, log_const_symbols, stri
         if sym.entry['st_value'] < first_offset:
             first_offset = sym.entry['st_value']
 
-    first_offset -= log_const_section['start']
+    first_offset -= log_const_area['start']
 
     # find all log_const_*
     for sym in log_const_symbols:
-        # Find data offset in log_const_section for this symbol
-        offset = sym.entry['st_value'] - log_const_section['start']
+        # Find data offset in log_const_area for this symbol
+        offset = sym.entry['st_value'] - log_const_area['start']
 
         idx_s = offset
         idx_e = offset + datum_size
 
-        datum = log_const_section['data'][idx_s:idx_e]
+        datum = log_const_area['data'][idx_s:idx_e]
 
         if len(datum) != datum_size:
             # Not enough data to unpack
+            continue
+
+        if sym.entry['st_size'] == 0:
+            # Empty entry
             continue
 
         str_ptr, level = struct.unpack(formatter, datum)
@@ -249,6 +251,9 @@ def process_kconfigs(elf, database):
         if arch['kconfig'] in kconfigs:
             database.set_arch(name)
             break
+    else:
+        logger.error("Did not found architecture")
+        sys.exit(1)
 
     # Put some kconfigs into the database
     #
@@ -266,13 +271,13 @@ def extract_logging_subsys_information(elf, database, string_mappings):
     mapping from source ID to name.
     """
     # Extract log constant section for module names
-    section_log_const = find_elf_sections(elf, "log_const_sections")
+    section_log_const = find_elf_sections(elf, "log_const_area")
     if section_log_const is None:
-        # ESP32 puts "log_const_*" info log_static_section instead of log_const_sections
+        # ESP32 puts "log_const_*" info log_static_section instead of log_const_areas
         section_log_const = find_elf_sections(elf, "log_static_section")
 
     if section_log_const is None:
-        logger.error("Cannot find section 'log_const_sections' in ELF file, exiting...")
+        logger.error("Cannot find section 'log_const_areas' in ELF file, exiting...")
         sys.exit(1)
 
     # Find all "log_const_*" symbols and parse them
@@ -301,7 +306,7 @@ def find_die_var_base_type(compile_unit, die, is_const):
         return die.attributes['DW_AT_name'].value.decode('ascii'), is_const
 
     # Not a type, cannot continue
-    if not 'DW_AT_type' in die.attributes:
+    if 'DW_AT_type' not in die.attributes:
         return None, None
 
     if die.tag == 'DW_TAG_const_type':
@@ -326,10 +331,7 @@ def is_die_var_const_char(compile_unit, die):
     """
     var_type, is_const = find_die_var_base_type(compile_unit, die, False)
 
-    if var_type is not None and var_type.endswith('char') and is_const:
-        return True
-
-    return False
+    return bool(var_type is not None and var_type.endswith('char') and is_const)
 
 
 def extract_string_variables(elf):
@@ -349,126 +351,96 @@ def extract_string_variables(elf):
         for die in compile_unit.iter_DIEs():
             # Only care about variables with location information
             # and of type "char"
-            if die.tag == 'DW_TAG_variable':
-                if ('DW_AT_type' in die.attributes
-                    and 'DW_AT_location' in die.attributes
-                    and is_die_var_const_char(compile_unit, die)
-                ):
-                    # Extract location information, which is
-                    # its address in memory.
-                    loc_attr = die.attributes['DW_AT_location']
-                    if loc_parser.attribute_has_location(loc_attr, die.cu['version']):
-                        loc = loc_parser.parse_from_attribute(loc_attr, die.cu['version'])
-                        if isinstance(loc, LocationExpr):
-                            try:
-                                addr = describe_DWARF_expr(loc.loc_expr,
-                                                        dwarf_info.structs)
+            if die.tag == 'DW_TAG_variable' and ('DW_AT_type' in die.attributes
+                and 'DW_AT_location' in die.attributes
+                and is_die_var_const_char(compile_unit, die)
+            ):
+                # Extract location information, which is
+                # its address in memory.
+                loc_attr = die.attributes['DW_AT_location']
+                if loc_parser.attribute_has_location(loc_attr, die.cu['version']):
+                    loc = loc_parser.parse_from_attribute(loc_attr, die.cu['version'], die)
+                    if isinstance(loc, LocationExpr):
+                        try:
+                            addr = describe_DWARF_expr(loc.loc_expr,
+                                                    dwarf_info.structs)
 
-                                matcher = DT_LOCATION_REGEX.match(addr)
-                                if matcher:
-                                    addr = int(matcher.group(1), 16)
-                                    if addr > 0:
-                                        strings.append({
-                                            'name': die.attributes['DW_AT_name'].value,
-                                            'addr': addr,
-                                            'die': die
-                                        })
-                            except KeyError:
-                                pass
+                            matcher = DT_LOCATION_REGEX.match(addr)
+                            if matcher:
+                                addr = int(matcher.group(1), 16)
+                                if addr > 0:
+                                    strings.append({
+                                        'name': die.attributes['DW_AT_name'].value,
+                                        'addr': addr,
+                                        'die': die
+                                    })
+                        except KeyError:
+                            pass
 
     return strings
-
 
 def try_decode_string(str_maybe):
     """Check if it is a printable string"""
     for encoding in STR_ENCODINGS:
         try:
-            decoded_str = str_maybe.decode(encoding)
-
-            # Check if string is printable according to Python
-            # since the parser (written in Python) will need to
-            # print the string.
-            #
-            # Note that '\r' and '\n' are not included in
-            # string.printable so they need to be checked separately.
-            printable = True
-            for one_char in decoded_str:
-                if (one_char not in string.printable
-                    and one_char not in ACCEPTABLE_ESCAPE_CHARS):
-                    printable = False
-                    break
-
-            if printable:
-                return decoded_str
+            return str_maybe.decode(encoding)
         except UnicodeDecodeError:
             pass
 
     return None
 
+def is_printable(b):
+    # Check if string is printable according to Python
+    # since the parser (written in Python) will need to
+    # print the string.
+    #
+    # Note that '\r' and '\n' are not included in
+    # string.printable so they need to be checked separately.
+    return (b in string.printable) or (b in ACCEPTABLE_ESCAPE_CHARS)
 
 def extract_strings_in_one_section(section, str_mappings):
     """Extract NULL-terminated strings in one ELF section"""
-    bindata = section['data']
-
-    if len(bindata) < 2:
-        # Can't have a NULL-terminated string with fewer than 2 bytes.
-        return str_mappings
-
-    idx = 0
-
-    # If first byte is not NULL, it may be a string.
-    if bindata[0] == 0:
-        start = None
-    else:
-        start = 0
-
-    while idx < len(bindata):
-        if start is None:
-            if bindata[idx] == 0:
-                # Skip NULL bytes to find next string
-                idx += 1
-            else:
-                # Beginning of possible string
+    data = section['data']
+    start = None
+    for idx, x in enumerate(data):
+        if is_printable(chr(x)):
+            # Printable character, potential part of string
+            if start is None:
+                # Beginning of potential string
                 start = idx
-                idx += 1
-        else:
-            if bindata[idx] != 0:
-                # Skipping till next NULL byte for possible string
-                idx += 1
-            else:
-                # End of possible string
-                end = idx
+        elif x == 0:
+            # End of possible string
+            if start is not None:
+                # Found potential string
+                str_maybe = data[start : idx]
+                decoded_str = try_decode_string(str_maybe)
 
-                if start != end:
-                    str_maybe = bindata[start:end]
-                    decoded_str = try_decode_string(str_maybe)
+                if decoded_str is not None:
+                    addr = section['start'] + start
 
-                    # Only store readable string
-                    if decoded_str is not None:
-                        addr = section['start'] + start
+                    if addr not in str_mappings:
+                        str_mappings[addr] = decoded_str
 
-                        if addr not in str_mappings:
-                            str_mappings[addr] = decoded_str
+                        # Decoded string may contain un-printable characters
+                        # (e.g. extended ASC-II characters) or control
+                        # characters (e.g. '\r' or '\n'), so simply print
+                        # the byte string instead.
+                        logger.debug('Found string via extraction at ' + PTR_FMT + ': %s',
+                                     addr, str_maybe)
 
-                            # Decoded string may contain un-printable characters
-                            # (e.g. extended ASC-II characters) or control
-                            # characters (e.g. '\r' or '\n'), so simply print
-                            # the byte string instead.
-                            logger.debug('Found string via extraction at ' + PTR_FMT + ': %s',
-                                         addr, str_maybe)
+                        # GCC-based toolchain will reuse the NULL character
+                        # for empty strings. There is no way to know which
+                        # one is being reused, so just treat all NULL character
+                        # at the end of legitimate strings as empty strings.
+                        null_addr = section['start'] + idx
+                        str_mappings[null_addr] = ''
 
-                            # GCC-based toolchain will reuse the NULL character
-                            # for empty strings. There is no way to know which
-                            # one is being reused, so just treat all NULL character
-                            # at the end of legitimate strings as empty strings.
-                            null_addr = section['start'] + end
-                            str_mappings[null_addr] = ''
-
-                            logger.debug('Found null string via extraction at ' + PTR_FMT,
-                                         null_addr)
-
+                        logger.debug('Found null string via extraction at ' + PTR_FMT,
+                                     null_addr)
                 start = None
-                idx += 1
+        else:
+            # Non-printable byte, remove start location
+            start = None
 
     return str_mappings
 
@@ -480,7 +452,7 @@ def extract_static_strings(elf, database, section_extraction=False):
     """
     string_mappings = {}
 
-    elf_sections = extract_elf_code_data_sections(elf)
+    elf_sections = extract_elf_code_data_sections(elf, REMOVED_STRING_SECTIONS)
 
     # Extract strings using ELF DWARF information
     str_vars = extract_string_variables(elf)
@@ -527,7 +499,7 @@ def main():
     elif args.verbose:
         logger.setLevel(logging.INFO)
 
-    elffile = open(args.elffile, "rb")
+    elffile = open(args.elffile, "rb")  # noqa: SIM115
     if not elffile:
         logger.error("ERROR: Cannot open ELF file: %s, exiting...", args.elffile)
         sys.exit(1)
@@ -548,8 +520,8 @@ def main():
 
     if args.build_header:
         with open(args.build_header) as f:
-            for l in f:
-                match = re.match(r'\s*#define\s+BUILD_VERSION\s+(.*)', l)
+            for line in f:
+                match = re.match(r'\s*#define\s+BUILD_VERSION\s+(.*)', line)
                 if match:
                     database.set_build_id(match.group(1))
                     break
@@ -589,17 +561,15 @@ def main():
     extract_logging_subsys_information(elf, database, string_mappings)
 
     # Write database file
-    if args.json:
-        if not LogDatabase.write_json_database(args.json, database):
-            logger.error("ERROR: Cannot open database file for write: %s, exiting...",
-                         args.json)
-            sys.exit(1)
+    if args.json and not LogDatabase.write_json_database(args.json, database):
+        logger.error("ERROR: Cannot open database file for write: %s, exiting...",
+                     args.json)
+        sys.exit(1)
 
-    if args.syst:
-        if not LogDatabase.write_syst_database(args.syst, database):
-            logger.error("ERROR: Cannot open database file for write: %s, exiting...",
-                         args.syst)
-            sys.exit(1)
+    if args.syst and not LogDatabase.write_syst_database(args.syst, database):
+        logger.error("ERROR: Cannot open database file for write: %s, exiting...",
+                     args.syst)
+        sys.exit(1)
 
     elffile.close()
 

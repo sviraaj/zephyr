@@ -6,14 +6,20 @@ Basics
 This page introduces west's basic concepts and provides references to further
 reading.
 
-West's built-in commands allow you to work with *projects* (Git
-repositories) under a common *workspace* directory.
+West's built-in commands allow you to work with :term:`projects <west project>`
+(Git repositories) under a common :term:`workspace <west workspace>` directory.
+
+West works in the following manner: the ``west init`` command creates the
+:term:`west workspace`, and clones the :term:`manifest repo <west manifest
+repository>`, while the ``west update`` command initially clones, and later updates, the
+:term:`projects <west project>` listed in the manifest in the workspace.
 
 Example workspace
 *****************
 
-If you've followed the upstream Zephyr getting started guide, your
-workspace looks like this:
+If you've followed the :ref:`getting_started`, your local
+:term:`west workspace`, which in this case is the folder named
+:file:`zephyrproject` as well as all its subfolders, looks like this:
 
 .. code-block:: none
 
@@ -29,8 +35,9 @@ workspace looks like this:
    │   # Projects managed by west:
    ├── modules/
    │   └── lib/
-   │       └── tinycbor/          # .git/ project
-   ├── net-tools/                 # .git/ project
+   │       └── zcbor/             # .git/ project
+   ├── tools/
+   │   └── net-tools/             # .git/ project
    └── [ ... other projects ...]
 
 .. _west-workspace:
@@ -84,11 +91,12 @@ manifest file
 projects
   Projects are Git repositories managed by west. Projects are defined in the
   manifest file and can be located anywhere inside the workspace. In the above
-  example workspace, ``tinycbor`` and ``net-tools`` are projects.
+  example workspace, ``zcbor`` and ``net-tools`` are projects.
 
   By default, the Zephyr :ref:`build system <build_overview>` uses west to get
   the locations of all the projects in the workspace, so any code they contain
-  can be used as :ref:`modules`.
+  can be used as :ref:`modules`. Note however that modules and projects
+  :ref:`are conceptually different <modules-vs-projects>`.
 
 extensions
   Any repository known to west (either the manifest repository or any project

@@ -8,7 +8,7 @@
  * https://github.com/ARM-software/abi-aa/blob/main/semihosting/semihosting.rst
  *
  * RISC-V semihosting also follows these conventions:
- * https://github.com/riscv/riscv-semihosting-spec/blob/main/riscv-semihosting-spec.adoc
+ * https://github.com/riscv-non-isa/riscv-semihosting/blob/main/riscv-semihosting.adoc
  */
 
 /**
@@ -16,6 +16,7 @@
  *
  * @brief public Semihosting APIs based on ARM definitions.
  * @defgroup semihost Semihosting APIs
+ * @ingroup os_services
  * @{
  */
 

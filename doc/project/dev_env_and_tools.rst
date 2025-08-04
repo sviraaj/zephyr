@@ -20,10 +20,11 @@ and linked to any relevant :ref:`bug or feature tracking issues<bug_reporting>`
 
 The Zephyr project uses GitHub for code reviews and Git tree management. When
 submitting a change or an enhancement to any Zephyr component, a developer
-should use GitHub. GitHub automatically assigns a responsible reviewer on a
-component basis, as defined in the :zephyr_file:`CODEOWNERS` file stored with the code
-tree in the Zephyr project repository. A limited set of release managers are
-allowed to merge a pull request into the main branch once reviews are complete.
+should use GitHub. GitHub Actions automatically assigns a responsible reviewer
+on a component basis, as defined in the :zephyr_file:`MAINTAINERS.yml` file
+stored with the code tree in the Zephyr project repository. A limited set of
+release managers are allowed to merge a pull request into the main branch once
+reviews are complete.
 
 .. _review_time:
 
@@ -64,55 +65,45 @@ Categories/Labels
 -----------------
 
 Hotfix
-++++++
+  Any change that is a fix to an issue that blocks developers from doing their
+  daily work, for example CI breakage, Test breakage, Minor documentation fixes
+  that impact the user experience.
 
-Any change that is a fix to an issue that blocks developers from doing their
-daily work, for example CI breakage, Test breakage, Minor documentation fixes
-that impact the user experience.
-
-Such fixes can be merged at any time after they have passed CI checks. Depending
-on the fix, severity, and availability of someone to review them (other than the
-author) they can be merged with justification without review by one of the
-project owners.
+  Such fixes can be merged at any time after they have passed CI checks. Depending
+  on the fix, severity, and availability of someone to review them (other than the
+  author) they can be merged with justification without review by one of the
+  project owners.
 
 Trivial
-+++++++
+  Trivial changes are those that appear obvious enough and do not require maintainer or code-owner
+  involvement. Such changes should not change the logic or the design of a
+  subsystem or component. For example a trivial change can be:
 
-Trivial changes are those that appear obvious enough and do not require maintainer or code-owner
-involvement. Such changes should not change the logic or the design of a
-subsystem or component. For example a trivial change can be:
-
-- Documentation changes
-- Configuration changes
-- Minor Build System tweaks
-- Minor optimization to code logic without changing the logic
-- Test changes and fixes
-- Sample modifications to support additional configuration or boards etc.
+  - Documentation changes
+  - Configuration changes
+  - Minor Build System tweaks
+  - Minor optimization to code logic without changing the logic
+  - Test changes and fixes
+  - Sample modifications to support additional configuration or boards etc.
 
 Maintainer
-+++++++++++
-
-Any changes that touch the logic or the original design of a subsystem or
-component will need to be reviewed by the code owner or the designated subsystem
-maintainer. If the code changes is initiated by a contributor or developer other
-than the owner the pull request needs to be assigned to the code owner who will
-have to drive the pull request to a mergeable state by giving feedback to the
-author and asking for more reviews from other developers.
+  Any changes that touch the logic or the original design of a subsystem or
+  component will need to be reviewed by the code owner or the designated subsystem
+  maintainer. If the code changes is initiated by a contributor or developer other
+  than the owner the pull request needs to be assigned to the code owner who will
+  have to drive the pull request to a mergeable state by giving feedback to the
+  author and asking for more reviews from other developers.
 
 Security
-+++++++++++
-
-Changes that appear to have an impact to the overall security of the system need
-to be reviewed by a security expert from the security working group.
+  Changes that appear to have an impact to the overall security of the system need
+  to be reviewed by a security expert from the security working group.
 
 TSC and Working Groups
-++++++++++++++++++++++
-
-Changes that introduce new features or functionality or change the way the
-overall system works need to be reviewed by the TSC or the responsible Working
-Group. For example for :ref:`stable API changes <stable_api_changes>`, the
-proposal needs to be presented in the API meeting so that the relevant
-stakeholders are made aware of the change.
+  Changes that introduce new features or functionality or change the way the
+  overall system works need to be reviewed by the TSC or the responsible Working
+  Group. For example for :ref:`breaking API changes <breaking_api_changes>`, the
+  proposal needs to be presented in the Architecture meeting so that the relevant
+  stakeholders are made aware of the change.
 
 A Pull-Request should have an Assignee
 =======================================
@@ -209,10 +200,10 @@ Developers are expected to fix issues and rework their patches and submit again.
 
 The CI infrastructure currently runs the following tests:
 
-- Run ''checkpatch'' for code style issues (can vote -1 on errors; see note)
+- Run ``checkpatch`` for code style issues (can vote -1 on errors; see note)
 - Gitlint: Git commit style based on project requirements
 - License Check: Check for conflicting licenses
-- Run ''twister'' script
+- Run ``twister`` script
 
   - Run kernel tests in QEMU (can vote -1 on errors)
   - Build various samples for different boards (can vote -1 on errors)
@@ -221,10 +212,12 @@ The CI infrastructure currently runs the following tests:
 
 .. note::
 
-   ''checkpatch'' is a Perl script that uses regular expressions to
+   ``checkpatch`` is a Perl script that uses regular expressions to
    extract information that requires a C language parser to process
    accurately.  As such it sometimes issues false positives.  Known
-   cases include constructs like::
+   cases include constructs like:
+
+    .. code-block:: c
 
       static uint8_t __aligned(PAGE_SIZE) page_pool[PAGE_SIZE * POOL_PAGES];
       IOPCTL_Type *base = config->base;
@@ -258,138 +251,160 @@ fix it.
 This saves us all time when searching, reduces the chances of the PR or issue
 being forgotten, speeds up reviewing, avoids duplicate issue reports, etc.
 
-These are the labels we currently have, grouped by type:
+These are the labels we currently have, grouped by applicability:
 
-Area
-====
+Labels applicable to issues only
+================================
 
-=============  ===============================================================
-Labels         ``Area:*``
-Applicable to  PRs  and issues
-Description    Indicates subsystems (e.g., Kernel, I2C, Memory Management),
-               project functions (e.g., Debugging, Documentation, Process),
-               or other categories (e.g., Coding Style, MISRA-C)  affected by
-               the bug or pull request.
-=============  ===============================================================
+.. list-table::
+   :header-rows: 1
 
-An area maintainer should be able to filter by an area label and
-find all issues and PRs which relate to that area.
+   * - Label
+     - Description
 
-Platform
-========
+   * - :guilabel:`priority: {high|medium|low}`
+     - To classify the impact and importance of a bug or
+       :ref:`feature <feature-tracking>`.
 
-=============  ===============================================================
-Labels         ``Platform:*``
-Applicable to  PRs  and issues
-Description    An issue or PR which affects only a particular platform
-=============  ===============================================================
+       Note: Issue priorities are generally set or changed during the bug-triage or TSC
+       meetings.
 
-To be discussed in a meeting
-============================
+   * - :guilabel:`Regression`
+     - Something, which was working, but does not anymore (bug subtype).
 
-=============  ===============================================================
-Labels         ``dev-review``, ``TSC``
-Applicable to  PRs  and issues
-Description    The issue is to be discussed in the following
-               `dev-review/TSC meeting`_ if time permits
-=============  ===============================================================
+   * - :guilabel:`Enhancement`
+     - Changes/Updates/Additions to existing :ref:`features <feature-tracking>`.
 
-.. _`dev-review/TSC meeting`: https://github.com/zephyrproject-rtos/zephyr/wiki/Zephyr-Committee-and-Working-Group-Meetings
+   * - :guilabel:`Feature request`
+     - A request for a new :ref:`feature <feature-tracking>`.
 
-Stable API changes
-==================
+   * - :guilabel:`Feature`
+     - A :ref:`planned feature<feature-tracking>` with a milestone.
 
-=============  ===============================================================
-Labels         ``Stable API Change``
-Applicable to  PRs  and issues
-Description    The issue or PR describes a change to a stable API. See
-               additional information in :ref:`stable_api_changes`
-=============  ===============================================================
+   * - :guilabel:`Hardware Support`
+     - Covers porting an existing feature (including Zephyr itself) to new hardware.
 
-Minimum PR review time
-======================
+   * - :guilabel:`Duplicate`
+     - This issue is a duplicate of another issue (please specify).
 
-=============  ===============================================================
-Labels         ``Hot Fix``, ``Trivial``, ``Maintainer``,
-               ``Security Review``, ``TSC``
-Applicable to  PRs only
-Description    Depending on the PR complexity, an indication of how long a merge
-               should be held to ensure proper review. See
-               :ref:`review process <review_time>`
-=============  ===============================================================
+   * - :guilabel:`Good first issue`
+     - Good for a first time contributor to take.
 
-Issue priority labels
-=====================
+   * - :guilabel:`Release Notes`
+     - Issues that need to be mentioned in release notes as known issues with
+       additional information.
 
-=============  ===============================================================
-Labels         ``priority:{high|medium|low}``
-Applicable to  Issues only
-Description    To classify the impact and importance of a bug or
-               :ref:`feature <feature-tracking>`
-=============  ===============================================================
+Any issue must be classified and labeled as either *Bug*, *Enhancement*, *RFC*,
+*Feature*, *Feature Request* or *Hardware Support*. More information on how
+feature requests are handled and become features can be found in :ref:`Feature
+Tracking<feature-tracking>`.
 
-Note: Issue priorities are generally set or changed during the bug-triage or TSC
-meetings.
+Labels applicable to pull requests only
+=======================================
 
-Miscellaneous labels
-====================
+The issue or PR describes a change to a stable API.
 
-For both PRs and issues
------------------------
+.. list-table::
+   :header-rows: 1
 
-+------------------------+-----------------------------------------------------+
-|``Bug``                 | The issue is a bug, or the PR is fixing a bug       |
-+------------------------+-----------------------------------------------------+
-|``Coverity``            | A Coverity detected issue or its fix                |
-+------------------------+-----------------------------------------------------+
-|``Waiting for response``| The Zephyr developers are waiting for the submitter |
-|                        | to respond to a question, or address an issue.      |
-+------------------------+-----------------------------------------------------+
-|``Blocked``             | Blocked by another PR or issue                      |
-+------------------------+-----------------------------------------------------+
-|``In progress``         | For PRs: is work in progress and should not be      |
-|                        | merged yet. For issues: Is being worked on          |
-+------------------------+-----------------------------------------------------+
-|``RFC``                 | The author would like input from the community. For |
-|                        | a PR it should be considered a draft                |
-+------------------------+-----------------------------------------------------+
-|``LTS``                 | Long term release branch related                    |
-+------------------------+-----------------------------------------------------+
-|``EXT``                 | Related to an external component (in ``ext/``)      |
-+------------------------+-----------------------------------------------------+
+   * - Label
+     - Description
 
-PR only labels
---------------
+   * - :guilabel:`Hotfix`
+     - Fix for an issue blocking development.
 
-================ ===============================================================
-``DNM``          This PR should not be merged (Do Not Merge).
-                 For work in progress, GitHub "draft" PRs are preferred
-``Stale PR``     PR which seems abandoned, and requires attention by the author
-``Needs review`` The PR needs attention from the maintainers
-``Backport``     The PR is a backport or should be backported
-``Licensing``    The PR has licensing issues which require a licensing expert to
-                 review it
-================ ===============================================================
+   * - :guilabel:`Trivial`
+     - Simple changes that can have shorter review time and be reviewed by anyone, i.e. typos,
+       straightforward one-liner bug fixes, etc.
 
-Issue only labels
------------------
+   * - :guilabel:`Maintainer`
+     - Maintainer review required.
 
-==================== ===========================================================
-``Regression``       Something, which was working, but does not anymore
-                     (bug subtype)
-``Question``         This issue is a question to the Zephyr developers
-``Enhancement``      Changes/Updates/Additions to existing
-                     :ref:`features <feature-tracking>`
-``Feature request``  A request for a new :ref:`feature <feature-tracking>`
-``Feature``          A :ref:`planned feature<feature-tracking>` with a milestone
-``Duplicate``        This issue is a duplicate of another issue
-                     (please specify)
-``Good first issue`` Good for a first time contributor to take
-``Release Notes``    Issues that need to be mentioned in release notes as known
-                     issues with additional information
-==================== ===========================================================
+   * - :guilabel:`Security Review`
+     - To be reviewed by a security expert.
 
-Any issue must be classified and labeled as either ``Bug``, ``Question``,
-``Enhancement``, ``Feature``, or ``Feature Request``. More information on how
-feature requests are handled and become features can be found in
-:ref:`Feature Tracking<feature-tracking>`.
+   * - :guilabel:`DNM`
+     - This PR should not be merged (Do Not Merge). For work in progress, GitHub
+       "draft" PRs are preferred.
+
+   * - :guilabel:`Needs review`
+     - The PR needs attention from the maintainers.
+
+   * - :guilabel:`Backport`
+     - The PR is a backport or should be backported.
+
+   * - :guilabel:`Licensing`
+     - The PR has licensing issues which require a licensing expert to review it.
+
+.. note::
+   For all labels applicable to PRs: Please note that the label, together with
+   PR complexity, affects how long a merge should be held to ensure proper
+   review. See :ref:`review process <review_time>` for details.
+
+
+Labels applicable to both pull requests and issues
+==================================================
+
+.. list-table::
+   :header-rows: 1
+
+   * - Label
+     - Description
+
+   * - :guilabel:`area: {area-name}`
+     - Indicates Zephyr subsystems (e.g, :guilabel:`area: Kernel`, :guilabel:`area: I2C`,
+       :guilabel:`area: Memory Management`), project functions (e.g., :guilabel:`area: Debugging`,
+       :guilabel:`area: Documentation`, :guilabel:`area: Process`), or other categories (e.g.,
+       :guilabel:`area: Coding Style`, :guilabel:`area: MISRA-C`) affected by the bug or the pull request.
+
+       An area maintainer should be able to filter by an area label and find all issues
+       and PRs which relate to that area.
+
+   * - :guilabel:`platform: {platform-name}`
+     - An issue or PR which affects only a particular platform.
+
+   * - :guilabel:`dev-review`
+     - The issue is to be discussed in the following `dev-review`_ if time
+       permits.
+
+       .. _`dev-review`: https://github.com/zephyrproject-rtos/zephyr/wiki/Zephyr-Committee-and-Working-Groups#zephyr-dev-meeting
+
+   * - :guilabel:`TSC`
+     - TSC stands for Technical Steering Committee. The issue is to be discussed in the
+       following `TSC meeting`_ if time permits.
+
+       .. _`TSC meeting`: https://github.com/zephyrproject-rtos/zephyr/wiki/Technical-Steering-Committee-(TSC)
+
+   * - :guilabel:`Breaking API Change`
+     - The issue or PR describes a breaking change to a stable API. See additional information
+       in :ref:`breaking_api_changes`.
+
+   * - :guilabel:`bug`
+     - The issue is a bug, or the PR is fixing a bug.
+
+   * - :guilabel:`Coverity`
+     - A Coverity detected issue or its fix.
+
+   * - :guilabel:`Waiting for response`
+     - The Zephyr developers are waiting for the submitter to respond to a question, or
+       address an issue.
+
+   * - :guilabel:`Blocked`
+     - Blocked by another PR or issue.
+
+   * - :guilabel:`Stale`
+     - An issue or a PR which seems abandoned, and requires attention by the author.
+
+   * - :guilabel:`In progress`
+     - For PRs: is work in progress and should not be merged yet. For issues: Is being
+       worked on.
+
+   * - :guilabel:`RFC`
+     - The author would like input from the community. For a PR it should be considered
+       a draft.
+
+   * - :guilabel:`LTS`
+     - Long term release branch related.
+
+   * - :guilabel:`EXT`
+     - Related to an external component.

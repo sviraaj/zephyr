@@ -47,6 +47,7 @@ set_property(TARGET bintools PROPERTY elfconvert_flag_outfile "-DOUTFILE=")
 #   disassembly_flag               : -T
 #   disassembly_flag_final         : empty
 #   disassembly_flag_inline_source : -S
+#   disassembly_flag_no_aliases    : empty
 #   disassembly_flag_all           : empty
 #   disassembly_flag_infile        : empty
 #   disassembly_flag_outfile       : '>'
@@ -54,6 +55,7 @@ set_property(TARGET bintools PROPERTY disassembly_command ${CMAKE_OBJDUMP})
 set_property(TARGET bintools PROPERTY disassembly_flag -T)
 set_property(TARGET bintools PROPERTY disassembly_flag_final "")
 set_property(TARGET bintools PROPERTY disassembly_flag_inline_source -S)
+set_property(TARGET bintools PROPERTY disassembly_flag_no_aliases "")
 set_property(TARGET bintools PROPERTY disassembly_flag_all "") # No support for all ?
 
 set_property(TARGET bintools PROPERTY disassembly_flag_infile "")
@@ -101,3 +103,11 @@ set_property(TARGET bintools PROPERTY strip_flag_debug -ql)
 
 set_property(TARGET bintools PROPERTY strip_flag_infile "")
 set_property(TARGET bintools PROPERTY strip_flag_outfile -o )
+
+# list symbols in a binary
+set_property(TARGET bintools PROPERTY symbols_command ${CMAKE_NM})
+# flags are set to be as close to gnu nm format as possible
+set_property(TARGET bintools PROPERTY symbols_flag "-xhpqgn")
+set_property(TARGET bintools PROPERTY symbols_final "")
+set_property(TARGET bintools PROPERTY symbols_infile "")
+set_property(TARGET bintools PROPERTY symbols_outfile ">;" )

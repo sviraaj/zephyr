@@ -1,18 +1,15 @@
 # Copyright (c) 2020 ITE Corporation. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-description: This binding gives a base representation of the ITE gpio
+description: ITE IT8xxx2 GPIO
 
 compatible: "ite,it8xxx2-gpio"
 
 include: [gpio-controller.yaml, base.yaml]
 
 properties:
-    reg:
-      required: true
-
-    label:
-      required: true
+  reg:
+    required: true
 
 gpio-cells:
   - pin

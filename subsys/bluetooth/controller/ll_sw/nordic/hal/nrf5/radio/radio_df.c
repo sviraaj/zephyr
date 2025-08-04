@@ -13,7 +13,9 @@
 #include <hal/nrf_gpio.h>
 #include <hal/ccm.h>
 
-#include "ll_sw/pdu.h"
+#include "pdu_df.h"
+#include "lll/pdu_vendor.h"
+#include "pdu.h"
 
 #include "radio_nrf5.h"
 #include "radio.h"
@@ -34,7 +36,7 @@
 	FOR_EACH(fn, sep, 0, 1, 2, 3, 4, 5, 6, 7)
 
 /* Index of antenna id in antenna switching pattern used for GUARD and REFERENCE period */
-#define GUARD_REF_ANTENNA_PATTERN_IDX 1U
+#define GUARD_REF_ANTENNA_PATTERN_IDX 0U
 
 /* Direction Finding antenna matrix configuration */
 struct df_ant_cfg {
@@ -251,14 +253,6 @@ void radio_df_mode_set_aod(void)
 	radio_df_mode_set(NRF_RADIO_DFE_OP_MODE_AOD);
 }
 
-static void radio_df_cte_inline_set_disabled(void)
-{
-	NRF_RADIO->CTEINLINECONF &= ~RADIO_CTEINLINECONF_CTEINLINECTRLEN_Msk;
-	NRF_RADIO->CTEINLINECONF |= ((RADIO_CTEINLINECONF_CTEINLINECTRLEN_Disabled <<
-				      RADIO_CTEINLINECONF_CTEINLINECTRLEN_Pos)
-				     & RADIO_CTEINLINECONF_CTEINLINECTRLEN_Msk);
-}
-
 static inline void radio_df_ctrl_set(uint8_t cte_len,
 				     uint8_t switch_spacing,
 				     uint8_t sample_spacing,
@@ -383,13 +377,21 @@ void radio_df_cte_rx_4us_switching(bool cte_info_in_s1, uint8_t phy)
 
 void radio_df_ant_switch_pattern_clear(void)
 {
-	NRF_RADIO->CLEARPATTERN = RADIO_CLEARPATTERN_CLEARPATTERN_Clear;
+	NRF_RADIO->CLEARPATTERN = (HAL_RADIO_CLEARPATTERN_CLEARPATTERN_Clear <<
+				   RADIO_CLEARPATTERN_CLEARPATTERN_Pos) &
+				  RADIO_CLEARPATTERN_CLEARPATTERN_Msk;
 }
 
 void radio_df_reset(void)
 {
-	radio_df_mode_set(RADIO_DFEMODE_DFEOPMODE_Disabled);
-	radio_df_cte_inline_set_disabled();
+	/* Initialize to NRF_RADIO reset values
+	 * Note: Only registers that turn off the DF feature and those
+	 *       registers whose bits are partially modified across functions
+	 *       are assigned back the power-on reset values.
+	 */
+	NRF_RADIO->DFEMODE = HAL_RADIO_RESET_VALUE_DFEMODE;
+	NRF_RADIO->CTEINLINECONF = HAL_RADIO_RESET_VALUE_CTEINLINECONF;
+
 	radio_df_ant_switch_pattern_clear();
 }
 
@@ -397,10 +399,10 @@ void radio_switch_complete_and_phy_end_b2b_tx(uint8_t phy_curr, uint8_t flags_cu
 					      uint8_t phy_next, uint8_t flags_next)
 {
 #if defined(CONFIG_BT_CTLR_TIFS_HW)
-	NRF_RADIO->SHORTS = RADIO_SHORTS_READY_START_Msk | RADIO_SHORTS_END_DISABLE_Msk |
+	NRF_RADIO->SHORTS = RADIO_SHORTS_READY_START_Msk | NRF_RADIO_SHORTS_TRX_END_DISABLE_Msk |
 			    RADIO_SHORTS_DISABLED_TXEN_Msk;
 #else /* !CONFIG_BT_CTLR_TIFS_HW */
-	NRF_RADIO->SHORTS = RADIO_SHORTS_READY_START_Msk | NRF_RADIO_SHORTS_PDU_END_DISABLE;
+	NRF_RADIO->SHORTS = RADIO_SHORTS_READY_START_Msk | NRF_RADIO_SHORTS_TRX_END_DISABLE_Msk;
 	sw_switch(SW_SWITCH_TX, SW_SWITCH_TX, phy_curr, flags_curr, phy_next, flags_next,
 		  END_EVT_DELAY_DISABLED);
 #endif /* !CONFIG_BT_CTLR_TIFS_HW */

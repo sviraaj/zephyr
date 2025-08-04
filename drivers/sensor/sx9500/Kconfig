@@ -5,7 +5,9 @@
 
 menuconfig SX9500
 	bool "SX9500 I2C SAR Proximity Chip"
-	depends on I2C
+	default y
+	depends on DT_HAS_SEMTECH_SX9500_ENABLED
+	select I2C
 	help
 	  Enable driver for SX9500 I2C-based SAR proximity sensor.
 
@@ -27,11 +29,13 @@ config SX9500_TRIGGER_NONE
 
 config SX9500_TRIGGER_GLOBAL_THREAD
 	depends on GPIO
+	depends on $(dt_compat_any_has_prop,$(DT_COMPAT_SEMTECH_SX9500),int-gpios)
 	select SX9500_TRIGGER
 	bool "Use global thread"
 
 config SX9500_TRIGGER_OWN_THREAD
 	depends on GPIO
+	depends on $(dt_compat_any_has_prop,$(DT_COMPAT_SEMTECH_SX9500),int-gpios)
 	select SX9500_TRIGGER
 	bool "Use own thread"
 

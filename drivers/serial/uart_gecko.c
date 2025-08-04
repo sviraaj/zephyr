@@ -7,19 +7,77 @@
 
 #include <errno.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/irq.h>
+#include <zephyr/pm/device.h>
 #include <em_usart.h>
-#include <em_gpio.h>
 #include <em_cmu.h>
 #include <soc.h>
 
+#ifdef CONFIG_PINCTRL
+#include <zephyr/drivers/pinctrl.h>
+#else
+#include <em_gpio.h>
+#endif /* CONFIG_PINCTRL */
+
+#if DT_NODE_HAS_PROP(id, peripheral_id)
 #define USART_PREFIX cmuClock_USART
 #define UART_PREFIX cmuClock_UART
 #define CLOCK_USART(id) _CONCAT(USART_PREFIX, id)
 #define CLOCK_UART(id) _CONCAT(UART_PREFIX, id)
+#define GET_GECKO_USART_CLOCK(id) \
+	.clock = CLOCK_USART(DT_INST_PROP(id, peripheral_id)),
+#define GET_GECKO_UART_CLOCK(id) \
+	.clock = CLOCK_UART(DT_INST_PROP(id, peripheral_id)),
+#else
+#if (USART_COUNT == 1)
+#define CLOCK_USART(ref)	(((ref) == USART0) ? cmuClock_USART0 \
+			       : -1)
+#elif (USART_COUNT == 2)
+#define CLOCK_USART(ref)	(((ref) == USART0) ? cmuClock_USART0 \
+			       : ((ref) == USART1) ? cmuClock_USART1 \
+			       : -1)
+#elif (USART_COUNT == 3)
+#define CLOCK_USART(ref)	(((ref) == USART0) ? cmuClock_USART0 \
+			       : ((ref) == USART1) ? cmuClock_USART1 \
+			       : ((ref) == USART2) ? cmuClock_USART2 \
+			       : -1)
+#elif (USART_COUNT == 4)
+#define CLOCK_USART(ref)	(((ref) == USART0) ? cmuClock_USART0 \
+			       : ((ref) == USART1) ? cmuClock_USART1 \
+			       : ((ref) == USART2) ? cmuClock_USART2 \
+			       : ((ref) == USART3) ? cmuClock_USART3 \
+			       : -1)
+#elif (USART_COUNT == 5)
+#define CLOCK_USART(ref)	(((ref) == USART0) ? cmuClock_USART0 \
+			       : ((ref) == USART1) ? cmuClock_USART1 \
+			       : ((ref) == USART2) ? cmuClock_USART2 \
+			       : ((ref) == USART3) ? cmuClock_USART3 \
+			       : ((ref) == USART4) ? cmuClock_USART4 \
+			       : -1)
+#elif (USART_COUNT == 6)
+#define CLOCK_USART(ref)	(((ref) == USART0) ? cmuClock_USART0 \
+			       : ((ref) == USART1) ? cmuClock_USART1 \
+			       : ((ref) == USART2) ? cmuClock_USART2 \
+			       : ((ref) == USART3) ? cmuClock_USART3 \
+			       : ((ref) == USART4) ? cmuClock_USART4 \
+			       : ((ref) == USART5) ? cmuClock_USART5 \
+			       : -1)
+#else
+#error "Undefined number of USARTs."
+#endif /* USART_COUNT */
+
+#define CLOCK_UART(ref)		(((ref) == UART0) ? cmuClock_UART0  \
+			       : ((ref) == UART1) ? cmuClock_UART1  \
+			       : -1)
+#define GET_GECKO_USART_CLOCK(id) \
+	.clock = CLOCK_USART((USART_TypeDef *)DT_INST_REG_ADDR(id)),
+#define GET_GECKO_UART_CLOCK(id) \
+	.clock = CLOCK_UART((USART_TypeDef *)DT_INST_REG_ADDR(id)),
+#endif /* DT_NODE_HAS_PROP(id, peripheral_id) */
 
 /* Helper define to determine if SOC supports hardware flow control */
-#if ((_SILICON_LABS_32B_SERIES > 0) || \
-	(defined(_USART_ROUTEPEN_RTSPEN_MASK) && \
+#if ((_SILICON_LABS_32B_SERIES > 0) ||					\
+	(defined(_USART_ROUTEPEN_RTSPEN_MASK) &&			\
 	defined(_USART_ROUTEPEN_CTSPEN_MASK)))
 #define HW_FLOWCONTROL_IS_SUPPORTED_BY_SOC
 #endif
@@ -29,30 +87,30 @@
 #define DT_DRV_COMPAT silabs_gecko_uart
 
 /* Has any enabled uart instance hw-flow-control enabled? */
-#define UART_GECKO_UART_HW_FLOW_CONTROL_ENABLED \
+#define UART_GECKO_UART_HW_FLOW_CONTROL_ENABLED				\
 	DT_INST_FOREACH_STATUS_OKAY(HAS_HFC_OR) 0
 
 #undef DT_DRV_COMPAT
 #define DT_DRV_COMPAT silabs_gecko_usart
 
 /* Has any enabled usart instance hw-flow-control enabled? */
-#define UART_GECKO_USART_HW_FLOW_CONTROL_ENABLED  \
+#define UART_GECKO_USART_HW_FLOW_CONTROL_ENABLED			\
 	DT_INST_FOREACH_STATUS_OKAY(HAS_HFC_OR) 0
 
-#if UART_GECKO_USART_HW_FLOW_CONTROL_ENABLED || \
+#if UART_GECKO_USART_HW_FLOW_CONTROL_ENABLED ||				\
 	UART_GECKO_UART_HW_FLOW_CONTROL_ENABLED
 #define UART_GECKO_HW_FLOW_CONTROL
 #endif
 
 /* Sanity check for hardware flow control */
-#if defined(UART_GECKO_HW_FLOW_CONTROL) && \
+#if defined(UART_GECKO_HW_FLOW_CONTROL) &&				\
 	(!(defined(HW_FLOWCONTROL_IS_SUPPORTED_BY_SOC)))
-#error "Hardware flow control is activated for at least one UART/USART, \
+#error "Hardware flow control is activated for at least one UART/USART,	\
 but not supported by this SOC"
 #endif
 
-#if defined(UART_GECKO_HW_FLOW_CONTROL) && \
-	(!defined(CONFIG_SOC_GECKO_HAS_INDIVIDUAL_PIN_LOCATION) && \
+#if defined(UART_GECKO_HW_FLOW_CONTROL) &&				\
+	(!defined(CONFIG_SOC_GECKO_HAS_INDIVIDUAL_PIN_LOCATION) &&	\
 	 !defined(GPIO_USART_ROUTEEN_RTSPEN))
 #error "Driver not supporting hardware flow control for this SOC"
 #endif
@@ -60,35 +118,38 @@ but not supported by this SOC"
 /**
  * @brief Config struct for UART
  */
+
 struct uart_gecko_config {
+#ifdef CONFIG_PINCTRL
+	const struct pinctrl_dev_config *pcfg;
+#endif /* CONFIG_PINCTRL */
 	USART_TypeDef *base;
 	CMU_Clock_TypeDef clock;
-	uint32_t baud_rate;
-#ifdef UART_GECKO_HW_FLOW_CONTROL
-	bool hw_flowcontrol;
-#endif
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	void (*irq_config_func)(const struct device *dev);
-#endif
+#endif /* CONFIG_UART_INTERRUPT_DRIVEN */
+#ifndef CONFIG_PINCTRL
 	struct soc_gpio_pin pin_rx;
 	struct soc_gpio_pin pin_tx;
 #ifdef UART_GECKO_HW_FLOW_CONTROL
 	struct soc_gpio_pin pin_rts;
 	struct soc_gpio_pin pin_cts;
-#endif
+#endif /* UART_GECKO_HW_FLOW_CONTROL */
 #ifdef CONFIG_SOC_GECKO_HAS_INDIVIDUAL_PIN_LOCATION
 	uint8_t loc_rx;
 	uint8_t loc_tx;
 #ifdef UART_GECKO_HW_FLOW_CONTROL
 	uint8_t loc_rts;
 	uint8_t loc_cts;
-#endif
-#else
+#endif /* UART_GECKO_HW_FLOW_CONTROL */
+#else /* CONFIG_SOC_GECKO_HAS_INDIVIDUAL_PIN_LOCATION */
 	uint8_t loc;
+#endif /* CONFIG_SOC_GECKO_HAS_INDIVIDUAL_PIN_LOCATION */
 #endif
 };
 
 struct uart_gecko_data {
+	struct uart_config *uart_cfg;
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	uart_irq_callback_user_data_t callback;
 	void *cb_data;
@@ -145,7 +206,7 @@ static int uart_gecko_fifo_fill(const struct device *dev, const uint8_t *tx_data
 			       int len)
 {
 	const struct uart_gecko_config *config = dev->config;
-	uint8_t num_tx = 0U;
+	int num_tx = 0U;
 
 	while ((len - num_tx > 0) &&
 	       (config->base->STATUS & USART_STATUS_TXBL)) {
@@ -160,7 +221,7 @@ static int uart_gecko_fifo_read(const struct device *dev, uint8_t *rx_data,
 			       const int len)
 {
 	const struct uart_gecko_config *config = dev->config;
-	uint8_t num_rx = 0U;
+	int num_rx = 0U;
 
 	while ((len - num_rx > 0) &&
 	       (config->base->STATUS & USART_STATUS_RXDATAV)) {
@@ -291,13 +352,16 @@ static void uart_gecko_isr(const struct device *dev)
  *
  * @param dev UART device to configure
  */
+ #ifndef CONFIG_PINCTRL
 static void uart_gecko_init_pins(const struct device *dev)
 {
 	const struct uart_gecko_config *config = dev->config;
 
 	/* Configure RX and TX */
-	soc_gpio_configure(&config->pin_rx);
-	soc_gpio_configure(&config->pin_tx);
+	GPIO_PinModeSet(config->pin_rx.port, config->pin_rx.pin,
+			config->pin_rx.mode, config->pin_rx.out);
+	GPIO_PinModeSet(config->pin_tx.port, config->pin_tx.pin,
+			config->pin_tx.mode, config->pin_tx.out);
 
 #ifdef CONFIG_SOC_GECKO_HAS_INDIVIDUAL_PIN_LOCATION
 	/* For SOCs with configurable pin locations (set in SOC Kconfig) */
@@ -322,10 +386,14 @@ static void uart_gecko_init_pins(const struct device *dev)
 #endif /* CONFIG_SOC_GECKO_HAS_INDIVIDUAL_PIN_LOCATION */
 
 #ifdef UART_GECKO_HW_FLOW_CONTROL
+	const struct uart_gecko_data *data = dev->data;
+	const struct uart_config *uart_cfg = data->uart_cfg;
 	/* Configure HW flow control (RTS, CTS) */
-	if (config->hw_flowcontrol) {
-		soc_gpio_configure(&config->pin_rts);
-		soc_gpio_configure(&config->pin_cts);
+	if (uart_cfg->flow_ctrl) {
+		GPIO_PinModeSet(config->pin_rts.port, config->pin_rts.pin,
+				config->pin_rts.mode, config->pin_rts.out);
+		GPIO_PinModeSet(config->pin_cts.port, config->pin_cts.pin,
+				config->pin_cts.mode, config->pin_cts.out);
 
 #ifdef CONFIG_SOC_GECKO_HAS_INDIVIDUAL_PIN_LOCATION
 		config->base->ROUTEPEN =
@@ -354,6 +422,203 @@ static void uart_gecko_init_pins(const struct device *dev)
 	}
 #endif /* UART_GECKO_HW_FLOW_CONTROL */
 }
+#endif /* !CONFIG_PINCTRL */
+
+static inline USART_Parity_TypeDef uart_gecko_cfg2ll_parity(enum uart_config_parity parity)
+{
+	switch (parity) {
+	case UART_CFG_PARITY_ODD:
+		return usartOddParity;
+	case UART_CFG_PARITY_EVEN:
+		return usartEvenParity;
+	case UART_CFG_PARITY_NONE:
+	default:
+		return usartNoParity;
+	}
+}
+
+static inline enum uart_config_parity uart_gecko_ll2cfg_parity(USART_Parity_TypeDef parity)
+{
+	switch (parity) {
+	case usartOddParity:
+		return UART_CFG_PARITY_ODD;
+	case usartEvenParity:
+		return UART_CFG_PARITY_EVEN;
+	case usartNoParity:
+	default:
+		return UART_CFG_PARITY_NONE;
+	}
+}
+
+static inline USART_Stopbits_TypeDef uart_gecko_cfg2ll_stopbits(enum uart_config_stop_bits sb)
+{
+	switch (sb) {
+	case UART_CFG_STOP_BITS_0_5:
+		return usartStopbits0p5;
+	case UART_CFG_STOP_BITS_1:
+		return usartStopbits1;
+	case UART_CFG_STOP_BITS_2:
+		return usartStopbits2;
+	case UART_CFG_STOP_BITS_1_5:
+		return usartStopbits1p5;
+	default:
+		return usartStopbits1;
+	}
+}
+
+static inline enum uart_config_stop_bits uart_gecko_ll2cfg_stopbits(USART_Stopbits_TypeDef sb)
+{
+	switch (sb) {
+	case usartStopbits0p5:
+		return UART_CFG_STOP_BITS_0_5;
+	case usartStopbits1:
+		return UART_CFG_STOP_BITS_1;
+	case usartStopbits1p5:
+		return UART_CFG_STOP_BITS_1_5;
+	case usartStopbits2:
+		return UART_CFG_STOP_BITS_2;
+	default:
+		return UART_CFG_STOP_BITS_1;
+	}
+}
+
+static inline USART_Databits_TypeDef uart_gecko_cfg2ll_databits(enum uart_config_data_bits db,
+								   enum uart_config_parity p)
+{
+	switch (db) {
+	case UART_CFG_DATA_BITS_7:
+		if (p == UART_CFG_PARITY_NONE) {
+			return usartDatabits7;
+		} else {
+			return usartDatabits8;
+		}
+	case UART_CFG_DATA_BITS_9:
+		return usartDatabits9;
+	case UART_CFG_DATA_BITS_8:
+	default:
+		if (p == UART_CFG_PARITY_NONE) {
+			return usartDatabits8;
+		} else {
+			return usartDatabits9;
+		}
+		return usartDatabits8;
+	}
+}
+
+static inline enum uart_config_data_bits uart_gecko_ll2cfg_databits(USART_Databits_TypeDef db,
+								    USART_Parity_TypeDef p)
+{
+	switch (db) {
+	case usartDatabits7:
+		if (p == usartNoParity) {
+			return UART_CFG_DATA_BITS_7;
+		} else {
+			return UART_CFG_DATA_BITS_6;
+		}
+	case usartDatabits9:
+		if (p == usartNoParity) {
+			return UART_CFG_DATA_BITS_9;
+		} else {
+			return UART_CFG_DATA_BITS_8;
+		}
+	case usartDatabits8:
+	default:
+		if (p == usartNoParity) {
+			return UART_CFG_DATA_BITS_8;
+		} else {
+			return UART_CFG_DATA_BITS_7;
+		}
+	}
+}
+
+#if UART_GECKO_HW_FLOW_CONTROL
+/**
+ * @brief  Get LL hardware flow control define from
+ *         Zephyr hardware flow control option.
+ * @note   Supports only UART_CFG_FLOW_CTRL_RTS_CTS and UART_CFG_FLOW_CTRL_RS485.
+ * @param  fc: Zephyr hardware flow control option.
+ * @retval usartHwFlowControlCtsAndRts, or usartHwFlowControlNone.
+ */
+static inline USART_HwFlowControl_TypeDef uart_gecko_cfg2ll_hwctrl(
+	enum uart_config_flow_control fc)
+{
+	if (fc == UART_CFG_FLOW_CTRL_RTS_CTS) {
+		return usartHwFlowControlCtsAndRts;
+	}
+
+	return usartHwFlowControlNone;
+}
+
+/**
+ * @brief  Get Zephyr hardware flow control option from
+ *         LL hardware flow control define.
+ * @note   Supports only usartHwFlowControlCtsAndRts.
+ * @param  fc: LL hardware flow control definition.
+ * @retval UART_CFG_FLOW_CTRL_RTS_CTS, or UART_CFG_FLOW_CTRL_NONE.
+ */
+static inline enum uart_config_flow_control uart_gecko_ll2cfg_hwctrl(
+	USART_HwFlowControl_TypeDef fc)
+{
+	if (fc == usartHwFlowControlCtsAndRts) {
+		return UART_CFG_FLOW_CTRL_RTS_CTS;
+	}
+
+	return UART_CFG_FLOW_CTRL_NONE;
+}
+#endif
+
+#ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
+static int uart_gecko_configure(const struct device *dev,
+				const struct uart_config *cfg)
+{
+	const struct uart_gecko_config *config = dev->config;
+	USART_TypeDef *base = config->base;
+	struct uart_gecko_data *data = dev->data;
+	struct uart_config *uart_cfg = data->uart_cfg;
+
+	if (uart_cfg->parity != cfg->parity) {
+		return -ENOTSUP;
+	}
+
+	if (uart_cfg->stop_bits != cfg->stop_bits) {
+		return -ENOTSUP;
+	}
+
+	if (uart_cfg->data_bits != cfg->data_bits) {
+		return -ENOTSUP;
+	}
+
+	if (uart_cfg->flow_ctrl != cfg->flow_ctrl) {
+		return -ENOTSUP;
+	}
+
+	USART_BaudrateAsyncSet(base, 0, cfg->baudrate, usartOVS16);
+
+	/* Upon successful configuration, persist the syscall-passed
+	 * uart_config.
+	 * This allows restoring it, should the device return from a low-power
+	 * mode in which register contents are lost.
+	 */
+	*uart_cfg = *cfg;
+
+	return 0;
+};
+
+static int uart_gecko_config_get(const struct device *dev,
+				 struct uart_config *cfg)
+{
+	struct uart_gecko_data *data = dev->data;
+	struct uart_config *uart_cfg = data->uart_cfg;
+
+	cfg->baudrate = uart_cfg->baudrate;
+	cfg->parity = uart_cfg->parity;
+	cfg->stop_bits = uart_cfg->stop_bits;
+	cfg->data_bits = uart_cfg->data_bits;
+	cfg->flow_ctrl = uart_cfg->flow_ctrl;
+
+	return 0;
+}
+#endif /* CONFIG_UART_USE_RUNTIME_CONFIGURE */
 
 /**
  * @brief Main initializer for UART
@@ -363,26 +628,39 @@ static void uart_gecko_init_pins(const struct device *dev)
  */
 static int uart_gecko_init(const struct device *dev)
 {
+#ifdef CONFIG_PINCTRL
+	int err;
+#endif /* CONFIG_PINCTRL */
 	const struct uart_gecko_config *config = dev->config;
+	const struct uart_gecko_data *data = dev->data;
+	const struct uart_config *uart_cfg = data->uart_cfg;
+
 	USART_InitAsync_TypeDef usartInit = USART_INITASYNC_DEFAULT;
 
-	/* The peripheral and gpio clock are already enabled from soc and gpio
-	 * driver
-	 */
-
+	/* The peripheral and gpio clock are already enabled from soc and gpio driver */
 	/* Enable USART clock */
 	CMU_ClockEnable(config->clock, true);
 
 	/* Init USART */
-	usartInit.baudrate = config->baud_rate;
+	usartInit.baudrate = uart_cfg->baudrate;
+	usartInit.parity = uart_gecko_cfg2ll_parity(uart_cfg->parity);
+	usartInit.stopbits = uart_gecko_cfg2ll_stopbits(uart_cfg->stop_bits);
+	usartInit.databits = uart_gecko_cfg2ll_databits(uart_cfg->data_bits, uart_cfg->parity);
 #ifdef UART_GECKO_HW_FLOW_CONTROL
-	usartInit.hwFlowControl = config->hw_flowcontrol ?
+	usartInit.hwFlowControl = uart_cfg->flow_ctrl ?
 		usartHwFlowControlCtsAndRts : usartHwFlowControlNone;
 #endif
 	USART_InitAsync(config->base, &usartInit);
 
+#ifdef CONFIG_PINCTRL
+		err = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
+		if (err < 0) {
+			return err;
+		}
+#else
 	/* Initialize USART pins */
 	uart_gecko_init_pins(dev);
+#endif /* CONFIG_PINCTRL */
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	config->irq_config_func(dev);
@@ -391,10 +669,39 @@ static int uart_gecko_init(const struct device *dev)
 	return 0;
 }
 
-static const struct uart_driver_api uart_gecko_driver_api = {
+#ifdef CONFIG_PM_DEVICE
+static int uart_gecko_pm_action(const struct device *dev, enum pm_device_action action)
+{
+	__maybe_unused const struct uart_gecko_config *config = dev->config;
+
+	switch (action) {
+	case PM_DEVICE_ACTION_SUSPEND:
+#ifdef USART_STATUS_TXIDLE
+		/* Wait for TX FIFO to flush before suspending */
+		while (!(USART_StatusGet(config->base) & USART_STATUS_TXIDLE)) {
+		}
+#endif
+		break;
+
+	case PM_DEVICE_ACTION_RESUME:
+		break;
+
+	default:
+		return -ENOTSUP;
+	}
+
+	return 0;
+}
+#endif
+
+static DEVICE_API(uart, uart_gecko_driver_api) = {
 	.poll_in = uart_gecko_poll_in,
 	.poll_out = uart_gecko_poll_out,
 	.err_check = uart_gecko_err_check,
+#ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
+	.configure = uart_gecko_configure,
+	.config_get = uart_gecko_config_get,
+#endif /* CONFIG_UART_USE_RUNTIME_CONFIGURE */
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	.fifo_fill = uart_gecko_fifo_fill,
 	.fifo_read = uart_gecko_fifo_read,
@@ -422,7 +729,7 @@ static const struct uart_driver_api uart_gecko_driver_api = {
 #define GECKO_UART_IRQ_HANDLER_FUNC(idx)				       \
 	.irq_config_func = uart_gecko_config_func_##idx,
 #define GECKO_UART_IRQ_HANDLER(idx)					       \
-	static void uart_gecko_config_func_##idx(const struct device *dev)	       \
+	static void uart_gecko_config_func_##idx(const struct device *dev)     \
 	{								       \
 		IRQ_CONNECT(DT_INST_IRQ_BY_NAME(idx, rx, irq),		       \
 			    DT_INST_IRQ_BY_NAME(idx, rx, priority),	       \
@@ -515,45 +822,51 @@ static const struct uart_driver_api uart_gecko_driver_api = {
 	.pin_rts = PIN_UART_RTS(idx),					       \
 	.pin_cts = PIN_UART_CTS(idx),
 
-#define GECKO_UART_HW_FLOW_CONTROL(idx)					       \
-	.hw_flowcontrol = DT_INST_PROP(idx, hw_flow_control),
-
 #else /* UART_GECKO_HW_FLOW_CONTROL */
 
 #define GECKO_UART_RTS_CTS_PIN_LOCATIONS(idx)
 #define VALIDATE_GECKO_UART_RTS_CTS_PIN_LOCATIONS(idx)
 #define GECKO_UART_RTS_CTS_PINS(idx)
-#define GECKO_UART_HW_FLOW_CONTROL(idx)
 
 #endif /* UART_GECKO_HW_FLOW_CONTROL */
 
-#define GECKO_UART_INIT(idx)						       \
-	VALIDATE_GECKO_UART_RX_TX_PIN_LOCATIONS(idx);			       \
-	VALIDATE_GECKO_UART_RTS_CTS_PIN_LOCATIONS(idx);			       \
-									       \
-	GECKO_UART_IRQ_HANDLER_DECL(idx);				       \
-									       \
-	static const struct uart_gecko_config uart_gecko_cfg_##idx = {	       \
-		.base = (USART_TypeDef *)DT_INST_REG_ADDR(idx),		       \
-		.clock = CLOCK_UART(DT_INST_PROP(idx, peripheral_id)),	       \
-		.baud_rate = DT_INST_PROP(idx, current_speed),		       \
-		GECKO_UART_HW_FLOW_CONTROL(idx)				       \
-		GECKO_UART_RX_TX_PINS(idx)				       \
-		GECKO_UART_RTS_CTS_PINS(idx)				       \
-		GECKO_UART_RX_TX_PIN_LOCATIONS(idx)			       \
-		GECKO_UART_RTS_CTS_PIN_LOCATIONS(idx)			       \
-		GECKO_UART_IRQ_HANDLER_FUNC(idx)			       \
-	};								       \
-									       \
-	static struct uart_gecko_data uart_gecko_data_##idx;		       \
-									       \
-	DEVICE_DT_INST_DEFINE(idx, &uart_gecko_init, 			       \
-			    NULL, &uart_gecko_data_##idx,		       \
-			    &uart_gecko_cfg_##idx, PRE_KERNEL_1,	       \
-			    CONFIG_SERIAL_INIT_PRIORITY,		       \
-			    &uart_gecko_driver_api);			       \
-									       \
-									       \
+#define GECKO_UART_INIT(idx)							\
+	VALIDATE_GECKO_UART_RX_TX_PIN_LOCATIONS(idx);				\
+	VALIDATE_GECKO_UART_RTS_CTS_PIN_LOCATIONS(idx);				\
+										\
+	GECKO_UART_IRQ_HANDLER_DECL(idx);					\
+	PM_DEVICE_DT_INST_DEFINE(idx, uart_gecko_pm_action);			\
+										\
+	static struct uart_config uart_cfg_##idx = {				\
+		.baudrate  = DT_INST_PROP(idx, current_speed),			\
+		.parity    = DT_INST_ENUM_IDX(idx, parity),			\
+		.stop_bits = DT_INST_ENUM_IDX(idx, stop_bits),			\
+		.data_bits = DT_INST_ENUM_IDX(idx, data_bits),			\
+		.flow_ctrl = DT_INST_PROP(idx, hw_flow_control)			\
+					? UART_CFG_FLOW_CTRL_RTS_CTS		\
+					: UART_CFG_FLOW_CTRL_NONE,		\
+	};									\
+										\
+	static const struct uart_gecko_config uart_gecko_cfg_##idx = {		\
+		.base = (USART_TypeDef *)DT_INST_REG_ADDR(idx),			\
+		GET_GECKO_UART_CLOCK(idx)					\
+		GECKO_UART_RX_TX_PINS(idx)					\
+		GECKO_UART_RTS_CTS_PINS(idx)					\
+		GECKO_UART_RX_TX_PIN_LOCATIONS(idx)				\
+		GECKO_UART_RTS_CTS_PIN_LOCATIONS(idx)				\
+		GECKO_UART_IRQ_HANDLER_FUNC(idx)				\
+	};									\
+										\
+										\
+	static struct uart_gecko_data uart_gecko_data_##idx = {			\
+		.uart_cfg = &uart_cfg_##idx,					\
+	};									\
+										\
+	DEVICE_DT_INST_DEFINE(idx, uart_gecko_init, PM_DEVICE_DT_INST_GET(idx),	\
+			      &uart_gecko_data_##idx, &uart_gecko_cfg_##idx,	\
+			      PRE_KERNEL_1, CONFIG_SERIAL_INIT_PRIORITY,	\
+			      &uart_gecko_driver_api);				\
+										\
 	GECKO_UART_IRQ_HANDLER(idx)
 
 DT_INST_FOREACH_STATUS_OKAY(GECKO_UART_INIT)
@@ -567,7 +880,7 @@ DT_INST_FOREACH_STATUS_OKAY(GECKO_UART_INIT)
 #define GECKO_USART_IRQ_HANDLER_FUNC(idx)				       \
 	.irq_config_func = usart_gecko_config_func_##idx,
 #define GECKO_USART_IRQ_HANDLER(idx)					       \
-	static void usart_gecko_config_func_##idx(const struct device *dev)	       \
+	static void usart_gecko_config_func_##idx(const struct device *dev)    \
 	{								       \
 		IRQ_CONNECT(DT_INST_IRQ_BY_NAME(idx, rx, irq),		       \
 			    DT_INST_IRQ_BY_NAME(idx, rx, priority),	       \
@@ -585,32 +898,79 @@ DT_INST_FOREACH_STATUS_OKAY(GECKO_UART_INIT)
 #define GECKO_USART_IRQ_HANDLER(idx)
 #endif
 
-#define GECKO_USART_INIT(idx)						       \
-	VALIDATE_GECKO_UART_RX_TX_PIN_LOCATIONS(idx);			       \
-	VALIDATE_GECKO_UART_RTS_CTS_PIN_LOCATIONS(idx);			       \
-									       \
-	GECKO_USART_IRQ_HANDLER_DECL(idx);				       \
-									       \
-	static const struct uart_gecko_config usart_gecko_cfg_##idx = {	       \
-		.base = (USART_TypeDef *)DT_INST_REG_ADDR(idx),		       \
-		.clock = CLOCK_USART(DT_INST_PROP(idx, peripheral_id)),	       \
-		.baud_rate = DT_INST_PROP(idx, current_speed),		       \
-		GECKO_UART_HW_FLOW_CONTROL(idx)				       \
-		GECKO_UART_RX_TX_PINS(idx)				       \
-		GECKO_UART_RTS_CTS_PINS(idx)				       \
-		GECKO_UART_RX_TX_PIN_LOCATIONS(idx)			       \
-		GECKO_UART_RTS_CTS_PIN_LOCATIONS(idx)			       \
-		GECKO_USART_IRQ_HANDLER_FUNC(idx)			       \
-	};								       \
-									       \
-	static struct uart_gecko_data usart_gecko_data_##idx;		       \
-									       \
-	DEVICE_DT_INST_DEFINE(idx, &uart_gecko_init, NULL,		       \
-			    &usart_gecko_data_##idx,			       \
-			    &usart_gecko_cfg_##idx, PRE_KERNEL_1,	       \
-			    CONFIG_SERIAL_INIT_PRIORITY,		       \
-			    &uart_gecko_driver_api);			       \
-									       \
+#ifdef CONFIG_PINCTRL
+#define GECKO_USART_INIT(idx)							\
+	PINCTRL_DT_INST_DEFINE(idx);						\
+	GECKO_USART_IRQ_HANDLER_DECL(idx);					\
+	PM_DEVICE_DT_INST_DEFINE(idx, uart_gecko_pm_action);			\
+										\
+	static struct uart_config uart_cfg_##idx = {				\
+		.baudrate  = DT_INST_PROP(idx, current_speed),			\
+		.parity    = DT_INST_ENUM_IDX(idx, parity),			\
+		.stop_bits = DT_INST_ENUM_IDX(idx, stop_bits),			\
+		.data_bits = DT_INST_ENUM_IDX(idx, data_bits),			\
+		.flow_ctrl = DT_INST_PROP(idx, hw_flow_control)			\
+					? UART_CFG_FLOW_CTRL_RTS_CTS		\
+					: UART_CFG_FLOW_CTRL_NONE,		\
+	};									\
+										\
+	static const struct uart_gecko_config usart_gecko_cfg_##idx = {		\
+		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(idx),			\
+		.base = (USART_TypeDef *)DT_INST_REG_ADDR(idx),			\
+		GET_GECKO_USART_CLOCK(idx)					\
+		GECKO_USART_IRQ_HANDLER_FUNC(idx)				\
+	}	;								\
+										\
+	static struct uart_gecko_data usart_gecko_data_##idx = {		\
+		.uart_cfg = &uart_cfg_##idx,					\
+	};									\
+										\
+	DEVICE_DT_INST_DEFINE(idx, uart_gecko_init, PM_DEVICE_DT_INST_GET(idx),	\
+			    &usart_gecko_data_##idx,				\
+			    &usart_gecko_cfg_##idx, PRE_KERNEL_1,		\
+			    CONFIG_SERIAL_INIT_PRIORITY,			\
+			    &uart_gecko_driver_api);				\
+										\
 	GECKO_USART_IRQ_HANDLER(idx)
+#else
+#define GECKO_USART_INIT(idx)							\
+	VALIDATE_GECKO_UART_RX_TX_PIN_LOCATIONS(idx);				\
+	VALIDATE_GECKO_UART_RTS_CTS_PIN_LOCATIONS(idx);				\
+										\
+	GECKO_USART_IRQ_HANDLER_DECL(idx);					\
+	PM_DEVICE_DT_INST_DEFINE(idx, uart_gecko_pm_action);			\
+										\
+	static struct uart_config uart_cfg_##idx = {				\
+		.baudrate  = DT_INST_PROP(idx, current_speed),			\
+		.parity    = DT_INST_ENUM_IDX(idx, parity),			\
+		.stop_bits = DT_INST_ENUM_IDX(idx, stop_bits),			\
+		.data_bits = DT_INST_ENUM_IDX(idx, data_bits),			\
+		.flow_ctrl = DT_INST_PROP(idx, hw_flow_control)			\
+					? UART_CFG_FLOW_CTRL_RTS_CTS		\
+					: UART_CFG_FLOW_CTRL_NONE,		\
+	};									\
+										\
+	static const struct uart_gecko_config usart_gecko_cfg_##idx = {		\
+		.base = (USART_TypeDef *)DT_INST_REG_ADDR(idx),			\
+		GET_GECKO_USART_CLOCK(idx)					\
+		GECKO_UART_RX_TX_PINS(idx)					\
+		GECKO_UART_RTS_CTS_PINS(idx)					\
+		GECKO_UART_RX_TX_PIN_LOCATIONS(idx)				\
+		GECKO_UART_RTS_CTS_PIN_LOCATIONS(idx)				\
+		GECKO_USART_IRQ_HANDLER_FUNC(idx)				\
+	};									\
+										\
+	static struct uart_gecko_data usart_gecko_data_##idx = {		\
+		.uart_cfg = &uart_cfg_##idx,					\
+	};									\
+										\
+	DEVICE_DT_INST_DEFINE(idx, uart_gecko_init, PM_DEVICE_DT_INST_GET(idx),	\
+			    &usart_gecko_data_##idx,				\
+			    &usart_gecko_cfg_##idx, PRE_KERNEL_1,		\
+			    CONFIG_SERIAL_INIT_PRIORITY,			\
+			    &uart_gecko_driver_api);				\
+										\
+	GECKO_USART_IRQ_HANDLER(idx)
+#endif
 
 DT_INST_FOREACH_STATUS_OKAY(GECKO_USART_INIT)

@@ -3,11 +3,15 @@ sample:
   name: socket_dumb_http_server_mt
 common:
   harness: net
+  depends_on: netif
   min_ram: 128
   min_flash: 128
-  tags: net socket http
+  tags:
+    - net
+    - socket
+    - http
 tests:
   sample.net.sockets.dumb_http_server_mt:
     extra_configs:
-      - CONFIG_NET_SOCKETS_POSIX_NAMES=y
+      - CONFIG_POSIX_API=y
     platform_exclude: esp32s2_saola

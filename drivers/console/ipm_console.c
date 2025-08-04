@@ -8,6 +8,8 @@
 #include <zephyr/device.h>
 #include <zephyr/init.h>
 #include <zephyr/drivers/ipm.h>
+#include <zephyr/sys/printk-hooks.h>
+#include <zephyr/sys/libc-hooks.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(ipm_console, CONFIG_IPM_LOG_LEVEL);
@@ -41,38 +43,25 @@ static int console_out(int c)
 	return c;
 }
 
-#if defined(CONFIG_STDOUT_CONSOLE)
-extern void __stdout_hook_install(int (*hook)(int));
-#else
-#define __stdout_hook_install(x)	\
-	do {    /* nothing */		\
-	} while ((0))
-#endif
-
-#if defined(CONFIG_PRINTK)
-extern void __printk_hook_install(int (*fn)(int));
-#else
-#define __printk_hook_install(x)	\
-	do {    /* nothing */		\
-	} while ((0))
-#endif
-
 /* Install printk/stdout hooks */
 static void ipm_console_hook_install(void)
 {
+#if defined(CONFIG_STDOUT_CONSOLE)
 	__stdout_hook_install(console_out);
+#endif
+#if defined(CONFIG_PRINTK)
 	__printk_hook_install(console_out);
+#endif
 }
 
-static int ipm_console_init(const struct device *dev)
+static int ipm_console_init(void)
 {
-	ARG_UNUSED(dev);
 
 	LOG_DBG("IPM console initialization");
 
-	ipm_dev = device_get_binding(CONFIG_IPM_CONSOLE_ON_DEV_NAME);
-	if (!ipm_dev) {
-		LOG_ERR("Cannot get %s", CONFIG_IPM_CONSOLE_ON_DEV_NAME);
+	ipm_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
+	if (!device_is_ready(ipm_dev)) {
+		LOG_ERR("%s is not ready", ipm_dev->name);
 		return -ENODEV;
 	}
 

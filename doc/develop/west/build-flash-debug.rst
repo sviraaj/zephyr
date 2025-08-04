@@ -67,6 +67,32 @@ build directory; ``west build`` can figure out the board from the CMake cache.
 For new builds, the ``--board`` option, :envvar:`BOARD` environment variable,
 or ``build.board`` configuration option are checked (in that order).
 
+.. _west-multi-domain-builds:
+
+Sysbuild (multi-domain builds)
+==============================
+
+:ref:`sysbuild` can be used to create a multi-domain build system combining
+multiple images for a single or multiple boards.
+
+Use ``--sysbuild`` to select the :ref:`sysbuild` build infrastructure with
+``west build`` to build multiple domains.
+
+More detailed information regarding the use of sysbuild can be found in the
+:ref:`sysbuild` guide.
+
+.. tip::
+
+   The ``build.sysbuild`` configuration option can be enabled to tell
+   ``west build`` to default build using sysbuild.
+   ``--no-sysbuild`` can be used to disable sysbuild for a specific build.
+
+``west build`` will build all domains through the top-level build folder of the
+domains specified by sysbuild.
+
+A single domain from a multi-domain project can be built by using ``--domain``
+argument.
+
 Examples
 ========
 
@@ -119,8 +145,8 @@ Setting the Build System Target
 To specify the build system target to run, use ``--target`` (or ``-t``).
 
 For example, on host platforms with QEMU, you can use the ``run`` target to
-build and run the :ref:`hello_world` sample for the emulated :ref:`qemu_x86
-<qemu_x86>` board in one command::
+build and run the :zephyr:code-sample:`hello_world` sample for the emulated
+:zephyr:board:`qemu_x86 <qemu_x86>` board in one command::
 
   west build -b qemu_x86 -t run samples/hello_world
 
@@ -151,8 +177,12 @@ it the value ``always``. For example, these commands are equivalent::
   west build -p -b reel_board samples/hello_world
   west build -p=always -b reel_board samples/hello_world
 
-By default, ``west build`` applies a heuristic to detect if the build directory
-needs to be made pristine. This is the same as using ``--pristine=auto``.
+By default, ``west build`` makes no attempt to detect if the build directory
+needs to be made pristine. This can lead to errors if you do something like
+try to reuse a build directory for a different ``--board``.
+
+Using ``--pristine=auto`` makes ``west build`` detect some of these situations
+and make the build directory pristine before trying the build.
 
 .. tip::
 
@@ -182,10 +212,15 @@ build``, pass them after a ``--`` at the end of the command line.
 .. important::
 
    Passing additional CMake arguments like this forces ``west build`` to re-run
-   CMake, even if a build system has already been generated.
+   the CMake build configuration step, even if a build system has already been
+   generated.  This will make incremental builds slower (but still much faster
+   than building from scratch).
 
    After using ``--`` once to generate the build directory, use ``west build -d
    <build-dir>`` on subsequent runs to do incremental builds.
+
+   Alternatively, make your CMake arguments permanent as described in the next
+   section; it will not slow down incremental builds.
 
 For example, to use the Unix Makefiles CMake generator instead of Ninja (which
 ``west build`` uses by default), run::
@@ -211,7 +246,7 @@ To set :ref:`DTC_OVERLAY_FILE <important-build-vars>` to
 To merge the :file:`file.conf` Kconfig fragment into your build's
 :file:`.config`::
 
-  west build -- -DOVERLAY_CONFIG=file.conf
+  west build -- -DEXTRA_CONF_FILE=file.conf
 
 .. _west-building-cmake-config:
 
@@ -311,6 +346,24 @@ For example, to build with 4 cores::
 
 The ``-o`` option is described further in the previous section.
 
+Build a single domain
+---------------------
+
+In a multi-domain build with :zephyr:code-sample:`hello_world` and `MCUboot`_, you can use
+``--domain hello_world`` to only build this domain::
+
+  west build --sysbuild --domain hello_world
+
+The ``--domain`` argument can be combined with the ``--target`` argument to
+build the specific target for the target, for example::
+
+  west build --sysbuild --domain hello_world --target help
+
+Use a snippet
+-------------
+
+See :ref:`using-snippets`.
+
 .. _west-building-config:
 
 Configuration Options
@@ -328,7 +381,7 @@ You can :ref:`configure <west-config-cmd>` ``west build`` using these options.
      - Description
    * - ``build.board``
      - String. If given, this the board used by :ref:`west build
-       <west-building>` when ``--board`` is not given and :envvar:`BOARD`
+       <west-building>` when ``--board`` is not given and ``BOARD``
        is unset in the environment.
    * - ``build.board_warn``
      - Boolean, default ``true``. If ``false``, disables warnings when
@@ -374,6 +427,9 @@ You can :ref:`configure <west-config-cmd>` ``west build`` using these options.
            directory).
          - ``always``: Always make the build folder pristine before building, if
            a build system is present.
+   * - ``build.sysbuild``
+     - Boolean, default ``false``. If ``true``, build application using the
+       sysbuild infrastructure.
 
 .. _west-flashing:
 
@@ -476,6 +532,23 @@ For example, to print usage information about the ``jlink`` runner::
 
   west flash -H -r jlink
 
+.. _west-multi-domain-flashing:
+
+Multi-domain flashing
+=====================
+
+When a :ref:`west-multi-domain-builds` folder is detected, then ``west flash``
+will flash all domains in the order defined by sysbuild.
+
+It is possible to flash the image from a single domain in a multi-domain project
+by using ``--domain``.
+
+For example, in a multi-domain build with :zephyr:code-sample:`hello_world` and
+`MCUboot`_, you can use the ``--domain hello_world`` domain to only flash
+only the image from this domain::
+
+  west flash --domain hello_world
+
 .. _west-debugging:
 
 Debugging: ``west debug``, ``west debugserver``
@@ -576,6 +649,38 @@ For example, to print usage information about the ``jlink`` runner::
 
   west debug -H -r jlink
 
+.. _west-multi-domain-debugging:
+
+Multi-domain debugging
+======================
+
+``west debug`` can only debug a single domain at a time. When a
+:ref:`west-multi-domain-builds` folder is detected, ``west debug``
+will debug the ``default`` domain specified by sysbuild.
+
+The default domain will be the application given as the source directory.
+See the following example::
+
+  west build --sysbuild path/to/source/directory
+
+For example, when building ``hello_world`` with `MCUboot`_ using sysbuild,
+``hello_world`` becomes the default domain::
+
+  west build --sysbuild samples/hello_world
+
+So to debug ``hello_world`` you can do::
+
+  west debug
+
+or::
+
+  west debug --domain hello_world
+
+If you wish to debug MCUboot, you must explicitly specify MCUboot as the domain
+to debug::
+
+  west debug --domain mcuboot
+
 .. _west-runner:
 
 Flash and debug runners
@@ -593,17 +698,106 @@ determined by the imported subclasses of ``ZephyrBinaryRunner``.
 runner implementations are in other submodules, such as ``runners.nrfjprog``,
 ``runners.openocd``, etc.
 
+Running Robot Framework tests: ``west robot``
+*********************************************
+
+.. tip:: Run ``west robot -h`` for additional help.
+
+Basics
+======
+
+Currently the command supports only one runner which is using ``renode-test``,
+(essentially a wrapper for running Robot tests in Renode), but can be
+easily extended by adding other runners.
+
+From a Zephyr build directory, to run a Robot test suite::
+
+  west robot --runner=renode-robot --testsuite path/to/testsuite.robot
+
+This will run all tests from testsuite.robot and print output provided
+by Robot Framework.
+
+To pass additional parameters to Renode use ``--renode-robot-args`` switch.
+For example to show Renode logs in addition to Robot Framework's output:
+
+  west robot --runner=renode-robot --testsuite path/to/testsuite.robot --renode-robot-arg="--show-log"
+
+Runner-Specific Overrides
+=========================
+
+To view all of the available options for the Robot runners your board
+supports, as well as their usage information, use ``--context`` (or
+``-H``)::
+
+  west robot --runner=renode-robot --context
+
+
+To view all available options "renode-test" runner supports, use::
+
+  west robot --runner=renode-robot --renode-robot-help
+
+Simulating a board with: ``west simulate``
+******************************************
+
+Basics
+======
+
+Currently the command supports only one runner which is using Renode,
+but can be easily extended by adding other runners.
+
+From a Zephyr build directory, to run the built binary::
+
+  west simulate --runner=renode
+
+This will start Renode and configure simulation based on a default ``.resc`` script
+for the current platform with the zephyr.elf file loaded by default. The simulation
+then can be started by typing "start" or "s" in Renode's Monitor. This can also be
+done by passing a command to Renode, using an argument provided by the runner:
+
+  west simulate --runner=renode --renode-command start
+
+To pass an argument to Renode itself, for example to start Renode in console mode
+instead of a separate window:
+
+  west simulate --runner=renode --renode-arg="--console"
+
+From that point on Renode can be used normally in both console and window modes.
+For details on using Renode see `Renode - documentation`_.
+
+.. _Renode - documentation:
+   http://docs.renode.io
+
+Runner-Specific Overrides
+=========================
+
+To view all of the available options supported by the runners, as well
+as their usage information, use ``--context`` (or ``-H``)::
+
+  west simulate --runner=renode --context
+
+To view all available options Renode supports, use::
+
+  west simulate --runner=renode --renode-help
+
+Out of tree runners
+*******************
+
+:ref:`Zephyr modules <modules>` can have external runners discovered by adding python
+files in their :ref:`module.yml <modules-runners>`. Create an external runner class by
+inheriting from ``ZephyrBinaryRunner`` and implement all abstract methods.
+
+.. note::
+
+   Support for custom out-of-tree runners makes the ``runners.core`` module part of
+   the public API and backwards incompatible changes need to undergo the
+   :ref:`deprecation process <breaking_api_changes>`.
+
 Hacking
 *******
 
 This section documents the ``runners.core`` module used by the
 flash and debug commands. This is the core abstraction used to implement
 support for these features.
-
-.. warning::
-
-   These APIs are provided for reference, but they are more "shared code" used
-   to implement multiple extension commands than a stable API.
 
 Developers can add support for new ways to flash and debug Zephyr programs by
 implementing additional runners. To get this support into upstream Zephyr, the
@@ -638,8 +832,6 @@ debugging. This can of course also be accomplished using the usual
 targets provided by Zephyr's build system (in fact, that's how these
 commands do it).
 
-.. rubric:: Footnotes
-
 .. _cmake(1):
    https://cmake.org/cmake/help/latest/manual/cmake.1.html
 
@@ -648,3 +840,5 @@ commands do it).
 
 .. _CMake Generator:
    https://cmake.org/cmake/help/latest/manual/cmake-generators.7.html
+
+.. _MCUboot: https://mcuboot.com/

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 Nordic Semiconductor ASA
+ * Copyright (c) 2021-2024 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,6 +9,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/hci_types.h>
 #include <zephyr/bluetooth/iso.h>
 #include <zephyr/sys/byteorder.h>
 
@@ -22,30 +23,30 @@
 
 #define PA_RETRY_COUNT 6
 
+#define BIS_ISO_CHAN_COUNT MIN(2U, CONFIG_BT_ISO_MAX_CHAN)
+
 static bool         per_adv_found;
 static bool         per_adv_lost;
 static bt_addr_le_t per_addr;
 static uint8_t      per_sid;
-static uint16_t     per_interval_ms;
+static uint32_t     per_interval_us;
+
+static uint32_t     iso_recv_count;
 
 static K_SEM_DEFINE(sem_per_adv, 0, 1);
 static K_SEM_DEFINE(sem_per_sync, 0, 1);
 static K_SEM_DEFINE(sem_per_sync_lost, 0, 1);
 static K_SEM_DEFINE(sem_per_big_info, 0, 1);
-static K_SEM_DEFINE(sem_big_sync, 0, 1);
-static K_SEM_DEFINE(sem_big_sync_lost, 0, 1);
+static K_SEM_DEFINE(sem_big_sync, 0, BIS_ISO_CHAN_COUNT);
+static K_SEM_DEFINE(sem_big_sync_lost, 0, BIS_ISO_CHAN_COUNT);
 
 /* The devicetree node identifier for the "led0" alias. */
 #define LED0_NODE DT_ALIAS(led0)
 
-#if DT_NODE_HAS_STATUS(LED0_NODE, okay)
-#define HAS_LED     1
-#define LED0        DT_GPIO_LABEL(LED0_NODE, gpios)
-#define PIN         DT_GPIO_PIN(LED0_NODE, gpios)
-#define FLAGS       DT_GPIO_FLAGS(LED0_NODE, gpios)
+#ifdef CONFIG_ISO_BLINK_LED0
+static const struct gpio_dt_spec led_gpio = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 #define BLINK_ONOFF K_MSEC(500)
 
-static struct device const     *dev;
 static struct k_work_delayable blink_work;
 static bool                    led_is_on;
 static bool                    blink;
@@ -57,7 +58,7 @@ static void blink_timeout(struct k_work *work)
 	}
 
 	led_is_on = !led_is_on;
-	gpio_pin_set(dev, PIN, (int)led_is_on);
+	gpio_pin_set_dt(&led_gpio, (int)led_is_on);
 
 	k_work_schedule(&blink_work, BLINK_ONOFF);
 }
@@ -104,7 +105,7 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
 	printk("[DEVICE]: %s, AD evt type %u, Tx Pwr: %i, RSSI %i %s "
 	       "C:%u S:%u D:%u SR:%u E:%u Prim: %s, Secn: %s, "
-	       "Interval: 0x%04x (%u ms), SID: %u\n",
+	       "Interval: 0x%04x (%u us), SID: %u\n",
 	       le_addr, info->adv_type, info->tx_power, info->rssi, name,
 	       (info->adv_props & BT_GAP_ADV_PROP_CONNECTABLE) != 0,
 	       (info->adv_props & BT_GAP_ADV_PROP_SCANNABLE) != 0,
@@ -112,13 +113,13 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 	       (info->adv_props & BT_GAP_ADV_PROP_SCAN_RESPONSE) != 0,
 	       (info->adv_props & BT_GAP_ADV_PROP_EXT_ADV) != 0,
 	       phy2str(info->primary_phy), phy2str(info->secondary_phy),
-	       info->interval, BT_CONN_INTERVAL_TO_MS(info->interval), info->sid);
+	       info->interval, BT_CONN_INTERVAL_TO_US(info->interval), info->sid);
 
 	if (!per_adv_found && info->interval) {
 		per_adv_found = true;
 
 		per_sid = info->sid;
-		per_interval_ms = BT_CONN_INTERVAL_TO_MS(info->interval);
+		per_interval_us = BT_CONN_INTERVAL_TO_US(info->interval);
 		bt_addr_le_copy(&per_addr, info->addr);
 
 		k_sem_give(&sem_per_adv);
@@ -207,8 +208,6 @@ static struct bt_le_per_adv_sync_cb sync_callbacks = {
 	.biginfo = biginfo_cb,
 };
 
-#define BIS_ISO_CHAN_COUNT 1
-
 static void iso_recv(struct bt_iso_chan *chan, const struct bt_iso_recv_info *info,
 		struct net_buf *buf)
 {
@@ -218,17 +217,36 @@ static void iso_recv(struct bt_iso_chan *chan, const struct bt_iso_recv_info *in
 
 	if (buf->len == sizeof(count)) {
 		count = sys_get_le32(buf->data);
+		if (IS_ENABLED(CONFIG_ISO_ALIGN_PRINT_INTERVALS)) {
+			iso_recv_count = count;
+		}
 	}
 
-	str_len = bin2hex(buf->data, buf->len, data_str, sizeof(data_str));
-	printk("Incoming data channel %p flags 0x%x sn %u ts %u len %u: %s "
-	       "(counter value %u)\n", chan, info->flags, info->sn, info->ts,
-	       buf->len, data_str, count);
+	if ((iso_recv_count % CONFIG_ISO_PRINT_INTERVAL) == 0) {
+		str_len = bin2hex(buf->data, buf->len, data_str, sizeof(data_str));
+		printk("Incoming data channel %p flags 0x%x seq_num %u ts %u len %u: "
+		       "%s (counter value %u)\n", chan, info->flags, info->seq_num,
+		       info->ts, buf->len, data_str, count);
+	}
+
+	iso_recv_count++;
 }
 
 static void iso_connected(struct bt_iso_chan *chan)
 {
+	const struct bt_iso_chan_path hci_path = {
+		.pid = BT_ISO_DATA_PATH_HCI,
+		.format = BT_HCI_CODING_FORMAT_TRANSPARENT,
+	};
+	int err;
+
 	printk("ISO Channel %p connected\n", chan);
+
+	err = bt_iso_setup_data_path(chan, BT_HCI_DATAPATH_DIR_CTLR_TO_HOST, &hci_path);
+	if (err != 0) {
+		printk("Failed to setup ISO RX data path: %d\n", err);
+	}
+
 	k_sem_give(&sem_big_sync);
 }
 
@@ -248,61 +266,79 @@ static struct bt_iso_chan_ops iso_ops = {
 	.disconnected	= iso_disconnected,
 };
 
-static struct bt_iso_chan_io_qos iso_rx_qos;
+static struct bt_iso_chan_io_qos iso_rx_qos[BIS_ISO_CHAN_COUNT];
 
-static struct bt_iso_chan_qos bis_iso_qos = {
-	.rx = &iso_rx_qos,
+static struct bt_iso_chan_qos bis_iso_qos[] = {
+	{ .rx = &iso_rx_qos[0], },
+	{ .rx = &iso_rx_qos[1], },
 };
 
-static struct bt_iso_chan bis_iso_chan = {
-	.ops = &iso_ops,
-	.qos = &bis_iso_qos,
+static struct bt_iso_chan bis_iso_chan[] = {
+	{ .ops = &iso_ops,
+	  .qos = &bis_iso_qos[0], },
+	{ .ops = &iso_ops,
+	  .qos = &bis_iso_qos[1], },
 };
 
-static struct bt_iso_chan *bis[BIS_ISO_CHAN_COUNT] = { &bis_iso_chan };
+static struct bt_iso_chan *bis[] = {
+	&bis_iso_chan[0],
+	&bis_iso_chan[1],
+};
 
 static struct bt_iso_big_sync_param big_sync_param = {
 	.bis_channels = bis,
 	.num_bis = BIS_ISO_CHAN_COUNT,
-	.bis_bitfield = (BIT_MASK(BIS_ISO_CHAN_COUNT) << 1),
-	.mse = 1,
+	.bis_bitfield = (BIT_MASK(BIS_ISO_CHAN_COUNT)),
+	.mse = BT_ISO_SYNC_MSE_ANY, /* any number of subevents */
 	.sync_timeout = 100, /* in 10 ms units */
 };
 
-void main(void)
+static void reset_semaphores(void)
+{
+	k_sem_reset(&sem_per_adv);
+	k_sem_reset(&sem_per_sync);
+	k_sem_reset(&sem_per_sync_lost);
+	k_sem_reset(&sem_per_big_info);
+	k_sem_reset(&sem_big_sync);
+	k_sem_reset(&sem_big_sync_lost);
+}
+
+int main(void)
 {
 	struct bt_le_per_adv_sync_param sync_create_param;
 	struct bt_le_per_adv_sync *sync;
 	struct bt_iso_big *big;
-	uint32_t sem_timeout;
+	uint32_t sem_timeout_us;
 	int err;
+
+	iso_recv_count = 0;
 
 	printk("Starting Synchronized Receiver Demo\n");
 
-#if defined(HAS_LED)
+#ifdef CONFIG_ISO_BLINK_LED0
 	printk("Get reference to LED device...");
-	dev = device_get_binding(LED0);
-	if (!dev) {
-		printk("Failed.\n");
-		return;
+
+	if (!gpio_is_ready_dt(&led_gpio)) {
+		printk("LED gpio device not ready.\n");
+		return 0;
 	}
 	printk("done.\n");
 
 	printk("Configure GPIO pin...");
-	err = gpio_pin_configure(dev, PIN, GPIO_OUTPUT_ACTIVE | FLAGS);
+	err = gpio_pin_configure_dt(&led_gpio, GPIO_OUTPUT_ACTIVE);
 	if (err) {
-		return;
+		return 0;
 	}
 	printk("done.\n");
 
 	k_work_init_delayable(&blink_work, blink_timeout);
-#endif /* HAS_LED */
+#endif /* CONFIG_ISO_BLINK_LED0 */
 
 	/* Initialize the Bluetooth Subsystem */
 	err = bt_enable(NULL);
 	if (err) {
 		printk("Bluetooth init failed (err %d)\n", err);
-		return;
+		return 0;
 	}
 
 	printk("Scan callbacks register...");
@@ -314,30 +350,31 @@ void main(void)
 	printk("Success.\n");
 
 	do {
+		reset_semaphores();
 		per_adv_lost = false;
 
 		printk("Start scanning...");
 		err = bt_le_scan_start(BT_LE_SCAN_CUSTOM, NULL);
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("success.\n");
 
-#if defined(HAS_LED)
+#ifdef CONFIG_ISO_BLINK_LED0
 		printk("Start blinking LED...\n");
 		led_is_on = false;
 		blink = true;
-		gpio_pin_set(dev, PIN, (int)led_is_on);
+		gpio_pin_set_dt(&led_gpio, (int)led_is_on);
 		k_work_reschedule(&blink_work, BLINK_ONOFF);
-#endif /* HAS_LED */
+#endif /* CONFIG_ISO_BLINK_LED0 */
 
 		printk("Waiting for periodic advertising...\n");
 		per_adv_found = false;
 		err = k_sem_take(&sem_per_adv, K_FOREVER);
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("Found periodic advertising.\n");
 
@@ -345,7 +382,7 @@ void main(void)
 		err = bt_le_scan_stop();
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("success.\n");
 
@@ -354,17 +391,19 @@ void main(void)
 		sync_create_param.options = 0;
 		sync_create_param.sid = per_sid;
 		sync_create_param.skip = 0;
-		sync_create_param.timeout = (per_interval_ms * PA_RETRY_COUNT) / 10;
-		sem_timeout = per_interval_ms * PA_RETRY_COUNT;
+		/* Multiple PA interval with retry count and convert to unit of 10 ms */
+		sync_create_param.timeout = (per_interval_us * PA_RETRY_COUNT) /
+						(10 * USEC_PER_MSEC);
+		sem_timeout_us = per_interval_us * PA_RETRY_COUNT;
 		err = bt_le_per_adv_sync_create(&sync_create_param, &sync);
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("success.\n");
 
 		printk("Waiting for periodic sync...\n");
-		err = k_sem_take(&sem_per_sync, K_MSEC(sem_timeout));
+		err = k_sem_take(&sem_per_sync, K_USEC(sem_timeout_us));
 		if (err) {
 			printk("failed (err %d)\n", err);
 
@@ -372,14 +411,14 @@ void main(void)
 			err = bt_le_per_adv_sync_delete(sync);
 			if (err) {
 				printk("failed (err %d)\n", err);
-				return;
+				return 0;
 			}
 			continue;
 		}
 		printk("Periodic sync established.\n");
 
 		printk("Waiting for BIG info...\n");
-		err = k_sem_take(&sem_per_big_info, K_MSEC(sem_timeout));
+		err = k_sem_take(&sem_per_big_info, K_USEC(sem_timeout_us));
 		if (err) {
 			printk("failed (err %d)\n", err);
 
@@ -391,7 +430,7 @@ void main(void)
 			err = bt_le_per_adv_sync_delete(sync);
 			if (err) {
 				printk("failed (err %d)\n", err);
-				return;
+				return 0;
 			}
 			continue;
 		}
@@ -402,12 +441,18 @@ big_sync_create:
 		err = bt_iso_big_sync(sync, &big_sync_param, &big);
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("success.\n");
 
-		printk("Waiting for BIG sync...\n");
-		err = k_sem_take(&sem_big_sync, TIMEOUT_SYNC_CREATE);
+		for (uint8_t chan = 0U; chan < BIS_ISO_CHAN_COUNT; chan++) {
+			printk("Waiting for BIG sync chan %u...\n", chan);
+			err = k_sem_take(&sem_big_sync, TIMEOUT_SYNC_CREATE);
+			if (err) {
+				break;
+			}
+			printk("BIG sync chan %u successful.\n", chan);
+		}
 		if (err) {
 			printk("failed (err %d)\n", err);
 
@@ -415,7 +460,7 @@ big_sync_create:
 			err = bt_iso_big_terminate(big);
 			if (err) {
 				printk("failed (err %d)\n", err);
-				return;
+				return 0;
 			}
 			printk("done.\n");
 
@@ -423,7 +468,7 @@ big_sync_create:
 		}
 		printk("BIG sync established.\n");
 
-#if defined(HAS_LED)
+#ifdef CONFIG_ISO_BLINK_LED0
 		printk("Stop blinking LED.\n");
 		blink = false;
 		/* If this fails, we'll exit early in the handler because blink
@@ -433,14 +478,17 @@ big_sync_create:
 
 		/* Keep LED on */
 		led_is_on = true;
-		gpio_pin_set(dev, PIN, (int)led_is_on);
-#endif /* HAS_LED */
+		gpio_pin_set_dt(&led_gpio, (int)led_is_on);
+#endif /* CONFIG_ISO_BLINK_LED0 */
 
-		printk("Waiting for BIG sync lost...\n");
-		err = k_sem_take(&sem_big_sync_lost, K_FOREVER);
-		if (err) {
-			printk("failed (err %d)\n", err);
-			return;
+		for (uint8_t chan = 0U; chan < BIS_ISO_CHAN_COUNT; chan++) {
+			printk("Waiting for BIG sync lost chan %u...\n", chan);
+			err = k_sem_take(&sem_big_sync_lost, K_FOREVER);
+			if (err) {
+				printk("failed (err %d)\n", err);
+				return 0;
+			}
+			printk("BIG sync lost chan %u.\n", chan);
 		}
 		printk("BIG sync lost.\n");
 

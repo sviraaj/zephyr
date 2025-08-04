@@ -40,7 +40,6 @@ description: |
     sram {
       status = "okay";
       compatible = "st,stm32-fmc-nor-psram";
-      label = "STM32_FMC_NOR_PSRAM";
 
       #address-cells = <1>;
       #size-cells = <0>;
@@ -73,9 +72,6 @@ compatible: "st,stm32-fmc-nor-psram"
 include: base.yaml
 
 properties:
-  label:
-    required: true
-
   "#address-cells":
     required: true
     const: 1
@@ -91,6 +87,10 @@ child-binding:
     reg:
       type: int
       required: true
+      description: |
+          SRAM/NOR Bank value.
+          This is used to select the bank to which the device is connected.
+          It should be equal to a value of STM32_FMC_NORSRAM_BANKx.
 
     st,control:
       type: array
@@ -106,7 +106,6 @@ child-binding:
         * MUXEN - Address/data multiplexing enable bit.
         * MTYP  - Memory type.
         * MWID  - Memory data bus width.
-        * FACCEN - Flash access enable.
         * BURSTEN - Burst enable bit.
         * WAITPOL - Wait signal polarity bit.
         * WAITCFG - Wait timing configuration.
@@ -115,11 +114,10 @@ child-binding:
         * EXTMOD - Extended mode enable.
                    If set, then 'st,timing-ext' shall be provided.
         * ASYNCWAIT -  Wait signal during asynchronous transfers.
-        * CPSIZE - Cellular RAM (CRAM) 1.5 Page Size.
         * CBURSTRW - Write burst enable.
         * CCLKEN - Continuous Clock Enable.
         * WFDIS - Write FIFO Disable.
-        * BMAP - FMC bank mapping.
+        * CPSIZE - Cellular RAM 1.5 Page Size.
 
     st,timing:
       type: array
@@ -175,7 +173,6 @@ child-binding:
 
     st,timing-ext:
       type: array
-      required: false # required when 'EXTMOD' is enabled
       default: [0xF, 0xF, 0xFF, 0xF, 0x0] # reset state
       description: |
         SRAM/NOR-Flash (write) timing register (FMC_BWTRx).

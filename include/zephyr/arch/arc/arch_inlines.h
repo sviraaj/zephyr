@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_INCLUDE_ARCH_XTENSA_ARCH_INLINES_H_
-#define ZEPHYR_INCLUDE_ARCH_XTENSA_ARCH_INLINES_H_
+#ifndef ZEPHYR_INCLUDE_ARCH_ARC_ARCH_INLINES_H_
+#define ZEPHYR_INCLUDE_ARCH_ARC_ARCH_INLINES_H_
 
 #ifndef _ASMLANGUAGE
 
@@ -27,5 +27,19 @@ static ALWAYS_INLINE _cpu_t *arch_curr_cpu(void)
 #endif /* CONFIG_SMP */
 }
 
+static ALWAYS_INLINE uint32_t arch_proc_id(void)
+{
+	/*
+	 * Placeholder implementation to be replaced with an architecture
+	 * specific call to get processor ID
+	 */
+	return arch_curr_cpu()->id;
+}
+
+static ALWAYS_INLINE unsigned int arch_num_cpus(void)
+{
+	return CONFIG_MP_MAX_NUM_CPUS;
+}
+
 #endif /* !_ASMLANGUAGE */
-#endif /* ZEPHYR_INCLUDE_ARCH_XTENSA_ARCH_INLINES_H_ */
+#endif /* ZEPHYR_INCLUDE_ARCH_ARC_ARCH_INLINES_H_ */

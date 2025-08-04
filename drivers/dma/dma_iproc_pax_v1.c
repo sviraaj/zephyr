@@ -22,6 +22,7 @@
 
 #define LOG_LEVEL CONFIG_DMA_LOG_LEVEL
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(dma_iproc_pax);
 
 /* Driver runtime data for PAX DMA and RM */
@@ -466,7 +467,7 @@ static int process_cmpl_event(const struct device *dev,
 			      enum ring_idx idx, uint32_t pl_len)
 {
 	struct dma_iproc_pax_data *pd = dev->data;
-	uint32_t wr_offs, rd_offs, ret = 0;
+	uint32_t wr_offs, rd_offs, ret = DMA_STATUS_COMPLETE;
 	struct dma_iproc_pax_ring_data *ring = &(pd->ring[idx]);
 	struct cmpl_pkt *c;
 	uint32_t is_outstanding;
@@ -535,8 +536,9 @@ static int peek_ring_cmpl(const struct device *dev,
 	do {
 		wr_offs = sys_read32(RM_RING_REG(pd, idx,
 						 RING_CMPL_WRITE_PTR));
-		if (PAX_DMA_GET_CMPL_COUNT(wr_offs, rd_offs) >= pl_len)
+		if (PAX_DMA_GET_CMPL_COUNT(wr_offs, rd_offs) >= pl_len) {
 			break;
+		}
 		k_busy_wait(1);
 	} while (--timeout);
 
@@ -824,8 +826,9 @@ static int dma_iproc_pax_do_xfer(const struct device *dev,
 	set_ring_active(pd, idx, true);
 
 	ret = wait_for_pkt_completion(dev, idx, pl_len + 1);
-	if (ret)
+	if (ret) {
 		goto err_ret;
+	}
 
 	ret = poll_on_write_sync(dev, ring);
 	k_mutex_lock(&ring->lock, K_FOREVER);
@@ -899,14 +902,14 @@ static int dma_iproc_pax_configure(const struct device *dev, uint32_t channel,
 
 #ifdef CONFIG_DMA_IPROC_PAX_DEBUG
 	if (xfer_sz > PAX_DMA_MAX_SIZE) {
-		LOG_ERR("Unsupported size: %d\n", xfer_size);
+		LOG_ERR("Unsupported size: %d\n", xfer_sz);
 		ring->ring_active = 0;
 		ret = -EINVAL;
 		goto err;
 	}
 
 	if (xfer_sz % PAX_DMA_MIN_SIZE) {
-		LOG_ERR("Unaligned size 0x%x\n", xfer_size);
+		LOG_ERR("Unaligned size 0x%x\n", xfer_sz);
 		ring->ring_active = 0;
 		ret = -EINVAL;
 		goto err;
@@ -962,7 +965,7 @@ static int dma_iproc_pax_transfer_stop(const struct device *dev,
 	return 0;
 }
 
-static const struct dma_driver_api pax_dma_driver_api = {
+static DEVICE_API(dma, pax_dma_driver_api) = {
 	.config = dma_iproc_pax_configure,
 	.start = dma_iproc_pax_transfer_start,
 	.stop = dma_iproc_pax_transfer_stop,
@@ -979,7 +982,7 @@ static const struct dma_iproc_pax_cfg pax_dma_cfg = {
 };
 
 DEVICE_DT_INST_DEFINE(0,
-		    &dma_iproc_pax_init,
+		    dma_iproc_pax_init,
 		    NULL,
 		    &pax_dma_data,
 		    &pax_dma_cfg,

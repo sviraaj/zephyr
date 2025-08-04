@@ -5,86 +5,91 @@ on:
     branches:
       - main
       - v*-branch
-  pull_request_target:
+      - collab-*
+  pull_request:
     branches:
       - main
       - v*-branch
+      - collab-*
   schedule:
-    # Run at 00:00 on Wednesday and Saturday
-    - cron: '0 0 * * 3,6'
+    # Run at 02:00 UTC on every Sunday
+    - cron: '0 2 * * 0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  twister-build-cleanup:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Cancel Previous Runs
-        uses: styfle/cancel-workflow-action@0.6.0
-        with:
-          access_token: ${{ github.token }}
-
   twister-build-prep:
-
-    runs-on: zephyr_runner
-    needs: twister-build-cleanup
-    container:
-      image: ghcr.io/zephyrproject-rtos/ci:v0.23.3
-      options: '--entrypoint /bin/bash'
-      volumes:
-        - /home/runners/zephyrproject:/github/cache/zephyrproject
+    if: github.repository_owner == 'zephyrproject-rtos'
+    runs-on: ubuntu-24.04
     outputs:
       subset: ${{ steps.output-services.outputs.subset }}
       size: ${{ steps.output-services.outputs.size }}
       fullrun: ${{ steps.output-services.outputs.fullrun }}
     env:
       MATRIX_SIZE: 10
-      PUSH_MATRIX_SIZE: 15
-      DAILY_MATRIX_SIZE: 80
-      ZEPHYR_SDK_INSTALL_DIR: /opt/toolchains/zephyr-sdk-0.14.2
-      CLANG_ROOT_DIR: /usr/lib/llvm-12
-      TESTS_PER_BUILDER: 700
+      PUSH_MATRIX_SIZE: 20
+      WEEKLY_MATRIX_SIZE: 200
+      BSIM_OUT_PATH: /opt/bsim/
+      BSIM_COMPONENTS_PATH: /opt/bsim/components
+      TESTS_PER_BUILDER: 900
       COMMIT_RANGE: ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
       BASE_REF: ${{ github.base_ref }}
     steps:
-      - name: Apply container owner mismatch workaround
-        run: |
-          # FIXME: The owner UID of the GITHUB_WORKSPACE directory may not
-          #        match the container user UID because of the way GitHub
-          #        Actions runner is implemented. Remove this workaround when
-          #        GitHub comes up with a fundamental fix for this problem.
-          git config --global --add safe.directory ${GITHUB_WORKSPACE}
-
-      - name: Cleanup
-        run: |
-          # hotfix, until we have a better way to deal with existing data
-          rm -rf zephyr zephyr-testing
-
       - name: Checkout
-        if: github.event_name == 'pull_request_target'
-        uses: actions/checkout@v2
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+          path: zephyr
           persist-credentials: false
 
+      - name: Set up Python
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: 3.12
+          cache: pip
+          cache-dependency-path: scripts/requirements-actions.txt
+
+      - name: install-packages
+        working-directory: zephyr
+        if: github.event_name == 'pull_request'
+        run: |
+          pip install -r scripts/requirements-actions.txt --require-hashes
+
+      - name: Setup Zephyr project
+        if: github.event_name == 'pull_request'
+        uses: zephyrproject-rtos/action-zephyr-setup@b2453c72966ee67b1433be22b250348d48283286 # v1.0.7
+        with:
+          app-path: zephyr
+          toolchains: all
+
       - name: Environment Setup
-        if: github.event_name == 'pull_request_target'
+        working-directory: zephyr
+        if: github.event_name == 'pull_request'
         run: |
           git config --global user.email "bot@zephyrproject.org"
           git config --global user.name "Zephyr Bot"
           rm -fr ".git/rebase-apply"
+          rm -fr ".git/rebase-merge"
           git rebase origin/${BASE_REF}
+          git clean -f -d
           git log  --pretty=oneline | head -n 10
-          west init -l . || true
-          west config manifest.group-filter -- +ci
-          # no need for west update here
 
       - name: Generate Test Plan with Twister
-        if: github.event_name == 'pull_request_target'
+        working-directory: zephyr
+        if: github.event_name == 'pull_request'
         id: test-plan
         run: |
           export ZEPHYR_BASE=${PWD}
           export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
-          python3 ./scripts/ci/test_plan.py -c origin/${BASE_REF}.. --pull-request -t $TESTS_PER_BUILDER
+          python3 ./scripts/ci/test_plan.py -c origin/${BASE_REF}.. --no-detailed-test-id --pull-request -t $TESTS_PER_BUILDER
           if [ -s .testplan ]; then
             cat .testplan >> $GITHUB_ENV
           else
@@ -95,49 +100,62 @@ jobs:
       - name: Determine matrix size
         id: output-services
         run: |
-          if [ "${{github.event_name}}" = "pull_request_target" ]; then
+          if [ "${{github.event_name}}" = "push" ]; then
+            subset="[$(seq -s',' 1 ${PUSH_MATRIX_SIZE})]"
+            size=${MATRIX_SIZE}
+          elif [ "${{github.event_name}}" = "pull_request" ]; then
             if [ -n "${TWISTER_NODES}" ]; then
               subset="[$(seq -s',' 1 ${TWISTER_NODES})]"
             else
               subset="[$(seq -s',' 1 ${MATRIX_SIZE})]"
             fi
             size=${TWISTER_NODES}
-          elif [ "${{github.event_name}}" = "push" ]; then
-            subset="[$(seq -s',' 1 ${PUSH_MATRIX_SIZE})]"
-            size=${MATRIX_SIZE}
           elif [ "${{github.event_name}}" = "schedule" -a "${{github.repository}}" = "zephyrproject-rtos/zephyr" ]; then
-            subset="[$(seq -s',' 1 ${DAILY_MATRIX_SIZE})]"
-            size=${DAILY_MATRIX_SIZE}
+            subset="[$(seq -s',' 1 ${WEEKLY_MATRIX_SIZE})]"
+            size=${WEEKLY_MATRIX_SIZE}
           else
             size=0
           fi
-          echo "::set-output name=subset::${subset}";
-          echo "::set-output name=size::${size}";
-          echo "::set-output name=fullrun::${TWISTER_FULL}";
+
+          echo "subset=${subset}" >> $GITHUB_OUTPUT
+          echo "size=${size}" >> $GITHUB_OUTPUT
+          echo "fullrun=${TWISTER_FULL}" >> $GITHUB_OUTPUT
 
   twister-build:
-    runs-on: zephyr_runner
+    runs-on:
+      group: zephyr-runner-v2-linux-x64-4xlarge
     needs: twister-build-prep
     if: needs.twister-build-prep.outputs.size != 0
     container:
-      image: ghcr.io/zephyrproject-rtos/ci:v0.23.3
+      image: ghcr.io/zephyrproject-rtos/ci-repo-cache:v0.28.1.20250624
       options: '--entrypoint /bin/bash'
-      volumes:
-        - /home/runners/zephyrproject:/github/cache/zephyrproject
     strategy:
       fail-fast: false
       matrix:
         subset: ${{fromJSON(needs.twister-build-prep.outputs.subset)}}
+    timeout-minutes: 1440
     env:
-      ZEPHYR_SDK_INSTALL_DIR: /opt/toolchains/zephyr-sdk-0.14.2
-      CLANG_ROOT_DIR: /usr/lib/llvm-12
-      TWISTER_COMMON: ' --force-color --inline-logs -v -N -M --retry-failed 3 '
-      DAILY_OPTIONS: ' -M --build-only --all'
-      PR_OPTIONS: ' --clobber-output --integration'
-      PUSH_OPTIONS: ' --clobber-output -M'
+      CCACHE_DIR: /node-cache/ccache-zephyr
+      CCACHE_REMOTE_STORAGE: "redis://cache-*.keydb-cache.svc.cluster.local|shards=1,2,3"
+      CCACHE_REMOTE_ONLY: "true"
+      # `--specs` is ignored because ccache is unable to resolve the toolchain specs file path.
+      CCACHE_IGNOREOPTIONS: '-specs=* --specs=*'
+      BSIM_OUT_PATH: /opt/bsim/
+      BSIM_COMPONENTS_PATH: /opt/bsim/components
+      TWISTER_COMMON: ' --test-config tests/test_config_ci.yaml --no-detailed-test-id --force-color --inline-logs -v -N -M --retry-failed 3 --timeout-multiplier 2 '
+      WEEKLY_OPTIONS: ' -M --build-only --all --show-footprint --report-filtered -j 32'
+      PR_OPTIONS: ' --clobber-output --integration -j 16'
+      PUSH_OPTIONS: ' --clobber-output -M --show-footprint --report-filtered -j 16'
       COMMIT_RANGE: ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
       BASE_REF: ${{ github.base_ref }}
+      LLVM_TOOLCHAIN_PATH: /usr/lib/llvm-20
     steps:
+      - name: Print cloud service information
+        run: |
+          echo "ZEPHYR_RUNNER_CLOUD_PROVIDER = ${ZEPHYR_RUNNER_CLOUD_PROVIDER}"
+          echo "ZEPHYR_RUNNER_CLOUD_NODE = ${ZEPHYR_RUNNER_CLOUD_NODE}"
+          echo "ZEPHYR_RUNNER_CLOUD_POD = ${ZEPHYR_RUNNER_CLOUD_POD}"
+
       - name: Apply container owner mismatch workaround
         run: |
           # FIXME: The owner UID of the GITHUB_WORKSPACE directory may not
@@ -146,13 +164,14 @@ jobs:
           #        GitHub comes up with a fundamental fix for this problem.
           git config --global --add safe.directory ${GITHUB_WORKSPACE}
 
-      - name: Cleanup
+      - name: Clone cached Zephyr repository
+        continue-on-error: true
         run: |
-          # hotfix, until we have a better way to deal with existing data
-          rm -rf zephyr zephyr-testing
+          git clone --shared /repo-cache/zephyrproject/zephyr .
+          git remote set-url origin ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}
 
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -160,58 +179,61 @@ jobs:
 
       - name: Environment Setup
         run: |
-          if [ "${{github.event_name}}" = "pull_request_target" ]; then
+          if [ "${{github.event_name}}" = "pull_request" ]; then
             git config --global user.email "bot@zephyrproject.org"
             git config --global user.name "Zephyr Builder"
             rm -fr ".git/rebase-apply"
+            rm -fr ".git/rebase-merge"
             git rebase origin/${BASE_REF}
+            git clean -f -d
             git log  --pretty=oneline | head -n 10
           fi
           echo "$HOME/.local/bin" >> $GITHUB_PATH
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
           west init -l . || true
+          west config manifest.group-filter -- +ci,+optional
           west config --global update.narrow true
-          west update --path-cache /github/cache/zephyrproject 2>&1 1> west.update.log || west update --path-cache /github/cache/zephyrproject 2>&1 1> west.update.log || ( rm -rf ../modules ../bootloader ../tools && west update --path-cache /github/cache/zephyrproject)
+          west update --path-cache /repo-cache/zephyrproject 2>&1 1> west.update.log || west update --path-cache /repo-cache/zephyrproject 2>&1 1> west.update.log || ( rm -rf ../modules ../bootloader ../tools && west update --path-cache /repo-cache/zephyrproject)
           west forall -c 'git reset --hard HEAD'
+
+          echo "ZEPHYR_SDK_INSTALL_DIR=/opt/toolchains/zephyr-sdk-$( cat SDK_VERSION )" >> $GITHUB_ENV
 
       - name: Check Environment
         run: |
           cmake --version
-          ${CLANG_ROOT_DIR}/bin/clang --version
           gcc --version
+          cargo --version
+          rustup target list --installed
           ls -la
           echo "github.ref: ${{ github.ref }}"
           echo "github.base_ref: ${{ github.base_ref }}"
           echo "github.ref_name: ${{ github.ref_name }}"
 
-      - name: Prepare ccache timestamp/data
-        id: ccache_cache_timestamp
-        shell: cmake -P {0}
+      - name: Install Python packages
         run: |
-          string(TIMESTAMP current_date "%Y-%m-%d-%H;%M;%S" UTC)
-          string(REPLACE "/" "_" repo ${{github.repository}})
-          string(REPLACE "-" "_" repo2 ${repo})
-          message("::set-output name=repo::${repo2}")
+          pip install -r scripts/requirements-actions.txt --require-hashes
 
-      - name: use cache
-        id: cache-ccache
-        uses: nashif/action-s3-cache@master
-        continue-on-error: true
-        with:
-          key: ${{ steps.ccache_cache_timestamp.outputs.repo }}-${{ github.ref_name }}-${{github.event_name}}-${{ matrix.subset }}-ccache
-          path: /github/home/.ccache
-          aws-s3-bucket: ccache.zephyrproject.org
-          aws-access-key-id: ${{ secrets.CCACHE_S3_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.CCACHE_S3_SECRET_ACCESS_KEY }}
-          aws-region: us-east-2
-
-      - name: ccache stats initial
+      - name: Set up ccache
         run: |
-          test -d github/home/.ccache && rm -rf /github/home/.ccache && mv github/home/.ccache /github/home/.ccache
-          ccache -M 10G -s
+          mkdir -p ${CCACHE_DIR}
+          ccache -M 10G
+          ccache -p
+          ccache -z -s -vv
+
+      - name: Update BabbleSim to manifest revision
+        run: |
+          export BSIM_VERSION=$( west list bsim -f {revision} )
+          echo "Manifest points to bsim sha $BSIM_VERSION"
+          cd /opt/bsim_west/bsim
+          git fetch -n origin ${BSIM_VERSION}
+          git -c advice.detachedHead=false checkout ${BSIM_VERSION}
+          west update
+          make everything -s -j 8
 
       - if: github.event_name == 'push'
         name: Run Tests with Twister (Push)
+        id: run_twister
         run: |
           export ZEPHYR_BASE=${PWD}
           export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
@@ -223,13 +245,14 @@ jobs:
             fi
           fi
 
-      - if: github.event_name == 'pull_request_target'
+      - if: github.event_name == 'pull_request'
         name: Run Tests with Twister (Pull Request)
+        id: run_twister_pr
         run: |
           rm -f testplan.json
           export ZEPHYR_BASE=${PWD}
           export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
-          python3 ./scripts/ci/test_plan.py -c origin/${BASE_REF}.. --pull-request
+          python3 ./scripts/ci/test_plan.py -c origin/${BASE_REF}.. --pull-request --no-detailed-test-id
           ./scripts/twister --subset ${{matrix.subset}}/${{ strategy.job-total }} --load-tests testplan.json ${TWISTER_COMMON} ${PR_OPTIONS}
           if [ "${{matrix.subset}}" = "1" -a ${{needs.twister-build-prep.outputs.fullrun}} = 'True' ]; then
             ./scripts/zephyr_module.py --twister-out module_tests.args
@@ -239,64 +262,134 @@ jobs:
           fi
 
       - if: github.event_name == 'schedule'
-        name: Run Tests with Twister (Daily)
+        name: Run Tests with Twister (Weekly)
+        id: run_twister_sched
         run: |
           export ZEPHYR_BASE=${PWD}
           export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
-          ./scripts/twister --subset ${{matrix.subset}}/${{ strategy.job-total }} ${TWISTER_COMMON} ${DAILY_OPTIONS}
+          ./scripts/twister --subset ${{matrix.subset}}/${{ strategy.job-total }} ${TWISTER_COMMON} ${WEEKLY_OPTIONS}
           if [ "${{matrix.subset}}" = "1" ]; then
             ./scripts/zephyr_module.py --twister-out module_tests.args
             if [ -s module_tests.args ]; then
-              ./scripts/twister +module_tests.args --outdir module_tests ${TWISTER_COMMON} ${DAILY_OPTIONS}
+              ./scripts/twister +module_tests.args --outdir module_tests ${TWISTER_COMMON} ${WEEKLY_OPTIONS}
             fi
           fi
 
-      - name: ccache stats post
+      - name: Print ccache stats
+        if: always()
         run: |
-          ccache -s
+          ccache -s -vv
 
       - name: Upload Unit Test Results
         if: always()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Unit Test Results (Subset ${{ matrix.subset }})
           if-no-files-found: ignore
           path: |
             twister-out/twister.xml
+            twister-out/twister.json
+            module_tests/twister.xml
             testplan.json
+
+      - if: matrix.subset == 1 && github.event_name == 'push'
+        name: Save the list of Python packages
+        shell: bash
+        run: |
+          FREEZE_FILE="frozen-requirements.txt"
+          timestamp="$(date)"
+          version="$(git describe --abbrev=12 --always)"
+          echo -e "# Generated at $timestamp ($version)\n" > $FREEZE_FILE
+          pip freeze | tee -a $FREEZE_FILE
+
+      - if: matrix.subset == 1 && github.event_name == 'push'
+        name: Upload the list of Python packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Frozen PIP package set
+          path: |
+            frozen-requirements.txt
 
   twister-test-results:
     name: "Publish Unit Tests Results"
-    needs: twister-build
-    runs-on: ubuntu-latest
-      # the build-and-test job might be skipped, we don't need to run this job then
+    needs:
+      - twister-build
+    runs-on: ubuntu-24.04
+    permissions:
+      checks: write # to create the check run entry with Twister test results
+    # the build-and-test job might be skipped, we don't need to run this job then
     if: success() || failure()
 
     steps:
+      - name: Check out source code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: 3.12
+          cache: pip
+          cache-dependency-path: scripts/requirements-actions.txt
+
+      - name: Install Python packages
+        run: |
+          pip install -r scripts/requirements-actions.txt --require-hashes
+
       - name: Download Artifacts
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
 
       - name: Merge Test Results
         run: |
-          pip3 install junitparser junit2html
           junitparser merge artifacts/*/*/twister.xml junit.xml
           junit2html junit.xml junit.html
 
-      - name: Upload Unit Test Results in HTML
+      - name: Upload Unit Test Results
         if: always()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: HTML Unit Test Results
+          name: Unit Test Results
           if-no-files-found: ignore
           path: |
             junit.html
+            junit.xml
 
       - name: Publish Unit Test Results
-        uses: EnricoMi/publish-unit-test-result-action@v1
+        uses: EnricoMi/publish-unit-test-result-action@3a74b2957438d0b6e2e61d67b05318aa25c9e6c6 # v2.20.0
         with:
           check_name: Unit Test Results
-          github_token: ${{ secrets.GITHUB_TOKEN }}
           files: "**/twister.xml"
           comment_mode: off
+
+      - name: Analyze Twister Reports
+        if: needs.twister-build.result == 'failure'
+        run: |
+          ./scripts/ci/twister_report_analyzer.py artifacts/*/*/twister.json --long-summary --platforms --output-md errors.md
+          if [[ -s "errors.md" ]]; then
+            echo '### Error Summary! 🚀' >> $GITHUB_STEP_SUMMARY
+            cat errors.md  >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Twister Analysis Results
+        if: needs.twister-build.result == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Twister Analysis Results
+          if-no-files-found: ignore
+          path: |
+            twister_report_summary.json
+
+  twister-status-check:
+    if: always()
+    name: "Check Twister Status"
+    needs:
+      - twister-build-prep
+      - twister-build
+    uses: ./.github/workflows/ready-to-merge.yml
+    with:
+      needs_context: ${{ toJson(needs) }}

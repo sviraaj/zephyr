@@ -7,6 +7,7 @@ choice "LOG_BACKEND_$(backend)_OUTPUT"
 
 config LOG_BACKEND_$(backend)_OUTPUT_TEXT
 	bool "Text"
+	select LOG_OUTPUT
 	help
 	  Output in text.
 
@@ -18,10 +19,16 @@ config LOG_BACKEND_$(backend)_OUTPUT_SYST
 
 config LOG_BACKEND_$(backend)_OUTPUT_DICTIONARY
 	bool "Dictionary"
-	depends on LOG2
 	select LOG_DICTIONARY_SUPPORT
+	imply LOG_FMT_SECTION
+	imply LOG_FMT_SECTION_STRIP if !LOG_ALWAYS_RUNTIME
 	help
 	  Backend is in dictionary-based logging output mode.
+
+config LOG_BACKEND_$(backend)_OUTPUT_CUSTOM
+	bool "Extern"
+	help
+	  Custom formatting function can be set externally.
 
 endchoice
 
@@ -35,3 +42,4 @@ config LOG_BACKEND_$(backend)_OUTPUT_DEFAULT
 	default 0 if LOG_BACKEND_$(backend)_OUTPUT_TEXT
 	default 1 if LOG_BACKEND_$(backend)_OUTPUT_SYST
 	default 2 if LOG_BACKEND_$(backend)_OUTPUT_DICTIONARY
+	default 3 if LOG_BACKEND_$(backend)_OUTPUT_CUSTOM

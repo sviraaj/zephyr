@@ -29,6 +29,8 @@ extern "C" {
 /**
  * @brief Virtual network interface support functions
  * @defgroup virtual Virtual Network Interface Support Functions
+ * @since 2.6
+ * @version 0.8.0
  * @ingroup networking
  * @{
  */
@@ -37,6 +39,15 @@ extern "C" {
 enum virtual_interface_caps {
 	/** IPIP tunnel */
 	VIRTUAL_INTERFACE_IPIP = BIT(1),
+
+	/** Virtual LAN interface (VLAN) */
+	VIRTUAL_INTERFACE_VLAN = BIT(2),
+
+	/** Virtual Ethernet bridge interface. */
+	VIRTUAL_INTERFACE_BRIDGE = BIT(3),
+
+	/** VPN interface */
+	VIRTUAL_INTERFACE_VPN = BIT(4),
 
 /** @cond INTERNAL_HIDDEN */
 	/* Marker for capabilities - must be at the end of the enum.
@@ -51,7 +62,21 @@ enum virtual_interface_caps {
 enum virtual_interface_config_type {
 	VIRTUAL_INTERFACE_CONFIG_TYPE_PEER_ADDRESS,
 	VIRTUAL_INTERFACE_CONFIG_TYPE_MTU,
+	VIRTUAL_INTERFACE_CONFIG_TYPE_LINK_TYPE,
+	VIRTUAL_INTERFACE_CONFIG_TYPE_PRIVATE_KEY,
+	VIRTUAL_INTERFACE_CONFIG_TYPE_PUBLIC_KEY,
 };
+
+struct virtual_interface_link_types {
+	int count;
+	uint16_t type[COND_CODE_1(CONFIG_NET_CAPTURE_COOKED_MODE,
+				  (CONFIG_NET_CAPTURE_COOKED_MODE_MAX_LINK_TYPES),
+				  (1))];
+};
+
+#if !defined(NET_VIRTUAL_MAX_PUBLIC_KEY_LEN)
+#define NET_VIRTUAL_MAX_PUBLIC_KEY_LEN 32U
+#endif
 
 struct virtual_interface_config {
 	sa_family_t family;
@@ -59,6 +84,15 @@ struct virtual_interface_config {
 		struct in_addr peer4addr;
 		struct in6_addr peer6addr;
 		int mtu;
+		struct virtual_interface_link_types link_types;
+		struct {
+			size_t len;
+			uint8_t *data;
+		} private_key;
+		struct {
+			size_t len;
+			uint8_t data[NET_VIRTUAL_MAX_PUBLIC_KEY_LEN];
+		} public_key;
 	};
 };
 
@@ -69,6 +103,7 @@ struct virtual_interface_config {
 #endif
 /** @endcond */
 
+/** Virtual L2 API operations. */
 struct virtual_interface_api {
 	/**
 	 * The net_if_api must be placed in first position in this
@@ -88,18 +123,13 @@ struct virtual_interface_api {
 	/** Send a network packet */
 	int (*send)(struct net_if *iface, struct net_pkt *pkt);
 
-	/** Receive a network packet */
-	enum net_verdict (*recv)(struct net_if *iface, struct net_pkt *pkt);
-
-	/** Check if this received network packet is for this interface.
-	 * The callback returns NET_CONTINUE if this interface will accept the
+	/**
+	 * Receive a network packet.
+	 * The callback returns NET_OK if this interface will accept the
 	 * packet and pass it upper layers, NET_DROP if the packet is to be
-	 * dropped and NET_OK to pass it to next interface.
+	 * dropped and NET_CONTINUE to pass it to next interface.
 	 */
-	enum net_verdict (*input)(struct net_if *input_iface,
-				  struct net_if *iface,
-				  struct net_addr *remote_addr,
-				  struct net_pkt *pkt);
+	enum net_verdict (*recv)(struct net_if *iface, struct net_pkt *pkt);
 
 	/** Pass the attachment information to virtual interface */
 	int (*attach)(struct net_if *virtual_iface, struct net_if *iface);
@@ -147,7 +177,7 @@ struct virtual_interface_context {
 	bool is_init;
 
 	/** Link address for this network interface */
-	struct net_linkaddr_storage lladdr;
+	struct net_linkaddr lladdr;
 
 	/** User friendly name of this L2 layer. */
 	char name[VIRTUAL_MAX_NAME_LEN];
@@ -237,8 +267,8 @@ static inline void net_virtual_init(struct net_if *iface)
 #endif
 
 /**
- * @brief Take virtual network interface down. This is called
- *        if the underlying interface is going down.
+ * @brief Update the carrier state of the virtual network interface.
+ *        This is called if the underlying interface is going down.
  *
  * @param iface Network interface
  */
@@ -246,6 +276,21 @@ static inline void net_virtual_init(struct net_if *iface)
 void net_virtual_disable(struct net_if *iface);
 #else
 static inline void net_virtual_disable(struct net_if *iface)
+{
+	ARG_UNUSED(iface);
+}
+#endif
+
+/**
+ * @brief Update the carrier state of the virtual network interface.
+ *        This is called if the underlying interface is going up.
+ *
+ * @param iface Network interface
+ */
+#if defined(CONFIG_NET_L2_VIRTUAL)
+void net_virtual_enable(struct net_if *iface);
+#else
+static inline void net_virtual_enable(struct net_if *iface)
 {
 	ARG_UNUSED(iface);
 }
@@ -273,31 +318,35 @@ net_virtual_get_iface_capabilities(struct net_if *iface)
 	return virt->get_capabilities(iface);
 }
 
-#define Z_NET_VIRTUAL_INTERFACE_INIT(node_id, dev_name, drv_name,	\
-				     init_fn, pm_action_cb, data, cfg, \
-				     prio, api, mtu)			\
-	Z_NET_DEVICE_INIT(node_id, dev_name, drv_name, init_fn,		\
-			  pm_action_cb, data, cfg, prio, api,		\
-			  VIRTUAL_L2, NET_L2_GET_CTX_TYPE(VIRTUAL_L2),	\
-			  mtu)
+#define Z_NET_VIRTUAL_INTERFACE_INIT(node_id, dev_id, name, init_fn,	\
+				     pm, data, config, prio, api, mtu)	\
+	Z_NET_DEVICE_INIT(node_id, dev_id, name, init_fn, pm, data,	\
+			  config, prio, api, VIRTUAL_L2,		\
+			  NET_L2_GET_CTX_TYPE(VIRTUAL_L2), mtu)
+
+#define Z_NET_VIRTUAL_INTERFACE_INIT_INSTANCE(node_id, dev_id, name,	\
+					      inst, init_fn, pm, data,	\
+					      config, prio, api, mtu)	\
+	Z_NET_DEVICE_INIT_INSTANCE(node_id, dev_id, name, inst,		\
+				   init_fn, pm, data,			\
+				   config, prio, api, VIRTUAL_L2,	\
+				   NET_L2_GET_CTX_TYPE(VIRTUAL_L2), mtu)
 /** @endcond */
 
 /**
- * @def NET_VIRTUAL_INTERFACE_INIT
- *
  * @brief Create a virtual network interface. Binding to another interface
  *        is done at runtime by calling net_virtual_interface_attach().
  *        The attaching is done automatically when setting up tunneling
  *        when peer IP address is set in IP tunneling driver.
  *
- * @param dev_name Network device name.
- * @param drv_name The name this instance of the driver exposes to
+ * @param dev_id Network device id.
+ * @param name The name this instance of the driver exposes to
  * the system.
  * @param init_fn Address to the init function of the driver.
- * @param pm_action_cb Pointer to PM action callback.
- * Can be NULL if not implemented.
+ * @param pm Reference to struct pm_device associated with the device.
+ * (optional).
  * @param data Pointer to the device's private data.
- * @param cfg The address to the structure containing the
+ * @param config The address to the structure containing the
  * configuration information for this instance of the driver.
  * @param prio The initialization level at which configuration occurs.
  * @param api Provides an initial pointer to the API function struct
@@ -305,12 +354,41 @@ net_virtual_get_iface_capabilities(struct net_if *iface)
  * @param mtu Maximum transfer unit in bytes for this network interface.
  * This is the default value and its value can be tweaked at runtime.
  */
-#define NET_VIRTUAL_INTERFACE_INIT(dev_name, drv_name, init_fn,		\
-				   pm_action_cb,			\
-				   data, cfg, prio, api, mtu)		\
-	Z_NET_VIRTUAL_INTERFACE_INIT(DT_INVALID_NODE, dev_name,		\
-				     drv_name, init_fn, pm_action_cb,	\
-				     data, cfg, prio, api, mtu)
+#define NET_VIRTUAL_INTERFACE_INIT(dev_id, name, init_fn, pm, data,	\
+				   config, prio, api, mtu)		\
+	Z_NET_VIRTUAL_INTERFACE_INIT(DT_INVALID_NODE, dev_id, name,	\
+				     init_fn, pm, data, config, prio,	\
+				     api, mtu)
+
+/**
+ * @brief Create a virtual network interface. Binding to another interface
+ *        is done at runtime by calling net_virtual_interface_attach().
+ *        The attaching is done automatically when setting up tunneling
+ *        when peer IP address is set in IP tunneling driver.
+ *
+ * @param dev_id Network device id.
+ * @param name The name this instance of the driver exposes to
+ * the system.
+ * @param inst instance number
+ * @param init_fn Address to the init function of the driver.
+ * @param pm Reference to struct pm_device associated with the device.
+ * (optional).
+ * @param data Pointer to the device's private data.
+ * @param config The address to the structure containing the
+ * configuration information for this instance of the driver.
+ * @param prio The initialization level at which configuration occurs.
+ * @param api Provides an initial pointer to the API function struct
+ * used by the driver. Can be NULL.
+ * @param mtu Maximum transfer unit in bytes for this network interface.
+ * This is the default value and its value can be tweaked at runtime.
+ */
+#define NET_VIRTUAL_INTERFACE_INIT_INSTANCE(dev_id, name, inst,		 \
+					    init_fn, pm, data,		 \
+					    config, prio, api, mtu)	 \
+	Z_NET_VIRTUAL_INTERFACE_INIT_INSTANCE(DT_INVALID_NODE, dev_id,	 \
+					      name, inst,		 \
+					      init_fn, pm, data, config, \
+					      prio, api, mtu)
 
 /**
  * @}

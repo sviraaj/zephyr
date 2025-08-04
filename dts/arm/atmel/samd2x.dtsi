@@ -1,17 +1,35 @@
 /*
  * Copyright (c) 2017 Google LLC.
+ * Copyright (c) 2024-2025 Gerson Fernando Budke <nandojve@gmail.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <mem.h>
 #include <arm/armv6-m.dtsi>
+#include <zephyr/dt-bindings/adc/adc.h>
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/i2c/i2c.h>
 #include <zephyr/dt-bindings/pwm/pwm.h>
 
 / {
 	aliases {
+		adc-0 = &adc;
+
+		port-a = &porta;
+		port-b = &portb;
+
+		rtc = &rtc;
+
+		sercom-0 = &sercom0;
+		sercom-1 = &sercom1;
+		sercom-2 = &sercom2;
+		sercom-3 = &sercom3;
+		sercom-4 = &sercom4;
+		sercom-5 = &sercom5;
+
+		tc-4 = &tc4;
+
 		watchdog0 = &wdog;
 	};
 
@@ -24,15 +42,15 @@
 		#size-cells = <0>;
 
 		cpu0: cpu@0 {
-			device_type = "cpu";
 			compatible = "arm,cortex-m0+";
 			reg = <0>;
+
+			device_type = "cpu";
 		};
 	};
 
 	sram0: memory@20000000 {
 		compatible = "mmio-sram";
-		reg = <0x20000000 0x8000>;
 	};
 
 	id: device_id@80a00c {
@@ -43,58 +61,44 @@
 			<0x0080A048 0x4>;
 	};
 
-	aliases {
-		port-a = &porta;
-		port-b = &portb;
-		adc-0 = &adc;
-
-		sercom-0 = &sercom0;
-		sercom-1 = &sercom1;
-		sercom-2 = &sercom2;
-		sercom-3 = &sercom3;
-		sercom-4 = &sercom4;
-		sercom-5 = &sercom5;
-
-		tc-4 = &tc4;
-	};
-
 	soc {
 		nvmctrl: nvmctrl@41004000  {
 			compatible = "atmel,sam0-nvmctrl";
-			label = "FLASH_CTRL";
 			reg = <0x41004000 0x22>;
 			interrupts = <5 0>;
-			lock-regions = <16>;
 
 			#address-cells = <1>;
 			#size-cells = <1>;
 
+			lock-regions = <16>;
+
 			flash0: flash@0 {
 				compatible = "soc-nv-flash";
-				label = "FLASH_0";
-				reg = <0 0x40000>;
+
 				write-block-size = <4>;
 			};
 		};
 
 		pm: pm@40000400 {
-			compatible = "atmel,samd2x-pm";
+			compatible = "atmel,sam0-mclk";
 			reg = <0x40000400 0x400>;
 			interrupts = <0 0>;
+
 			#clock-cells = <2>;
 		};
 
 		gclk: gclk@40000c00 {
-			compatible = "atmel,samd2x-gclk";
+			compatible = "atmel,sam0-gclk";
 			reg = <0x40000c00 0x400>;
+
 			#clock-cells = <1>;
+			#atmel,assigned-clock-cells = <1>;
 		};
 
 		eic: eic@40001800 {
 			compatible = "atmel,sam0-eic";
 			reg = <0x40001800 0x1C>;
 			interrupts = <4 0>;
-			label = "EIC";
 		};
 
 		pinmux_a: pinmux@41004400 {
@@ -111,80 +115,75 @@
 			compatible = "atmel,sam0-watchdog";
 			reg = <0x40001000 9>;
 			interrupts = <2 0>;
-			label = "WATCHDOG_0";
 		};
 
 		sercom0: sercom@42000800 {
 			compatible = "atmel,sam0-sercom";
 			reg = <0x42000800 0x40>;
 			status = "disabled";
-			label = "SERCOM0";
 		};
 
 		sercom1: sercom@42000c00 {
 			compatible = "atmel,sam0-sercom";
 			reg = <0x42000c00 0x40>;
 			status = "disabled";
-			label = "SERCOM1";
 		};
 
 		sercom2: sercom@42001000 {
 			compatible = "atmel,sam0-sercom";
 			reg = <0x42001000 0x40>;
 			status = "disabled";
-			label = "SERCOM2";
 		};
 
 		sercom3: sercom@42001400 {
 			compatible = "atmel,sam0-sercom";
 			reg = <0x42001400 0x40>;
 			status = "disabled";
-			label = "SERCOM3";
 		};
 
 		sercom4: sercom@42001800 {
 			compatible = "atmel,sam0-sercom";
 			reg = <0x42001800 0x40>;
 			status = "disabled";
-			label = "SERCOM4";
 		};
 
 		sercom5: sercom@42001c00 {
 			compatible = "atmel,sam0-sercom";
 			reg = <0x42001c00 0x40>;
 			status = "disabled";
-			label = "SERCOM5";
 		};
 
 		tc4: tc@42003000 {
 			compatible = "atmel,sam0-tc32";
 			reg = <0x42003000 0x20>;
-			label = "TIMER_4";
+			status = "disabled";
 		};
 
 		pinctrl: pinctrl@41004400 {
 			compatible = "atmel,sam0-pinctrl";
+			ranges = <0x41004400 0x41004400 0x100>;
+
 			#address-cells = <1>;
 			#size-cells = <1>;
-			ranges = <0x41004400 0x41004400 0x100>;
 
 			porta: gpio@41004400 {
 				compatible = "atmel,sam0-gpio";
 				reg = <0x41004400 0x80>;
-				label = "PORTA";
-				gpio-controller;
-				#gpio-cells = <2>;
-				#atmel,pin-cells = <2>;
 
+				#atmel,pin-cells = <2>;
+				#gpio-cells = <2>;
+
+				gpio-controller;
 			};
 
 			portb: gpio@41004480 {
 				compatible = "atmel,sam0-gpio";
 				reg = <0x41004480 0x80>;
-				label = "PORTB";
-				gpio-controller;
-				#gpio-cells = <2>;
+
 				#atmel,pin-cells = <2>;
+				#gpio-cells = <2>;
+
+				gpio-controller;
 			};
 		};
 
@@ -192,30 +191,29 @@
 			compatible = "atmel,sam0-rtc";
 			reg = <0x40001400 0x1C>;
 			interrupts = <3 0>;
-			clock-generator = <0>;
+			clocks = <&gclk 4 4>, <&pm 0x18 5>;
+			clock-names = "GCLK", "PM";
 			status = "disabled";
-			label = "RTC";
+
+			alarms-count = <1>;
+			cal-constant = <(1024 * 976)>;
 		};
 
 		adc: adc@42004000 {
 			compatible = "atmel,sam0-adc";
 			reg = <0x42004000 0x2B>;
-			label = "ADC_0";
+			status = "disabled";
 
-			/*
-			 * 2.1 MHz max, so clock it with the
-			 * 8 MHz GCLK / 4 = 2 MHz
-			 */
-			gclk = <3>;
-			prescaler = <4>;
 			#io-channel-cells = <1>;
+
+			prescaler = <4>;
 		};
 
 		dac0: dac@42004800 {
 			compatible = "atmel,sam0-dac";
-			status = "disabled";
 			reg = <0x42004800 0x10>;
-			label = "DAC_0";
+			status = "disabled";
+
 			#io-channel-cells = <0>;
 		};
 	};

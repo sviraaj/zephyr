@@ -1,12 +1,13 @@
 /*
  * Copyright (c) 2021 Volvo Construction Equipment
+ * Copyright 2023 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #define DT_DRV_COMPAT nxp_imx_flexspi_hyperflash
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <errno.h>
 #include <zephyr/drivers/flash.h>
 
@@ -32,14 +33,23 @@ LOG_MODULE_REGISTER(flexspi_hyperflash, CONFIG_FLASH_LOG_LEVEL);
 #endif
 
 #include <zephyr/sys/util.h>
-
 #include "memc_mcux_flexspi.h"
 
 #define SPI_HYPERFLASH_SECTOR_SIZE              (0x40000U)
 #define SPI_HYPERFLASH_PAGE_SIZE                (512U)
 
-#define HYPERFLASH_WRITE_SIZE                   (16)
 #define HYPERFLASH_ERASE_VALUE                  (0xFF)
+
+/* Hyper flash support SDR and DDR, from the FlexSPI controller point of view,
+ * if DDR enabled, commands in LUT need to be DDR command and root clock is
+ * double of Serial clock (clock output to flash).
+ * if DDR mode enabled, set it to 2
+ * if SDR mode enabled, set it to 1
+ */
+#define MCUX_FLEXSPI_HYPERFLASH_DDR_SDR_MODE     2
+
+/* Some hyper flashs require a lower frequency when doing writing operation. */
+#define FREQ_FOR_HYPERFLASH_WRITE               (MHZ(42) * MCUX_FLEXSPI_HYPERFLASH_DDR_SDR_MODE)
 
 #ifdef CONFIG_FLASH_MCUX_FLEXSPI_HYPERFLASH_WRITE_BUFFER
 static uint8_t hyperflash_write_buf[SPI_HYPERFLASH_PAGE_SIZE];
@@ -65,7 +75,10 @@ static const uint32_t flash_flexspi_hyperflash_lut[CUSTOM_LUT_LENGTH] = {
 				kFLEXSPI_Command_RADDR_DDR, kFLEXSPI_8PAD, 0x18),
 	[4 * READ_DATA + 1] =
 		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_CADDR_DDR, kFLEXSPI_8PAD, 0x10,
-				kFLEXSPI_Command_READ_DDR,  kFLEXSPI_8PAD, 0x04),
+				kFLEXSPI_Command_DUMMY_RWDS_DDR, kFLEXSPI_8PAD, 0xC),
+	[4 * READ_DATA + 2] =
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_READ_DDR,  kFLEXSPI_8PAD, 0x04,
+				kFLEXSPI_Command_STOP,     kFLEXSPI_1PAD, 0x0),
 	/* Write Data */
 	[4 * WRITE_DATA] =
 		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_DDR,       kFLEXSPI_8PAD, 0x20,
@@ -242,18 +255,23 @@ static const uint32_t flash_flexspi_hyperflash_lut[CUSTOM_LUT_LENGTH] = {
 				kFLEXSPI_Command_DDR, kFLEXSPI_8PAD, 0x10),
 };
 
+
+struct flash_flexspi_hyperflash_config {
+	const struct device *controller;
+};
+
 /* Device variables used in critical sections should be in this structure */
 struct flash_flexspi_hyperflash_data {
-	const struct device *controller;
+	struct device controller;
 	flexspi_device_config_t config;
 	flexspi_port_t port;
 	struct flash_pages_layout layout;
 	struct flash_parameters flash_parameters;
 };
 
-static int flash_flexspi_hyperflash_wait_bus_busy(const struct device *dev)
+/* Make sure all parameters accessed by this function are in RAM when XIP is enabled. */
+static int flash_flexspi_hyperflash_wait_bus_busy(const struct flash_flexspi_hyperflash_data *data)
 {
-	struct flash_flexspi_hyperflash_data *data = dev->data;
 	flexspi_transfer_t transfer;
 	int ret;
 	bool is_busy;
@@ -268,7 +286,7 @@ static int flash_flexspi_hyperflash_wait_bus_busy(const struct device *dev)
 	transfer.dataSize = 2;
 
 	do {
-		ret = memc_flexspi_transfer(data->controller, &transfer);
+		ret = memc_flexspi_transfer(&data->controller, &transfer);
 		if (ret != 0) {
 			return ret;
 		}
@@ -284,9 +302,10 @@ static int flash_flexspi_hyperflash_wait_bus_busy(const struct device *dev)
 	return ret;
 }
 
-static int flash_flexspi_hyperflash_write_enable(const struct device *dev, uint32_t address)
+/* Make sure all parameters accessed by this function are in RAM when XIP is enabled. */
+static int flash_flexspi_hyperflash_write_enable(const struct flash_flexspi_hyperflash_data *data,
+				uint32_t address)
 {
-	struct flash_flexspi_hyperflash_data *data = dev->data;
 	flexspi_transfer_t transfer;
 	int ret;
 
@@ -296,7 +315,7 @@ static int flash_flexspi_hyperflash_write_enable(const struct device *dev, uint3
 	transfer.SeqNumber = 2;
 	transfer.seqIndex = WRITE_ENABLE;
 
-	ret = memc_flexspi_transfer(data->controller, &transfer);
+	ret = memc_flexspi_transfer(&data->controller, &transfer);
 
 	return ret;
 }
@@ -319,7 +338,7 @@ static int flash_flexspi_hyperflash_check_vendor_id(const struct device *dev)
 
 	LOG_DBG("Reading id");
 
-	ret = memc_flexspi_transfer(data->controller, &transfer);
+	ret = memc_flexspi_transfer(&data->controller, &transfer);
 	if (ret != 0) {
 		LOG_ERR("failed to CFI");
 		return ret;
@@ -333,7 +352,7 @@ static int flash_flexspi_hyperflash_check_vendor_id(const struct device *dev)
 	transfer.data = buffer;
 	transfer.dataSize = 8;
 
-	ret = memc_flexspi_transfer(data->controller, &transfer);
+	ret = memc_flexspi_transfer(&data->controller, &transfer);
 	if (ret != 0) {
 		LOG_ERR("failed to read id");
 		return ret;
@@ -354,22 +373,21 @@ static int flash_flexspi_hyperflash_check_vendor_id(const struct device *dev)
 	transfer.data = (uint32_t *)writebuf;
 	transfer.dataSize = 2;
 
-	ret = memc_flexspi_transfer(data->controller, &transfer);
+	ret = memc_flexspi_transfer(&data->controller, &transfer);
 	if (ret != 0) {
 		LOG_ERR("failed to exit");
 		return ret;
 	}
 
-	memc_flexspi_reset(data->controller);
+	memc_flexspi_reset(&data->controller);
 
 	return ret;
 }
 
-static int flash_flexspi_hyperflash_page_program(const struct device *dev, off_t
-		offset, const void *buffer, size_t len)
+/* Make sure all parameters accessed by this function are in RAM when XIP is enabled. */
+static int flash_flexspi_hyperflash_page_program(const struct flash_flexspi_hyperflash_data *data,
+				off_t offset, const void *buffer, size_t len)
 {
-	struct flash_flexspi_hyperflash_data *data = dev->data;
-
 	flexspi_transfer_t transfer = {
 		.deviceAddress = offset,
 		.port = data->port,
@@ -380,9 +398,9 @@ static int flash_flexspi_hyperflash_page_program(const struct device *dev, off_t
 		.dataSize = len,
 	};
 
-	LOG_DBG("Page programming %d bytes to 0x%08x", len, offset);
+	LOG_DBG("Page programming %d bytes to 0x%08lx", len, offset);
 
-	return memc_flexspi_transfer(data->controller, &transfer);
+	return memc_flexspi_transfer(&data->controller, &transfer);
 }
 
 static int flash_flexspi_hyperflash_read(const struct device *dev, off_t offset,
@@ -390,7 +408,15 @@ static int flash_flexspi_hyperflash_read(const struct device *dev, off_t offset,
 {
 	struct flash_flexspi_hyperflash_data *data = dev->data;
 
-	uint8_t *src = memc_flexspi_get_ahb_address(data->controller,
+	if (len == 0) {
+		return 0;
+	}
+
+	if (!buffer) {
+		return -EINVAL;
+	}
+
+	uint8_t *src = memc_flexspi_get_ahb_address(&data->controller,
 			data->port,
 			offset);
 	if (!src) {
@@ -409,23 +435,31 @@ static int flash_flexspi_hyperflash_write(const struct device *dev, off_t offset
 	size_t size = len;
 	uint8_t *src = (uint8_t *)buffer;
 	unsigned int key = 0;
-	int i;
+	int i, j;
 	int ret = -1;
 
-	uint8_t *dst = memc_flexspi_get_ahb_address(data->controller,
+	uint8_t *dst = memc_flexspi_get_ahb_address(&data->controller,
 			data->port,
 			offset);
 	if (!dst) {
 		return -EINVAL;
 	}
 
-	if (memc_flexspi_is_running_xip(data->controller)) {
+	if (memc_flexspi_is_running_xip(&data->controller)) {
 		/*
 		 * ==== ENTER CRITICAL SECTION ====
 		 * No flash access should be performed in critical section. All
 		 * code and data accessed must reside in ram.
 		 */
 		key = irq_lock();
+		memc_flexspi_wait_bus_idle(&data->controller);
+	}
+
+	/* Update clock to a freq which usually lower than normal working freq. */
+	if (memc_flexspi_update_clock(&data->controller, &data->config,
+					data->port, FREQ_FOR_HYPERFLASH_WRITE)) {
+		ret = -ENOTSUP;
+		goto __exit;
 	}
 
 	while (len) {
@@ -436,45 +470,55 @@ static int flash_flexspi_hyperflash_write(const struct device *dev, off_t offset
 		i = MIN(SPI_HYPERFLASH_PAGE_SIZE - (offset %
 					SPI_HYPERFLASH_PAGE_SIZE), len);
 #ifdef CONFIG_FLASH_MCUX_FLEXSPI_HYPERFLASH_WRITE_BUFFER
-		memcpy(hyperflash_write_buf, src, i);
+		for (j = 0; j < i; j++) {
+			hyperflash_write_buf[j] = src[j];
+		}
 #endif
-		ret = flash_flexspi_hyperflash_write_enable(dev, offset);
+		ret = flash_flexspi_hyperflash_write_enable(data, offset);
 		if (ret != 0) {
 			LOG_ERR("failed to enable write");
 			break;
 		}
 #ifdef CONFIG_FLASH_MCUX_FLEXSPI_HYPERFLASH_WRITE_BUFFER
-		ret = flash_flexspi_hyperflash_page_program(dev, offset,
+		ret = flash_flexspi_hyperflash_page_program(data, offset,
 				hyperflash_write_buf, i);
 #else
-		ret = flash_flexspi_hyperflash_page_program(dev, offset, src, i);
+		ret = flash_flexspi_hyperflash_page_program(data, offset, src, i);
 #endif
 		if (ret != 0) {
 			LOG_ERR("failed to write");
 			break;
 		}
 
-		ret = flash_flexspi_hyperflash_wait_bus_busy(dev);
+		ret = flash_flexspi_hyperflash_wait_bus_busy(data);
 		if (ret != 0) {
 			LOG_ERR("failed to wait bus busy");
 			break;
 		}
 
 		/* Do software reset. */
-		memc_flexspi_reset(data->controller);
+		memc_flexspi_reset(&data->controller);
 		src += i;
 		offset += i;
 		len -= i;
 	}
 
-	if (memc_flexspi_is_running_xip(data->controller)) {
-		/* ==== EXIT CRITICAL SECTION ==== */
-		irq_unlock(key);
+	/* Clock FlexSPI at max freq flash support. */
+	if (memc_flexspi_update_clock(&data->controller, &data->config,
+					data->port, data->config.flexspiRootClk)) {
+		ret = -ENOTSUP;
+		goto __exit;
 	}
 
 #ifdef CONFIG_HAS_MCUX_CACHE
 	DCACHE_InvalidateByRange((uint32_t) dst, size);
 #endif
+
+__exit:
+	if (memc_flexspi_is_running_xip(&data->controller)) {
+		/* ==== EXIT CRITICAL SECTION ==== */
+		irq_unlock(key);
+	}
 
 	return ret;
 }
@@ -487,7 +531,7 @@ static int flash_flexspi_hyperflash_erase(const struct device *dev, off_t offset
 	int i;
 	unsigned int key = 0;
 	int num_sectors = size / SPI_HYPERFLASH_SECTOR_SIZE;
-	uint8_t *dst = memc_flexspi_get_ahb_address(data->controller,
+	uint8_t *dst = memc_flexspi_get_ahb_address(&data->controller,
 			data->port,
 			offset);
 
@@ -505,23 +549,24 @@ static int flash_flexspi_hyperflash_erase(const struct device *dev, off_t offset
 		return -EINVAL;
 	}
 
-	if (memc_flexspi_is_running_xip(data->controller)) {
+	if (memc_flexspi_is_running_xip(&data->controller)) {
 		/*
 		 * ==== ENTER CRITICAL SECTION ====
 		 * No flash access should be performed in critical section. All
 		 * code and data accessed must reside in ram.
 		 */
 		key = irq_lock();
+		memc_flexspi_wait_bus_idle(&data->controller);
 	}
 
 	for (i = 0; i < num_sectors; i++) {
-		ret = flash_flexspi_hyperflash_write_enable(dev, offset);
+		ret = flash_flexspi_hyperflash_write_enable(data, offset);
 		if (ret != 0) {
 			LOG_ERR("failed to write_enable");
 			break;
 		}
 
-		LOG_DBG("Erasing sector at 0x%08x", offset);
+		LOG_DBG("Erasing sector at 0x%08lx", offset);
 
 		transfer.deviceAddress = offset;
 		transfer.port = data->port;
@@ -529,33 +574,33 @@ static int flash_flexspi_hyperflash_erase(const struct device *dev, off_t offset
 		transfer.SeqNumber = 4;
 		transfer.seqIndex = ERASE_SECTOR;
 
-		ret = memc_flexspi_transfer(data->controller, &transfer);
+		ret = memc_flexspi_transfer(&data->controller, &transfer);
 		if (ret != 0) {
 			LOG_ERR("failed to erase");
 			break;
 		}
 
 		/* wait bus busy */
-		ret = flash_flexspi_hyperflash_wait_bus_busy(dev);
+		ret = flash_flexspi_hyperflash_wait_bus_busy(data);
 		if (ret != 0) {
 			LOG_ERR("failed to wait bus busy");
 			break;
 		}
 
 		/* Do software reset. */
-		memc_flexspi_reset(data->controller);
+		memc_flexspi_reset(&data->controller);
 
 		offset += SPI_HYPERFLASH_SECTOR_SIZE;
-	}
-
-	if (memc_flexspi_is_running_xip(data->controller)) {
-		/* ==== EXIT CRITICAL SECTION ==== */
-		irq_unlock(key);
 	}
 
 #ifdef CONFIG_HAS_MCUX_CACHE
 	DCACHE_InvalidateByRange((uint32_t) dst, size);
 #endif
+
+	if (memc_flexspi_is_running_xip(&data->controller)) {
+		/* ==== EXIT CRITICAL SECTION ==== */
+		irq_unlock(key);
+	}
 
 	return ret;
 }
@@ -581,29 +626,30 @@ static void flash_flexspi_hyperflash_pages_layout(const struct device *dev,
 
 static int flash_flexspi_hyperflash_init(const struct device *dev)
 {
+	const struct flash_flexspi_hyperflash_config *config = dev->config;
 	struct flash_flexspi_hyperflash_data *data = dev->data;
 
-	if (!device_is_ready(data->controller)) {
+	/* Since the controller variable may be used in critical sections,
+	 * copy the device pointer into a variable stored in RAM
+	 */
+	memcpy(&data->controller, config->controller, sizeof(struct device));
+
+	if (!device_is_ready(&data->controller)) {
 		LOG_ERR("Controller device not ready");
 		return -ENODEV;
 	}
 
-	memc_flexspi_wait_bus_idle(data->controller);
+	memc_flexspi_wait_bus_idle(&data->controller);
 
-	if (memc_flexspi_set_device_config(data->controller, &data->config,
-				data->port)) {
+	if (memc_flexspi_set_device_config(&data->controller, &data->config,
+	    (const uint32_t *)flash_flexspi_hyperflash_lut,
+	    sizeof(flash_flexspi_hyperflash_lut) / MEMC_FLEXSPI_CMD_SIZE,
+	    data->port)) {
 		LOG_ERR("Could not set device configuration");
 		return -EINVAL;
 	}
 
-	if (memc_flexspi_update_lut(data->controller, 0,
-				(const uint32_t *) flash_flexspi_hyperflash_lut,
-				sizeof(flash_flexspi_hyperflash_lut)/4)) {
-		LOG_ERR("Could not update lut");
-		return -EINVAL;
-	}
-
-	memc_flexspi_reset(data->controller);
+	memc_flexspi_reset(&data->controller);
 
 	if (flash_flexspi_hyperflash_check_vendor_id(dev)) {
 		LOG_ERR("Could not read vendor id");
@@ -613,7 +659,7 @@ static int flash_flexspi_hyperflash_init(const struct device *dev)
 	return 0;
 }
 
-static const struct flash_driver_api flash_flexspi_hyperflash_api = {
+static DEVICE_API(flash, flash_flexspi_hyperflash_api) = {
 	.read = flash_flexspi_hyperflash_read,
 	.write = flash_flexspi_hyperflash_write,
 	.erase = flash_flexspi_hyperflash_erase,
@@ -633,7 +679,8 @@ static const struct flash_driver_api flash_flexspi_hyperflash_api = {
 
 #define FLASH_FLEXSPI_DEVICE_CONFIG(n)					\
 	{								\
-		.flexspiRootClk = MHZ(42),				\
+		.flexspiRootClk = DT_INST_PROP(n, spi_max_frequency) * \
+		MCUX_FLEXSPI_HYPERFLASH_DDR_SDR_MODE, \
 		.flashSize = DT_INST_PROP(n, size) / 8 / KB(1),		\
 		.CSIntervalUnit =					\
 			CS_INTERVAL_UNIT(				\
@@ -656,9 +703,12 @@ static const struct flash_driver_api flash_flexspi_hyperflash_api = {
 	}								\
 
 #define FLASH_FLEXSPI_HYPERFLASH(n)					\
+	static struct flash_flexspi_hyperflash_config			\
+		flash_flexspi_hyperflash_config_##n = {			\
+		.controller = DEVICE_DT_GET(DT_INST_BUS(n)),		\
+	};								\
 	static struct flash_flexspi_hyperflash_data			\
 		flash_flexspi_hyperflash_data_##n = {			\
-		.controller = DEVICE_DT_GET(DT_INST_BUS(n)),		\
 		.config = FLASH_FLEXSPI_DEVICE_CONFIG(n),		\
 		.port = DT_INST_REG_ADDR(n),				\
 		.layout = {						\
@@ -667,7 +717,7 @@ static const struct flash_driver_api flash_flexspi_hyperflash_api = {
 			.pages_size = SPI_HYPERFLASH_SECTOR_SIZE,	\
 		},							\
 		.flash_parameters = {					\
-			.write_block_size = HYPERFLASH_WRITE_SIZE,	\
+			.write_block_size = DT_INST_PROP(n, write_block_size), \
 			.erase_value = HYPERFLASH_ERASE_VALUE,		\
 		},							\
 	};								\
@@ -676,7 +726,7 @@ static const struct flash_driver_api flash_flexspi_hyperflash_api = {
 			      flash_flexspi_hyperflash_init,		\
 			      NULL,					\
 			      &flash_flexspi_hyperflash_data_##n,	\
-			      NULL,					\
+			      &flash_flexspi_hyperflash_config_##n,	\
 			      POST_KERNEL,				\
 			      CONFIG_FLASH_INIT_PRIORITY,		\
 			      &flash_flexspi_hyperflash_api);

@@ -10,7 +10,7 @@
 #include <errno.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/byteorder.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/services/ots.h>
@@ -23,7 +23,6 @@
 LOG_MODULE_DECLARE(bt_ots, CONFIG_BT_OTS_LOG_LEVEL);
 
 #define OLCP_PROC_TYPE_SIZE	1
-#define OLCP_RES_MAX_SIZE	7
 
 static enum bt_gatt_ots_olcp_res_code obj_manager_to_olcp_err_map(int err)
 {
@@ -120,6 +119,12 @@ static enum bt_gatt_ots_olcp_res_code olcp_goto_proc_execute(
 	int err;
 	struct bt_gatt_ots_object *id_obj;
 
+	if (!BT_OTS_VALID_OBJ_ID(id)) {
+		LOG_DBG("Invalid object ID 0x%016llx", id);
+
+		return BT_GATT_OTS_OLCP_RES_INVALID_PARAMETER;
+	}
+
 	err = bt_gatt_ots_obj_manager_obj_get(ots->obj_manager,
 					      id,
 					      &id_obj);
@@ -199,13 +204,13 @@ static void olcp_ind_cb(struct bt_conn *conn,
 	LOG_DBG("Received OLCP Indication ACK with status: 0x%04X", err);
 }
 
-static int olcp_ind_send(const struct bt_gatt_attr *olcp_attr,
+static void olcp_ind_send(const struct bt_gatt_attr *olcp_attr,
 			 enum bt_gatt_ots_olcp_proc_type req_op_code,
 			 enum bt_gatt_ots_olcp_res_code olcp_status)
 {
-	uint8_t olcp_res[OLCP_RES_MAX_SIZE];
-	uint16_t olcp_res_len = 0;
 	struct bt_ots *ots = (struct bt_ots *) olcp_attr->user_data;
+	uint8_t *olcp_res = ots->olcp_ind.res;
+	uint16_t olcp_res_len = 0;
 
 	/* Encode OLCP Response */
 	olcp_res[olcp_res_len++] = BT_GATT_OTS_OLCP_PROC_RESP;
@@ -219,10 +224,13 @@ static int olcp_ind_send(const struct bt_gatt_attr *olcp_attr,
 	ots->olcp_ind.params.func = olcp_ind_cb;
 	ots->olcp_ind.params.data = olcp_res;
 	ots->olcp_ind.params.len  = olcp_res_len;
+#if defined(CONFIG_BT_EATT)
+	ots->olcp_ind.params.chan_opt = BT_ATT_CHAN_OPT_NONE;
+#endif /* CONFIG_BT_EATT */
 
 	LOG_DBG("Sending OLCP indication");
 
-	return bt_gatt_indicate(NULL, &ots->olcp_ind.params);
+	k_work_submit(&ots->olcp_ind.work);
 }
 
 ssize_t bt_gatt_ots_olcp_write(struct bt_conn *conn,
@@ -248,6 +256,11 @@ ssize_t bt_gatt_ots_olcp_write(struct bt_conn *conn,
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
 	}
 
+	if (k_work_is_pending(&ots->olcp_ind.work)) {
+		LOG_ERR("OLCP Write received before indication sent");
+		return BT_GATT_ERR(BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
+	}
+
 	old_obj = ots->cur_obj;
 
 	decode_status = olcp_command_decode(buf, len, &olcp_proc);
@@ -262,7 +275,7 @@ ssize_t bt_gatt_ots_olcp_write(struct bt_conn *conn,
 			bt_ots_obj_id_to_str(ots->cur_obj->id, id,
 						sizeof(id));
 			LOG_DBG("Selecting a new Current Object with id: %s",
-				log_strdup(id));
+				id);
 
 			if (IS_ENABLED(CONFIG_BT_OTS_DIR_LIST_OBJ)) {
 				bt_ots_dir_list_selected(ots->dir_list, ots->obj_manager,
@@ -298,7 +311,7 @@ void bt_gatt_ots_olcp_cfg_changed(const struct bt_gatt_attr *attr,
 				      uint16_t value)
 {
 	struct bt_gatt_ots_indicate *olcp_ind =
-	    CONTAINER_OF((struct _bt_gatt_ccc *) attr->user_data,
+	    CONTAINER_OF((struct bt_gatt_ccc_managed_user_data *) attr->user_data,
 			 struct bt_gatt_ots_indicate, ccc);
 
 	LOG_DBG("Object List Control Point CCCD value: 0x%04X", value);

@@ -7,6 +7,8 @@
 #include <zephyr/kernel.h>
 #include <zephyr/arch/cpu.h>
 #include <zephyr/init.h>
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(intc_it8xxx2, LOG_LEVEL_DBG);
 #include <zephyr/sys/printk.h>
 #include <zephyr/sw_isr_table.h>
 #include "intc_ite_it8xxx2.h"
@@ -60,6 +62,7 @@ static uint8_t ier_setting[IT8XXX2_IER_COUNT];
 
 void ite_intc_save_and_disable_interrupts(void)
 {
+	volatile uint8_t _ier __unused;
 	/* Disable global interrupt for critical section */
 	unsigned int key = irq_lock();
 
@@ -68,6 +71,13 @@ void ite_intc_save_and_disable_interrupts(void)
 		ier_setting[i] = *reg_enable[i];
 		*reg_enable[i] = 0;
 	}
+	/*
+	 * This load operation will guarantee the above modification of
+	 * SOC's register can be seen by any following instructions.
+	 * Note: Barrier instruction can not synchronize chip register,
+	 * so we introduce workaround here.
+	 */
+	_ier = *reg_enable[IT8XXX2_IER_COUNT - 1];
 	irq_unlock(key);
 }
 
@@ -100,7 +110,7 @@ void ite_intc_isr_clear(unsigned int irq)
 	*isr = BIT(i);
 }
 
-void ite_intc_irq_enable(unsigned int irq)
+void __soc_ram_code ite_intc_irq_enable(unsigned int irq)
 {
 	uint32_t g, i;
 	volatile uint8_t *en;
@@ -118,7 +128,7 @@ void ite_intc_irq_enable(unsigned int irq)
 	irq_unlock(key);
 }
 
-void ite_intc_irq_disable(unsigned int irq)
+void __soc_ram_code ite_intc_irq_disable(unsigned int irq)
 {
 	uint32_t g, i;
 	volatile uint8_t *en;
@@ -166,7 +176,7 @@ void ite_intc_irq_polarity_set(unsigned int irq, unsigned int flags)
 	}
 }
 
-int ite_intc_irq_is_enable(unsigned int irq)
+int __soc_ram_code ite_intc_irq_is_enable(unsigned int irq)
 {
 	uint32_t g, i;
 	volatile uint8_t *en;
@@ -180,17 +190,17 @@ int ite_intc_irq_is_enable(unsigned int irq)
 	return IS_MASK_SET(*en, BIT(i));
 }
 
-uint8_t ite_intc_get_irq_num(void)
+uint8_t __soc_ram_code ite_intc_get_irq_num(void)
 {
 	return intc_irq;
 }
 
-bool ite_intc_no_irq(void)
+bool __soc_ram_code ite_intc_no_irq(void)
 {
 	return (IVECT == IVECT_OFFSET_WITH_IRQ);
 }
 
-uint8_t get_irq(void *arg)
+uint8_t __soc_ram_code get_irq(void *arg)
 {
 	ARG_UNUSED(arg);
 
@@ -206,17 +216,68 @@ uint8_t get_irq(void *arg)
 	} while (intc_irq != IVECT);
 	/* determine interrupt number */
 	intc_irq -= IVECT_OFFSET_WITH_IRQ;
+	/*
+	 * Look for pending interrupt if there's interrupt number 0 from
+	 * the AIVECT register.
+	 */
+	if (intc_irq == 0) {
+		uint8_t int_pending;
+
+		for (int i = (IT8XXX2_IER_COUNT - 1); i >= 0; i--) {
+			int_pending = (*reg_status[i] & *reg_enable[i]);
+			if (int_pending != 0) {
+				intc_irq = (MAX_REGISR_IRQ_NUM * i) +
+						find_msb_set(int_pending) - 1;
+				LOG_DBG("Pending interrupt found: %d",
+						intc_irq);
+				LOG_DBG("CPU mepc: 0x%lx", csr_read(mepc));
+				break;
+			}
+		}
+	}
 	/* clear interrupt status */
 	ite_intc_isr_clear(intc_irq);
 	/* return interrupt number */
 	return intc_irq;
 }
 
-void ite_intc_init(void)
+void soc_interrupt_init(void)
 {
+#ifdef CONFIG_ZTEST
+	/*
+	 * After flashed EC image, we needed to manually press the reset button
+	 * on it8xxx2_evb, then run the test. Now, without pressing the button,
+	 * we can disable debug mode and trigger a watchdog hard reset then
+	 * run tests.
+	 */
+	struct wdt_it8xxx2_regs *const wdt_regs = WDT_IT8XXX2_REGS_BASE;
+	struct gctrl_it8xxx2_regs *const gctrl_regs = GCTRL_IT8XXX2_REGS_BASE;
+
+	if (gctrl_regs->GCTRL_DBGROS & IT8XXX2_GCTRL_SMB_DBGR) {
+		/* Disable debug mode through i2c */
+		IT8XXX2_SMB_SLVISELR |= BIT(4);
+		/* Enable ETWD reset */
+		wdt_regs->ETWCFG = 0;
+		wdt_regs->ET1PSR = IT8XXX2_WDT_ETPS_1P024_KHZ;
+		wdt_regs->ETWCFG = (IT8XXX2_WDT_EWDKEYEN | IT8XXX2_WDT_EWDSRC);
+		/* Enable ETWD hardware reset */
+		gctrl_regs->GCTRL_ETWDUARTCR |= IT8XXX2_GCTRL_ETWD_HW_RST_EN;
+		/* Trigger ETWD reset */
+		wdt_regs->EWDKEYR = 0;
+
+		/* Spin and wait for reboot */
+		while (1) {
+		}
+	} else {
+		/* Disable ETWD hardware reset */
+		gctrl_regs->GCTRL_ETWDUARTCR &= ~IT8XXX2_GCTRL_ETWD_HW_RST_EN;
+	}
+#endif
+
 	/* Ensure interrupts of soc are disabled at default */
-	for (int i = 0; i < ARRAY_SIZE(reg_enable); i++)
+	for (int i = 0; i < ARRAY_SIZE(reg_enable); i++) {
 		*reg_enable[i] = 0;
+	}
 
 	/* Enable M-mode external interrupt */
 	csr_set(mie, MIP_MEIP);

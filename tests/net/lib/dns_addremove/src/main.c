@@ -13,13 +13,13 @@ LOG_MODULE_REGISTER(net_test, CONFIG_DNS_RESOLVER_LOG_LEVEL);
 #include <string.h>
 #include <errno.h>
 #include <zephyr/sys/printk.h>
-#include <zephyr/random/rand32.h>
+#include <zephyr/random/random.h>
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/dummy.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 #include <zephyr/net/net_ip.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/dns_resolve.h>
@@ -80,11 +80,6 @@ struct net_if_test {
 	uint8_t mac_addr[sizeof(struct net_eth_addr)];
 };
 
-static int net_iface_dev_init(const struct device *dev)
-{
-	return 0;
-}
-
 static uint8_t *net_iface_get_mac(const struct device *dev)
 {
 	struct net_if_test *data = dev->data;
@@ -96,7 +91,7 @@ static uint8_t *net_iface_get_mac(const struct device *dev)
 		data->mac_addr[2] = 0x5E;
 		data->mac_addr[3] = 0x00;
 		data->mac_addr[4] = 0x53;
-		data->mac_addr[5] = sys_rand32_get();
+		data->mac_addr[5] = sys_rand8_get();
 	}
 
 	return data->mac_addr;
@@ -133,7 +128,7 @@ static struct dummy_api net_iface_api = {
 NET_DEVICE_INIT_INSTANCE(net_iface1_test,
 			 "iface1",
 			 iface1,
-			 net_iface_dev_init,
+			 NULL,
 			 NULL,
 			 &net_iface1_data,
 			 NULL,
@@ -144,7 +139,7 @@ NET_DEVICE_INIT_INSTANCE(net_iface1_test,
 			 127);
 
 static void dns_evt_handler(struct net_mgmt_event_callback *cb,
-			      uint32_t mgmt_event, struct net_if *iface)
+			      uint64_t mgmt_event, struct net_if *iface)
 {
 	if (mgmt_event == NET_EVENT_DNS_SERVER_ADD) {
 		k_sem_give(&dns_added);
@@ -153,9 +148,18 @@ static void dns_evt_handler(struct net_mgmt_event_callback *cb,
 	}
 }
 
-static void test_init(void)
+static void *test_init(void)
 {
 	struct net_if_addr *ifaddr;
+
+#if defined(CONFIG_NET_IPV4)
+	dns_resolve_init(&resv_ipv4, NULL, NULL);
+	dns_resolve_init(&resv_ipv4_2, NULL, NULL);
+#endif
+#if defined(CONFIG_NET_IPV6)
+	dns_resolve_init(&resv_ipv6, NULL, NULL);
+	dns_resolve_init(&resv_ipv6_2, NULL, NULL);
+#endif
 
 	iface1 = net_if_get_by_index(0);
 	zassert_is_null(iface1, "iface1");
@@ -173,7 +177,7 @@ static void test_init(void)
 		       net_sprint_ipv6_addr(&my_addr1));
 		zassert_not_null(ifaddr, "addr1");
 
-		return;
+		return NULL;
 	}
 
 	/* For testing purposes we need to set the adddresses preferred */
@@ -188,7 +192,7 @@ static void test_init(void)
 		       net_sprint_ipv4_addr(&my_addr2));
 		zassert_not_null(ifaddr, "addr2");
 
-		return;
+		return NULL;
 	}
 
 	ifaddr->addr_state = NET_ADDR_PREFERRED;
@@ -203,6 +207,8 @@ static void test_init(void)
 				     NET_EVENT_DNS_SERVER_ADD |
 				     NET_EVENT_DNS_SERVER_DEL);
 	net_mgmt_add_event_callback(&mgmt_cb);
+
+	return NULL;
 }
 
 static void test_dns_do_not_add_add_callback6(void)
@@ -284,7 +290,7 @@ static void test_dns_remove_none_callback6(void)
 #endif
 }
 
-static void test_dns_add_remove_two_callback6(void)
+ZTEST(dns_addremove, test_dns_add_remove_two_callback6)
 {
 #if defined(CONFIG_NET_IPV6)
 	struct dns_resolve_context *dnsCtx = &resv_ipv6;
@@ -438,7 +444,7 @@ static void test_dns_remove_callback(void)
 #endif
 }
 
-static void test_dns_reconfigure_callback(void)
+ZTEST(dns_addremove, test_dns_reconfigure_callback)
 {
 #if defined(CONFIG_NET_IPV4)
 	struct dns_resolve_context *dnsCtx = &resv_ipv4;
@@ -460,19 +466,22 @@ static void test_dns_reconfigure_callback(void)
 			     "Timeout while waiting for DNS added callback");
 	}
 
-	ret = dns_resolve_reconfigure(&resv_ipv4, dns2_servers_str, NULL);
+	ret = dns_resolve_reconfigure(&resv_ipv4, dns2_servers_str, NULL,
+				      DNS_SOURCE_MANUAL);
 	zassert_equal(ret, 0, "Cannot reconfigure DNS server");
 
 	/* Wait for DNS removed callback after reconfiguring DNS */
-	if (k_sem_take(&dns_removed, WAIT_TIME)) {
-		zassert_true(false,
-			     "Timeout while waiting for DNS removed callback");
-	}
+	if (IS_ENABLED(CONFIG_DNS_RECONFIGURE_CLEANUP)) {
+		if (k_sem_take(&dns_removed, WAIT_TIME)) {
+			zassert_true(false,
+				     "Timeout while waiting for DNS removed callback");
+		}
 
-	/* Wait for DNS added callback after reconfiguring DNS */
-	if (k_sem_take(&dns_added, WAIT_TIME)) {
-		zassert_true(false,
-			     "Timeout while waiting for DNS added callback");
+		/* Wait for DNS added callback after reconfiguring DNS */
+		if (k_sem_take(&dns_added, WAIT_TIME)) {
+			zassert_true(false,
+				     "Timeout while waiting for DNS added callback");
+		}
 	}
 
 	ret = dns_resolve_close(&resv_ipv4);
@@ -507,7 +516,7 @@ static void test_dns_remove_none_callback(void)
 #endif
 }
 
-static void test_dns_add_remove_two_callback(void)
+ZTEST(dns_addremove, test_dns_add_remove_two_callback)
 {
 #if defined(CONFIG_NET_IPV4)
 	struct dns_resolve_context *dnsCtx = &resv_ipv4;
@@ -603,23 +612,20 @@ static void test_dns_add_remove_two_callback(void)
 #endif
 }
 
-void test_main(void)
+ZTEST(dns_addremove, test_dns_addremove_v6)
 {
-	ztest_test_suite(dns_tests,
-			 ztest_unit_test(test_init),
-			 ztest_unit_test(test_dns_do_not_add_add_callback6),
-			 ztest_unit_test(test_dns_add_callback6),
-			 ztest_unit_test(test_dns_remove_callback6),
-			 ztest_unit_test(test_dns_remove_none_callback6),
-			 ztest_unit_test(test_dns_add_remove_two_callback6),
-			 ztest_unit_test(test_dns_do_not_add_add_callback),
-			 ztest_unit_test(test_dns_add_callback),
-			 ztest_unit_test(test_dns_remove_callback),
-			 ztest_unit_test(test_dns_reconfigure_callback),
-			 ztest_unit_test(test_dns_remove_none_callback),
-			 ztest_unit_test(test_dns_add_remove_two_callback)
-
-);
-
-	ztest_run_test_suite(dns_tests);
+	test_dns_do_not_add_add_callback6();
+	test_dns_add_callback6();
+	test_dns_remove_callback6();
+	test_dns_remove_none_callback6();
 }
+
+ZTEST(dns_addremove, test_dns_addremove_v4)
+{
+	test_dns_do_not_add_add_callback();
+	test_dns_add_callback();
+	test_dns_remove_callback();
+	test_dns_remove_none_callback();
+}
+
+ZTEST_SUITE(dns_addremove, NULL, test_init, NULL, NULL, NULL);

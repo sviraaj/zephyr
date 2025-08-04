@@ -1,5 +1,3 @@
-.. _boards-shields:
-
 Shields
 #######
 

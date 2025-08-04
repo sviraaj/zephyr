@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2021 Vestas Wind Systems A/S
+ * Copyright 2024 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,12 +10,14 @@
 #include <zephyr/drivers/clock_control.h>
 #include <errno.h>
 #include <zephyr/drivers/pwm.h>
+#include <zephyr/irq.h>
 #include <soc.h>
 #include <fsl_pwt.h>
 #include <fsl_clock.h>
 #include <zephyr/drivers/pinctrl.h>
 
 #include <zephyr/logging/log.h>
+
 LOG_MODULE_REGISTER(pwm_mcux_pwt, CONFIG_PWM_LOG_LEVEL);
 
 /* Number of PWT input ports */
@@ -82,6 +85,19 @@ static int mcux_pwt_configure_capture(const struct device *dev,
 		LOG_ERR("pwm capture in progress");
 		return -EBUSY;
 	}
+
+#if defined(CONFIG_SOC_SERIES_KE1XZ)
+	if ((flags & PWM_CAPTURE_TYPE_MASK) == PWM_CAPTURE_TYPE_BOTH) {
+		LOG_ERR("Cannot capture both period and pulse width");
+		return -ENOTSUP;
+	}
+
+	if (((flags & PWM_CAPTURE_TYPE_MASK) == PWM_CAPTURE_TYPE_PERIOD) &&
+		((flags & PWM_POLARITY_MASK) == PWM_POLARITY_NORMAL)) {
+		LOG_ERR("Cannot capture period in normal polarity (active-high pulse)");
+		return -ENOTSUP;
+	}
+#endif
 
 	data->callback = cb;
 	data->user_data = user_data;
@@ -282,6 +298,11 @@ static int mcux_pwt_init(const struct device *dev)
 	pwt_config_t *pwt_config = &data->pwt_config;
 	int err;
 
+	if (!device_is_ready(config->clock_dev)) {
+		LOG_ERR("clock control device not ready");
+		return -ENODEV;
+	}
+
 	if (clock_control_get_rate(config->clock_dev, config->clock_subsys,
 				   &data->clock_freq)) {
 		LOG_ERR("could not get clock frequency");
@@ -304,7 +325,7 @@ static int mcux_pwt_init(const struct device *dev)
 	return 0;
 }
 
-static const struct pwm_driver_api mcux_pwt_driver_api = {
+static DEVICE_API(pwm, mcux_pwt_driver_api) = {
 	.set_cycles = mcux_pwt_set_cycles,
 	.get_cycles_per_sec = mcux_pwt_get_cycles_per_sec,
 	.configure_capture = mcux_pwt_configure_capture,
@@ -337,7 +358,7 @@ static const struct pwm_driver_api mcux_pwt_driver_api = {
 			NULL, &mcux_pwt_data_##n,			\
 			&mcux_pwt_config_##n,				\
 			POST_KERNEL,					\
-			CONFIG_KERNEL_INIT_PRIORITY_DEVICE,		\
+			CONFIG_PWM_INIT_PRIORITY,			\
 			&mcux_pwt_driver_api);				\
 									\
 	static void mcux_pwt_config_func_##n(const struct device *dev)	\

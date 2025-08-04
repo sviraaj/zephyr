@@ -5,19 +5,20 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/irq_offload.h>
-#include <zsr.h>
-
-#define CURR_CPU (IS_ENABLED(CONFIG_SMP) ? arch_curr_cpu()->id : 0)
+#include <zephyr/zsr.h>
+#include <zephyr/irq.h>
 
 static struct {
 	irq_offload_routine_t fn;
 	const void *arg;
-} offload_params[CONFIG_MP_NUM_CPUS];
+} offload_params[CONFIG_MP_MAX_NUM_CPUS];
 
 static void irq_offload_isr(const void *param)
 {
 	ARG_UNUSED(param);
-	offload_params[CURR_CPU].fn(offload_params[CURR_CPU].arg);
+	uint8_t cpu_id = _current_cpu->id;
+
+	offload_params[cpu_id].fn(offload_params[cpu_id].arg);
 }
 
 void arch_irq_offload(irq_offload_routine_t routine, const void *parameter)
@@ -25,13 +26,71 @@ void arch_irq_offload(irq_offload_routine_t routine, const void *parameter)
 	IRQ_CONNECT(ZSR_IRQ_OFFLOAD_INT, 0, irq_offload_isr, NULL, 0);
 
 	unsigned int intenable, key = arch_irq_lock();
+	uint8_t cpu_id = _current_cpu->id;
 
-	offload_params[CURR_CPU].fn = routine;
-	offload_params[CURR_CPU].arg = parameter;
+	offload_params[cpu_id].fn = routine;
+	offload_params[cpu_id].arg = parameter;
 
-	__asm__ volatile("rsr %0, INTENABLE" : "=r"(intenable));
-	intenable |= BIT(ZSR_IRQ_OFFLOAD_INT);
-	__asm__ volatile("wsr %0, INTENABLE; wsr %0, INTSET; rsync"
-			 :: "r"(intenable), "r"(BIT(ZSR_IRQ_OFFLOAD_INT)));
+#if XCHAL_NUM_INTERRUPTS > 32
+	switch ((ZSR_IRQ_OFFLOAD_INT) >> 5) {
+	case 0:
+		__asm__ volatile("rsr.intenable  %0" : "=r"(intenable));
+		break;
+	case 1:
+		__asm__ volatile("rsr.intenable1 %0" : "=r"(intenable));
+		break;
+#if XCHAL_NUM_INTERRUPTS > 64
+	case 2:
+		__asm__ volatile("rsr.intenable2 %0" : "=r"(intenable));
+		break;
+#endif
+#if XCHAL_NUM_INTERRUPTS > 96
+	case 3:
+		__asm__ volatile("rsr.intenable3 %0" : "=r"(intenable));
+		break;
+#endif
+	default:
+		break;
+	}
+#else
+	__asm__ volatile("rsr.intenable  %0" : "=r"(intenable));
+#endif
+
+	intenable |= BIT((ZSR_IRQ_OFFLOAD_INT & 31U));
+
+#if XCHAL_NUM_INTERRUPTS > 32
+	switch ((ZSR_IRQ_OFFLOAD_INT) >> 5) {
+	case 0:
+		__asm__ volatile("wsr.intenable %0; wsr.intset %0; rsync"
+				 :: "r"(intenable), "r"(BIT((ZSR_IRQ_OFFLOAD_INT & 31U))));
+		break;
+	case 1:
+		__asm__ volatile("wsr.intenable1 %0; wsr.intset1 %0; rsync"
+				 :: "r"(intenable), "r"(BIT((ZSR_IRQ_OFFLOAD_INT & 31U))));
+		break;
+#if XCHAL_NUM_INTERRUPTS > 64
+	case 2:
+		__asm__ volatile("wsr.intenable2 %0; wsr.intset2 %0; rsync"
+				 :: "r"(intenable), "r"(BIT((ZSR_IRQ_OFFLOAD_INT & 31U))));
+		break;
+#endif
+#if XCHAL_NUM_INTERRUPTS > 96
+	case 3:
+		__asm__ volatile("wsr.intenable3 %0; wsr.intset3 %0; rsync"
+				 :: "r"(intenable), "r"(BIT((ZSR_IRQ_OFFLOAD_INT & 31U))));
+		break;
+#endif
+	default:
+		break;
+	}
+#else
+	__asm__ volatile("wsr.intenable %0; wsr.intset %0; rsync"
+			 :: "r"(intenable), "r"(BIT((ZSR_IRQ_OFFLOAD_INT & 31U))));
+#endif
+
 	arch_irq_unlock(key);
+}
+
+void arch_irq_offload_init(void)
+{
 }

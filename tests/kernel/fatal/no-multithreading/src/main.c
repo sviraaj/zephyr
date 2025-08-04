@@ -4,16 +4,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
-#include <ztest.h>
-#include <tc_util.h>
+#include <zephyr/kernel.h>
+#include <zephyr/ztest.h>
+#include <zephyr/tc_util.h>
 #include <zephyr/kernel_structs.h>
 #include <kernel_internal.h>
 #include <assert.h>
 
 static ZTEST_DMEM volatile int expected_reason = -1;
 
-void k_sys_fatal_error_handler(unsigned int reason, const z_arch_esf_t *pEsf)
+void k_sys_fatal_error_handler(unsigned int reason, const struct arch_esf *pEsf)
 {
 	int rv = TC_PASS;
 
@@ -22,7 +22,7 @@ void k_sys_fatal_error_handler(unsigned int reason, const z_arch_esf_t *pEsf)
 		TC_PRINT("Unexpected reason (exp: %d)\n", expected_reason);
 		rv = TC_FAIL;
 	}
-
+	TC_END_RESULT_CUSTOM(rv, "test_fatal");
 	TC_END_REPORT(rv);
 	arch_system_halt(reason);
 }
@@ -34,8 +34,6 @@ static void entry_cpu_exception(void)
 	TC_PRINT("cpu exception\n");
 #if defined(CONFIG_X86)
 	__asm__ volatile ("ud2");
-#elif defined(CONFIG_NIOS2)
-	__asm__ volatile ("trap");
 #elif defined(CONFIG_ARC)
 	__asm__ volatile ("swi");
 #else
@@ -117,14 +115,14 @@ static const exc_trigger_func_t exc_trigger_func[] = {
 };
 
 /**
- * @brief Test the kernel fatal error handling works correctly
+ * @brief Verify the kernel fatal error handling works correctly
  * @details Manually trigger the crash with various ways and check
  * that the kernel is handling that properly or not. Also the crash reason
  * should match.
  *
- * @ingroup kernel_common_tests
+ * @ingroup kernel_fatal_tests
  */
-void test_fatal(void)
+ZTEST(fatal_no_mt, test_fatal_no_mt)
 {
 #ifdef VIA_TWISTER
 #define EXC_TRIGGER_FUNC_IDX VIA_TWISTER
@@ -137,10 +135,4 @@ void test_fatal(void)
 	TC_END_REPORT(TC_FAIL);
 }
 
-/*test case main entry*/
-void test_main(void)
-{
-	ztest_test_suite(fatal_no_mt,
-			ztest_unit_test(test_fatal));
-	ztest_run_test_suite(fatal_no_mt);
-}
+ZTEST_SUITE(fatal_no_mt, NULL, NULL, NULL, NULL, NULL);

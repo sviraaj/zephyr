@@ -9,21 +9,21 @@ config GIC
 	bool
 
 config GIC_V1
-	bool
+	def_bool DT_HAS_ARM_GIC_V1_ENABLED
 	select GIC
 	help
 	  The ARM Generic Interrupt Controller v1 (e.g. PL390) works with the
 	  ARM Cortex-family processors.
 
 config GIC_V2
-	bool
+	def_bool DT_HAS_ARM_GIC_V2_ENABLED
 	select GIC
 	help
 	  The ARM Generic Interrupt Controller v2 (e.g. GIC-400) works with the
 	  ARM Cortex-family processors.
 
 config GIC_V3
-	bool
+	def_bool DT_HAS_ARM_GIC_V3_ENABLED
 	select GIC
 	help
 	  The ARM Generic Interrupt Controller v3 (e.g. GIC-500 and GIC-600)
@@ -43,6 +43,14 @@ config GIC_SINGLE_SECURITY_STATE
 	  Some ARM Cortex-family processors only supports single security
 	  state.
 
+config GIC_V3_RDIST_MATCHING_AFF0_ONLY
+	bool
+	depends on GIC_V3
+	default y if CPU_CORTEX_R52
+	help
+	  Some platforms only use aff0 to match mpdir and GICR.aff. With this
+	  enabled, we find the target redistributor by comparing the aff0 only.
+
 config GIC_V3_ITS
 	bool "GIC v3 Interrupt Translation Service"
 	depends on GIC_V3
@@ -51,6 +59,18 @@ config GIC_V3_ITS
 	select DYNAMIC_INTERRUPTS
 	help
 	  Support for the optional Interrupt Translation Service used to translate
-	  hardware interrupt from PCIe MSI messages for example.
+	  hardware interrupt from PCIe MSI messages for example. Please note
+	  that ITS uses dynamic memory, so HEAP_MEM_POOL_SIZE should be
+	  enough to allocate ITS tables (size is probed at runtime).
+
+config GIC_SAFE_CONFIG
+	bool "GIC Distributor Safe Configuration"
+	depends on GIC_V3
+	default n
+	help
+	  In case of multiple OSes running on different CPU Cores which share the
+	  same GIC controller, need to avoid the distributor re-configured to avoid
+	  crash the OS has already been started. With this enabled, it will bypass
+	  GIC distributor configuration if it has been configured by other OS.
 
 endif # CPU_CORTEX

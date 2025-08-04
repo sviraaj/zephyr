@@ -11,7 +11,8 @@
 #include <zephyr/drivers/adc.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/drivers/i2c.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
 
@@ -20,42 +21,25 @@
 
 LOG_MODULE_REGISTER(ADS1X1X, CONFIG_ADC_LOG_LEVEL);
 
-#define ADS1X1X_GEN_MASK(shift, size) (BIT_MASK(size) << shift)
+#if DT_ANY_COMPAT_HAS_PROP_STATUS_OKAY(ti_ads1115, alert_rdy_gpios) || \
+	DT_ANY_COMPAT_HAS_PROP_STATUS_OKAY(ti_ads1114, alert_rdy_gpios) || \
+	DT_ANY_COMPAT_HAS_PROP_STATUS_OKAY(ti_ads1015, alert_rdy_gpios) || \
+	DT_ANY_COMPAT_HAS_PROP_STATUS_OKAY(ti_ads1014, alert_rdy_gpios)
 
-#define ADS1X1X_CONFIG_SHIFT_COMP_QUE 0
-#define ADS1X1X_CONFIG_SIZE_COMP_QUE 2
-#define ADS1X1X_CONFIG_MASK_COMP_QUE                                                               \
-	ADS1X1X_GEN_MASK(ADS1X1X_CONFIG_SHIFT_COMP_QUE, ADS1X1X_CONFIG_SIZE_COMP_QUE)
-#define ADS1X1X_CONFIG_SHIFT_COMP_LAT 2
-#define ADS1X1X_CONFIG_SIZE_COMP_LAT 1
-#define ADS1X1X_CONFIG_MASK_COMP_LAT                                                               \
-	ADS1X1X_GEN_MASK(ADS1X1X_CONFIG_SHIFT_COMP_LAT, ADS1X1X_CONFIG_SIZE_COMP_LAT)
-#define ADS1X1X_CONFIG_SHIFT_COMP_POL 3
-#define ADS1X1X_CONFIG_SIZE_COMP_POL 1
-#define ADS1X1X_CONFIG_MASK_COMP_POL                                                               \
-	ADS1X1X_GEN_MASK(ADS1X1X_CONFIG_SHIFT_COMP_POL, ADS1X1X_CONFIG_SIZE_COMP_POL)
-#define ADS1X1X_CONFIG_SHIFT_COMP_MODE 4
-#define ADS1X1X_CONFIG_SIZE_COMP_MODE 1
-#define ADS1X1X_CONFIG_MASK_COMP_MODE                                                              \
-	ADS1X1X_GEN_MASK(ADS1X1X_CONFIG_SHIFT_COMP_MODE, ADS1X1X_CONFIG_SIZE_COMP_MODE)
-#define ADS1X1X_CONFIG_SHIFT_DR 5
-#define ADS1X1X_CONFIG_SIZE_DR 3
-#define ADS1X1X_CONFIG_MASK_DR ADS1X1X_GEN_MASK(ADS1X1X_CONFIG_SHIFT_DR, ADS1X1X_CONFIG_SIZE_DR)
-#define ADS1X1X_CONFIG_SHIFT_MODE 8
-#define ADS1X1X_CONFIG_SIZE_MODE 1
-#define ADS1X1X_CONFIG_MASK_MODE                                                                   \
-	ADS1X1X_GEN_MASK(ADS1X1X_CONFIG_SHIFT_MODE, ADS1X1X_CONFIG_SIZE_MODE)
-#define ADS1X1X_CONFIG_SHIFT_PGA 9
-#define ADS1X1X_CONFIG_SIZE_PGA 3
-#define ADS1X1X_CONFIG_MASK_PGA ADS1X1X_GEN_MASK(ADS1X1X_CONFIG_SHIFT_PGA, ADS1X1X_CONFIG_SIZE_PGA)
-#define ADS1X1X_CONFIG_SHIFT_MUX 12
-#define ADS1X1X_CONFIG_SIZE_MUX 3
-#define ADS1X1X_CONFIG_MASK_MUX ADS1X1X_GEN_MASK(ADS1X1X_CONFIG_SHIFT_MUX, ADS1X1X_CONFIG_SIZE_MUX)
-#define ADS1X1X_CONFIG_SHIFT_OS 15
-#define ADS1X1X_CONFIG_SIZE_OS 1
-#define ADS1X1X_CONFIG_MASK_OS ADS1X1X_GEN_MASK(ADS1X1X_CONFIG_SHIFT_OS, ADS1X1X_CONFIG_SIZE_OS)
+#define ADC_ADS1X1X_TRIGGER 1
 
-#define ADS1X1X_CONFIG(flag, n) (ADS1X1X_CONFIG_MASK_##flag & ((n) << ADS1X1X_CONFIG_SHIFT_##flag))
+#endif
+
+#define ADS1X1X_CONFIG_OS BIT(15)
+#define ADS1X1X_CONFIG_MUX(x) ((x) << 12)
+#define ADS1X1X_CONFIG_PGA(x) ((x) << 9)
+#define ADS1X1X_CONFIG_MODE BIT(8)
+#define ADS1X1X_CONFIG_DR(x) ((x) << 5)
+#define ADS1X1X_CONFIG_COMP_MODE BIT(4)
+#define ADS1X1X_CONFIG_COMP_POL BIT(3)
+#define ADS1X1X_CONFIG_COMP_LAT BIT(2)
+#define ADS1X1X_CONFIG_COMP_QUE(x) (x)
+#define ADS1X1X_THRES_POLARITY_ACTIVE BIT(15)
 
 enum ads1x1x_reg {
 	ADS1X1X_REG_CONV = 0x00,
@@ -98,17 +82,17 @@ enum {
 };
 
 enum {
-	/* +/-6.144V range = Gain 2/3 */
+	/* +/-6.144V range = Gain 1/3 */
 	ADS1X1X_CONFIG_PGA_6144 = 0,
-	/* +/-4.096V range = Gain 1 */
+	/* +/-4.096V range = Gain 1/2 */
 	ADS1X1X_CONFIG_PGA_4096 = 1,
-	/* +/-2.048V range = Gain 2 (default) */
+	/* +/-2.048V range = Gain 1 (default) */
 	ADS1X1X_CONFIG_PGA_2048 = 2,
-	/* +/-1.024V range = Gain 4 */
+	/* +/-1.024V range = Gain 2 */
 	ADS1X1X_CONFIG_PGA_1024 = 3,
-	/* +/-0.512V range = Gain 8 */
+	/* +/-0.512V range = Gain 4 */
 	ADS1X1X_CONFIG_PGA_512 = 4,
-	/* +/-0.256V range = Gain 16 */
+	/* +/-0.256V range = Gain 8 */
 	ADS1X1X_CONFIG_PGA_256 = 5
 };
 
@@ -151,6 +135,9 @@ enum {
 
 struct ads1x1x_config {
 	struct i2c_dt_spec bus;
+#ifdef ADC_ADS1X1X_TRIGGER
+	struct gpio_dt_spec alert_rdy;
+#endif
 	const uint32_t odr_delay[8];
 	uint8_t resolution;
 	bool multiplexer;
@@ -165,10 +152,47 @@ struct ads1x1x_data {
 	int16_t *buffer;
 	int16_t *repeat_buffer;
 	struct k_thread thread;
+	k_tid_t	tid;
 	bool differential;
+#ifdef ADC_ADS1X1X_TRIGGER
+	struct gpio_callback gpio_cb;
+	struct k_work work;
+#endif
 
-	K_THREAD_STACK_MEMBER(stack, CONFIG_ADC_ADS1X1X_ACQUISITION_THREAD_STACK_SIZE);
+	K_KERNEL_STACK_MEMBER(stack, CONFIG_ADC_ADS1X1X_ACQUISITION_THREAD_STACK_SIZE);
 };
+
+#ifdef ADC_ADS1X1X_TRIGGER
+static inline int ads1x1x_setup_rdy_pin(const struct device *dev, bool enable)
+{
+	int ret;
+	const struct ads1x1x_config *config = dev->config;
+	gpio_flags_t flags = enable
+		? GPIO_INPUT | config->alert_rdy.dt_flags
+		: GPIO_DISCONNECTED;
+
+	ret = gpio_pin_configure_dt(&config->alert_rdy, flags);
+	if (ret < 0) {
+		LOG_DBG("Could not configure gpio");
+	}
+	return ret;
+}
+
+static inline int ads1x1x_setup_rdy_interrupt(const struct device *dev, bool enable)
+{
+	const struct ads1x1x_config *config = dev->config;
+	gpio_flags_t flags = enable
+		? GPIO_INT_EDGE_FALLING
+		: GPIO_INT_DISABLE;
+	int32_t ret;
+
+	ret = gpio_pin_interrupt_configure_dt(&config->alert_rdy, flags);
+	if (ret < 0) {
+		LOG_DBG("Could not configure GPIO");
+	}
+	return ret;
+}
+#endif
 
 static int ads1x1x_read_reg(const struct device *dev, enum ads1x1x_reg reg_addr, uint16_t *buf)
 {
@@ -212,13 +236,51 @@ static int ads1x1x_start_conversion(const struct device *dev)
 {
 	/* send start sampling command */
 	uint16_t config;
+	int ret;
 
-	ads1x1x_read_reg(dev, ADS1X1X_REG_CONFIG, &config);
-	config |= ADS1X1X_CONFIG(OS, 1);
-	ads1x1x_write_reg(dev, ADS1X1X_REG_CONFIG, config);
+	ret = ads1x1x_read_reg(dev, ADS1X1X_REG_CONFIG, &config);
+	if (ret != 0) {
+		return ret;
+	}
+	config |= ADS1X1X_CONFIG_OS;
+	ret = ads1x1x_write_reg(dev, ADS1X1X_REG_CONFIG, config);
 
-	return 0;
+	return ret;
 }
+
+#ifdef ADC_ADS1X1X_TRIGGER
+/* The ALERT/RDY pin can also be configured as a conversion ready
+ * pin. Set the most-significant bit of the Hi_thresh register to 1
+ * and the most-significant bit of Lo_thresh register to 0 to enable
+ * the pin as a conversion ready pin
+ */
+static int ads1x1x_enable_conv_ready_signal(const struct device *dev)
+{
+	uint16_t thresh;
+	int rc;
+
+	/* set to 1 to enable conversion ALERT/RDY */
+	rc = ads1x1x_read_reg(dev, ADS1X1X_REG_HI_THRESH, &thresh);
+	if (rc) {
+		return rc;
+	}
+	thresh |= ADS1X1X_THRES_POLARITY_ACTIVE;
+	rc = ads1x1x_write_reg(dev, ADS1X1X_REG_HI_THRESH, thresh);
+	if (rc) {
+		return rc;
+	}
+
+	/* set to 0 to enable conversion ALERT/RDY */
+	rc = ads1x1x_read_reg(dev, ADS1X1X_REG_LO_THRESH, &thresh);
+	if (rc) {
+		return rc;
+	}
+	thresh &= ~ADS1X1X_THRES_POLARITY_ACTIVE;
+	rc = ads1x1x_write_reg(dev, ADS1X1X_REG_LO_THRESH, thresh);
+
+	return rc;
+}
+#endif
 
 static inline int ads1x1x_acq_time_to_dr(const struct device *dev, uint16_t acq_time)
 {
@@ -301,7 +363,7 @@ static int ads1x1x_wait_data_ready(const struct device *dev)
 		return rc;
 	}
 
-	while (!(status & ADS1X1X_CONFIG_MASK_OS)) {
+	while (!(status & ADS1X1X_CONFIG_OS)) {
 		k_sleep(K_USEC(100));
 		rc = ads1x1x_read_reg(dev, ADS1X1X_REG_CONFIG, &status);
 		if (rc != 0) {
@@ -326,8 +388,7 @@ static int ads1x1x_channel_setup(const struct device *dev,
 	}
 
 	if (channel_cfg->reference != ADC_REF_INTERNAL) {
-		LOG_ERR("unsupported channel reference type '%d'",
-			channel_cfg->reference);
+		LOG_ERR("unsupported channel reference type '%d'", channel_cfg->reference);
 		return -ENOTSUP;
 	}
 
@@ -335,16 +396,16 @@ static int ads1x1x_channel_setup(const struct device *dev,
 		/* the device has an input multiplexer */
 		if (channel_cfg->differential) {
 			if (channel_cfg->input_positive == 0 && channel_cfg->input_negative == 1) {
-				config |= ADS1X1X_CONFIG(MUX, ADS1X15_CONFIG_MUX_DIFF_0_1);
+				config |= ADS1X1X_CONFIG_MUX(ADS1X15_CONFIG_MUX_DIFF_0_1);
 			} else if (channel_cfg->input_positive == 0 &&
 				   channel_cfg->input_negative == 3) {
-				config |= ADS1X1X_CONFIG(MUX, ADS1X15_CONFIG_MUX_DIFF_0_3);
+				config |= ADS1X1X_CONFIG_MUX(ADS1X15_CONFIG_MUX_DIFF_0_3);
 			} else if (channel_cfg->input_positive == 1 &&
 				   channel_cfg->input_negative == 3) {
-				config |= ADS1X1X_CONFIG(MUX, ADS1X15_CONFIG_MUX_DIFF_1_3);
+				config |= ADS1X1X_CONFIG_MUX(ADS1X15_CONFIG_MUX_DIFF_1_3);
 			} else if (channel_cfg->input_positive == 2 &&
 				   channel_cfg->input_negative == 3) {
-				config |= ADS1X1X_CONFIG(MUX, ADS1X15_CONFIG_MUX_DIFF_2_3);
+				config |= ADS1X1X_CONFIG_MUX(ADS1X15_CONFIG_MUX_DIFF_2_3);
 			} else {
 				LOG_ERR("unsupported input positive '%d' and input negative '%d'",
 					channel_cfg->input_positive, channel_cfg->input_negative);
@@ -352,13 +413,13 @@ static int ads1x1x_channel_setup(const struct device *dev,
 			}
 		} else {
 			if (channel_cfg->input_positive == 0) {
-				config |= ADS1X1X_CONFIG(MUX, ADS1X15_CONFIG_MUX_SINGLE_0);
+				config |= ADS1X1X_CONFIG_MUX(ADS1X15_CONFIG_MUX_SINGLE_0);
 			} else if (channel_cfg->input_positive == 1) {
-				config |= ADS1X1X_CONFIG(MUX, ADS1X15_CONFIG_MUX_SINGLE_1);
+				config |= ADS1X1X_CONFIG_MUX(ADS1X15_CONFIG_MUX_SINGLE_1);
 			} else if (channel_cfg->input_positive == 2) {
-				config |= ADS1X1X_CONFIG(MUX, ADS1X15_CONFIG_MUX_SINGLE_2);
+				config |= ADS1X1X_CONFIG_MUX(ADS1X15_CONFIG_MUX_SINGLE_2);
 			} else if (channel_cfg->input_positive == 3) {
-				config |= ADS1X1X_CONFIG(MUX, ADS1X15_CONFIG_MUX_SINGLE_3);
+				config |= ADS1X1X_CONFIG_MUX(ADS1X15_CONFIG_MUX_SINGLE_3);
 			} else {
 				LOG_ERR("unsupported input positive '%d'",
 					channel_cfg->input_positive);
@@ -368,7 +429,7 @@ static int ads1x1x_channel_setup(const struct device *dev,
 	} else {
 		/* only differential supported without multiplexer */
 		if (!((channel_cfg->differential) &&
-			  (channel_cfg->input_positive == 0 && channel_cfg->input_negative == 1))) {
+		      (channel_cfg->input_positive == 0 && channel_cfg->input_negative == 1))) {
 			LOG_ERR("unsupported input positive '%d' and input negative '%d'",
 				channel_cfg->input_positive, channel_cfg->input_negative);
 			return -ENOTSUP;
@@ -384,28 +445,28 @@ static int ads1x1x_channel_setup(const struct device *dev,
 		return -ENOTSUP;
 	}
 
-	config |= ADS1X1X_CONFIG(DR, dr);
+	config |= ADS1X1X_CONFIG_DR(dr);
 
 	if (ads_config->pga) {
 		/* programmable gain amplifier support */
 		switch (channel_cfg->gain) {
-		case ADC_GAIN_2_3:
-			config |= ADS1X1X_CONFIG(PGA, ADS1X1X_CONFIG_PGA_6144);
+		case ADC_GAIN_1_3:
+			config |= ADS1X1X_CONFIG_PGA(ADS1X1X_CONFIG_PGA_6144);
+			break;
+		case ADC_GAIN_1_2:
+			config |= ADS1X1X_CONFIG_PGA(ADS1X1X_CONFIG_PGA_4096);
 			break;
 		case ADC_GAIN_1:
-			config |= ADS1X1X_CONFIG(PGA, ADS1X1X_CONFIG_PGA_4096);
+			config |= ADS1X1X_CONFIG_PGA(ADS1X1X_CONFIG_PGA_2048);
 			break;
 		case ADC_GAIN_2:
-			config |= ADS1X1X_CONFIG(PGA, ADS1X1X_CONFIG_PGA_2048);
+			config |= ADS1X1X_CONFIG_PGA(ADS1X1X_CONFIG_PGA_1024);
 			break;
 		case ADC_GAIN_4:
-			config |= ADS1X1X_CONFIG(PGA, ADS1X1X_CONFIG_PGA_1024);
+			config |= ADS1X1X_CONFIG_PGA(ADS1X1X_CONFIG_PGA_512);
 			break;
 		case ADC_GAIN_8:
-			config |= ADS1X1X_CONFIG(PGA, ADS1X1X_CONFIG_PGA_512);
-			break;
-		case ADC_GAIN_16:
-			config |= ADS1X1X_CONFIG(PGA, ADS1X1X_CONFIG_PGA_256);
+			config |= ADS1X1X_CONFIG_PGA(ADS1X1X_CONFIG_PGA_256);
 			break;
 		default:
 			LOG_ERR("unsupported channel gain '%d'", channel_cfg->gain);
@@ -420,10 +481,10 @@ static int ads1x1x_channel_setup(const struct device *dev,
 	}
 
 	/* Only single shot supported */
-	config |= ADS1X1X_CONFIG(MODE, ADS1X1X_CONFIG_MODE_SINGLE_SHOT);
+	config |= ADS1X1X_CONFIG_MODE;
 
-	 /* disable comparator */
-	config |= ADS1X1X_CONFIG(COMP_QUE, ADS1X1X_CONFIG_COMP_QUEUE_NONE);
+	/* disable comparator */
+	config |= ADS1X1X_CONFIG_COMP_MODE;
 
 	return ads1x1x_write_reg(dev, ADS1X1X_REG_CONFIG, config);
 }
@@ -486,12 +547,24 @@ static void adc_context_update_buffer_pointer(struct adc_context *ctx, bool repe
 static void adc_context_start_sampling(struct adc_context *ctx)
 {
 	struct ads1x1x_data *data = CONTAINER_OF(ctx, struct ads1x1x_data, ctx);
+	int ret;
 
 	data->repeat_buffer = data->buffer;
 
-	ads1x1x_start_conversion(data->dev);
+	ret = ads1x1x_start_conversion(data->dev);
+	if (ret != 0) {
+		/* if we fail to complete the I2C operations to start
+		 * sampling, return an immediate error (likely -EIO) rather
+		 * than handing it off to the acquisition thread.
+		 */
+		adc_context_complete(ctx, ret);
+		return;
+	}
 
-	k_sem_give(&data->acq_sem);
+	/* Give semaphore only if the thread is running */
+	if (data->tid) {
+		k_sem_give(&data->acq_sem);
+	}
 }
 
 static int ads1x1x_adc_start_read(const struct device *dev, const struct adc_sequence *sequence)
@@ -505,6 +578,23 @@ static int ads1x1x_adc_start_read(const struct device *dev, const struct adc_seq
 	}
 
 	data->buffer = sequence->buffer;
+
+#ifdef ADC_ADS1X1X_TRIGGER
+	const struct ads1x1x_config *config = dev->config;
+
+	if (config->alert_rdy.port) {
+		rc = ads1x1x_setup_rdy_pin(dev, true);
+		if (rc < 0) {
+			LOG_ERR("Could not configure GPIO Alert/RDY");
+			return rc;
+		}
+		rc = ads1x1x_setup_rdy_interrupt(dev, true);
+		if (rc < 0) {
+			LOG_ERR("Could not configure Alert/RDY interrupt");
+			return rc;
+		}
+	}
+#endif
 
 	adc_context_start_read(&data->ctx, sequence);
 
@@ -553,8 +643,12 @@ static int ads1x1x_read(const struct device *dev, const struct adc_sequence *seq
 	return ads1x1x_adc_read_async(dev, sequence, NULL);
 }
 
-static void ads1x1x_acquisition_thread(const struct device *dev)
+static void ads1x1x_acquisition_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	const struct device *dev = p1;
 	struct ads1x1x_data *data = dev->data;
 	int rc;
 
@@ -565,12 +659,92 @@ static void ads1x1x_acquisition_thread(const struct device *dev)
 		if (rc != 0) {
 			LOG_ERR("failed to get ready status (err %d)", rc);
 			adc_context_complete(&data->ctx, rc);
-			break;
+			continue;
 		}
 
 		ads1x1x_adc_perform_read(dev);
 	}
 }
+
+#ifdef ADC_ADS1X1X_TRIGGER
+static void ads1x1x_work_fn(struct k_work *work)
+{
+	struct ads1x1x_data *data;
+	const struct device *dev;
+
+	data = CONTAINER_OF(work, struct ads1x1x_data, work);
+	dev = data->dev;
+
+	ads1x1x_adc_perform_read(dev);
+}
+
+static void ads1x1x_conv_ready_cb(const struct device *gpio_dev,
+				      struct gpio_callback *cb,
+				      uint32_t pins)
+{
+	struct ads1x1x_data *data;
+	const struct device *dev;
+	const struct ads1x1x_config *config;
+	int rc;
+
+	ARG_UNUSED(gpio_dev);
+
+	data = CONTAINER_OF(cb, struct ads1x1x_data, gpio_cb);
+	dev = data->dev;
+	config = dev->config;
+
+	if (config->alert_rdy.port) {
+		rc = ads1x1x_setup_rdy_pin(dev, false);
+		if (rc < 0) {
+			return;
+		}
+		rc = ads1x1x_setup_rdy_interrupt(dev, false);
+		if (rc < 0) {
+			return;
+		}
+	}
+
+	/* Execute outside of the ISR context */
+	k_work_submit(&data->work);
+}
+
+static int ads1x1x_init_interrupt(const struct device *dev)
+{
+	const struct ads1x1x_config *config = dev->config;
+	struct ads1x1x_data *data = dev->data;
+	int rc;
+
+	/* Disable the interrupt */
+	rc = ads1x1x_setup_rdy_pin(dev, false);
+	if (rc < 0) {
+		LOG_ERR("Could disable the alert/rdy gpio pin.");
+		return rc;
+	}
+	rc = ads1x1x_setup_rdy_interrupt(dev, false);
+	if (rc < 0) {
+		LOG_ERR("Could disable the alert/rdy interrupts.");
+		return rc;
+	}
+	gpio_init_callback(&data->gpio_cb, ads1x1x_conv_ready_cb,
+			   BIT(config->alert_rdy.pin));
+	rc = gpio_add_callback(config->alert_rdy.port, &data->gpio_cb);
+	if (rc) {
+		LOG_ERR("Could not set gpio callback.");
+		return -rc;
+	}
+
+	/* Use the interruption generated by the pin RDY */
+	k_work_init(&data->work, ads1x1x_work_fn);
+
+	rc = ads1x1x_enable_conv_ready_signal(dev);
+	if (rc) {
+		LOG_ERR("failed to configure ALERT/RDY pin (err=%d)", rc);
+		return rc;
+	}
+
+	return 0;
+}
+#endif
 
 static int ads1x1x_init(const struct device *dev)
 {
@@ -586,21 +760,36 @@ static int ads1x1x_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-	const k_tid_t tid =
-		k_thread_create(&data->thread, data->stack, K_THREAD_STACK_SIZEOF(data->stack),
-				(k_thread_entry_t)ads1x1x_acquisition_thread, (void *)dev, NULL,
-				NULL, CONFIG_ADC_ADS1X1X_ACQUISITION_THREAD_PRIO, 0, K_NO_WAIT);
-	k_thread_name_set(tid, "adc_ads1x1x");
+#ifdef ADC_ADS1X1X_TRIGGER
+	if (config->alert_rdy.port) {
+		if (ads1x1x_init_interrupt(dev) < 0) {
+			LOG_ERR("Failed to initialize interrupt.");
+			return -EIO;
+		}
+	} else
+#endif
+	{
+		LOG_DBG("Using acquisition thread");
+
+		data->tid =
+			k_thread_create(&data->thread, data->stack,
+					K_THREAD_STACK_SIZEOF(data->stack),
+					(k_thread_entry_t)ads1x1x_acquisition_thread,
+					(void *)dev, NULL, NULL,
+					CONFIG_ADC_ADS1X1X_ACQUISITION_THREAD_PRIO,
+					0, K_NO_WAIT);
+		k_thread_name_set(data->tid, "adc_ads1x1x");
+	}
 
 	adc_context_unlock_unconditionally(&data->ctx);
 
 	return 0;
 }
 
-static const struct adc_driver_api ads1x1x_api = {
+static DEVICE_API(adc, ads1x1x_api) = {
 	.channel_setup = ads1x1x_channel_setup,
 	.read = ads1x1x_read,
-	.ref_internal = 4096,
+	.ref_internal = 2048,
 #ifdef CONFIG_ADC_ASYNC
 	.read_async = ads1x1x_adc_read_async,
 #endif
@@ -608,27 +797,35 @@ static const struct adc_driver_api ads1x1x_api = {
 
 #define DT_INST_ADS1X1X(inst, t) DT_INST(inst, ti_ads##t)
 
-#define ADS1X1X_INIT(t, n, odr_delay_us, res, mux, pgab) \
-	static const struct ads1x1x_config ads##t##_config_##n = { \
-		.bus = I2C_DT_SPEC_GET(DT_INST_ADS1X1X(n, t)), \
-		.odr_delay = odr_delay_us, \
-		.resolution = res, \
-		.multiplexer = mux, \
-		.pga = pgab, \
-	}; \
-	static struct ads1x1x_data ads##t##_data_##n = { \
-		ADC_CONTEXT_INIT_LOCK(ads##t##_data_##n, ctx), \
-		ADC_CONTEXT_INIT_TIMER(ads##t##_data_##n, ctx), \
-		ADC_CONTEXT_INIT_SYNC(ads##t##_data_##n, ctx), \
-	}; \
-	DEVICE_DT_DEFINE(DT_INST_ADS1X1X(n, t), ads1x1x_init, NULL, &ads##t##_data_##n, \
-			 &ads##t##_config_##n, POST_KERNEL, CONFIG_ADC_ADS1X1X_INIT_PRIORITY, \
+#define ADS1X1X_RDY_PROPS(n)                                                                       \
+	.alert_rdy = GPIO_DT_SPEC_INST_GET_OR(n, alert_rdy_gpios, {0}),                            \
+
+#define ADS1X1X_RDY(t, n)                                                                          \
+	IF_ENABLED(DT_NODE_HAS_PROP(DT_INST_ADS1X1X(n, t), alert_rdy_gpios),                       \
+		   (ADS1X1X_RDY_PROPS(n)))
+
+#define ADS1X1X_INIT(t, n, odr_delay_us, res, mux, pgab)                                           \
+	static const struct ads1x1x_config ads##t##_config_##n = {                                 \
+		.bus = I2C_DT_SPEC_GET(DT_INST_ADS1X1X(n, t)),                                     \
+		.odr_delay = odr_delay_us,                                                         \
+		.resolution = res,                                                                 \
+		.multiplexer = mux,                                                                \
+		.pga = pgab,                                                                       \
+		IF_ENABLED(ADC_ADS1X1X_TRIGGER, (ADS1X1X_RDY(t, n)))                               \
+	};                                                                                         \
+	static struct ads1x1x_data ads##t##_data_##n = {                                           \
+		ADC_CONTEXT_INIT_LOCK(ads##t##_data_##n, ctx),                                     \
+		ADC_CONTEXT_INIT_TIMER(ads##t##_data_##n, ctx),                                    \
+		ADC_CONTEXT_INIT_SYNC(ads##t##_data_##n, ctx),                                     \
+	};                                                                                         \
+	DEVICE_DT_DEFINE(DT_INST_ADS1X1X(n, t), ads1x1x_init, NULL, &ads##t##_data_##n,            \
+			 &ads##t##_config_##n, POST_KERNEL, CONFIG_ADC_ADS1X1X_INIT_PRIORITY,      \
 			 &ads1x1x_api);
 
 /* The ADS111X provides 16 bits of data in binary two's complement format
  * A positive full-scale (+FS) input produces an output code of 7FFFh and a
  * negative full-scale (–FS) input produces an output code of 8000h. Single
- * ended signal measurements only only use the positive code range from
+ * ended signal measurements only use the positive code range from
  * 0000h to 7FFFh
  */
 #define ADS111X_RESOLUTION 16
@@ -638,9 +835,9 @@ static const struct adc_driver_api ads1x1x_api = {
  * used for the initial delay when polling for data ready.
  * {8 SPS, 16 SPS, 32 SPS, 64 SPS, 128 SPS (default), 250 SPS, 475 SPS, 860 SPS}
  */
-#define ADS111X_ODR_DELAY_US \
-	{ \
-		125000, 62500, 31250, 15625, 7813, 4000, 2105, 1163 \
+#define ADS111X_ODR_DELAY_US                                                                       \
+	{                                                                                          \
+		125000, 62500, 31250, 15625, 7813, 4000, 2105, 1163                                \
 	}
 
 /*
@@ -662,7 +859,7 @@ DT_INST_FOREACH_STATUS_OKAY(ADS1114_INIT)
 /*
  * ADS1113: 16 bit, no multiplexer, no programmable gain amplifier
  */
-#define ADS1113_INIT(n) \
+#define ADS1113_INIT(n)                                                                            \
 	ADS1X1X_INIT(1113, n, ADS111X_ODR_DELAY_US, ADS111X_RESOLUTION, false, false)
 #undef DT_DRV_COMPAT
 #define DT_DRV_COMPAT ti_ads1113
@@ -671,7 +868,7 @@ DT_INST_FOREACH_STATUS_OKAY(ADS1113_INIT)
 /* The ADS101X provides 12 bits of data in binary two's complement format
  * A positive full-scale (+FS) input produces an output code of 7FFh and a
  * negative full-scale (–FS) input produces an output code of 800h. Single
- * ended signal measurements only only use the positive code range from
+ * ended signal measurements only use the positive code range from
  * 000h to 7FFh
  */
 #define ADS101X_RESOLUTION 12
@@ -681,9 +878,9 @@ DT_INST_FOREACH_STATUS_OKAY(ADS1113_INIT)
  * used for the initial delay when polling for data ready.
  * {128 SPS, 250 SPS, 490 SPS, 920 SPS, 1600 SPS (default), 2400 SPS, 3300 SPS, 3300 SPS}
  */
-#define ADS101X_ODR_DELAY_US \
-	{ \
-		7813, 4000, 2041, 1087, 625, 417, 303, 303 \
+#define ADS101X_ODR_DELAY_US                                                                       \
+	{                                                                                          \
+		7813, 4000, 2041, 1087, 625, 417, 303, 303                                         \
 	}
 
 /*
@@ -705,7 +902,7 @@ DT_INST_FOREACH_STATUS_OKAY(ADS1014_INIT)
 /*
  * ADS1013: 12 bit, no multiplexer, no programmable gain amplifier
  */
-#define ADS1013_INIT(n) \
+#define ADS1013_INIT(n)                                                                            \
 	ADS1X1X_INIT(1013, n, ADS101X_ODR_DELAY_US, ADS101X_RESOLUTION, false, false)
 #undef DT_DRV_COMPAT
 #define DT_DRV_COMPAT ti_ads1013

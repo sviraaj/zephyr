@@ -1,13 +1,33 @@
 # SPDX-License-Identifier: Apache-2.0
 
-if(CONFIG_GEN_ISR_TABLES)
-  zephyr_library()
+zephyr_library()
 
-  zephyr_library_sources_ifdef(
-    CONFIG_GEN_ISR_TABLES
+zephyr_library_include_directories(include)
+
+# Library may be empty due to kconfigs
+zephyr_library_property(ALLOW_EMPTY TRUE)
+
+if(CONFIG_GEN_ISR_TABLES)
+  zephyr_library_sources(
     sw_isr_common.c
-    )
+  )
+  zephyr_library_sources_ifdef(
+    CONFIG_DYNAMIC_INTERRUPTS
+    dynamic_isr.c
+  )
 endif()
+
+zephyr_library_sources_ifdef(
+  CONFIG_ISR_TABLE_SHELL
+  isr_tables_shell.c
+)
+
+zephyr_library_sources_ifdef(
+  CONFIG_MULTI_LEVEL_INTERRUPTS
+  multilevel_irq.c
+  )
+
+zephyr_library_sources_ifdef(CONFIG_SHARED_INTERRUPTS shared_irq.c)
 
 if(NOT CONFIG_ARCH_HAS_TIMING_FUNCTIONS AND
     NOT CONFIG_SOC_HAS_TIMING_FUNCTIONS AND
@@ -24,13 +44,33 @@ zephyr_linker_sources_ifdef(CONFIG_GEN_ISR_TABLES
   ${ZEPHYR_BASE}/include/zephyr/linker/intlist.ld
 )
 
-if(CONFIG_GEN_ISR_TABLES)
-  zephyr_linker_section(NAME .intList VMA IDT_LIST LMA IDT_LIST NOINPUT PASS NOT LINKER_ZEPHYR_FINAL)
-  zephyr_linker_section_configure(SECTION .intList KEEP INPUT ".irq_info" FIRST)
-  zephyr_linker_section_configure(SECTION .intList KEEP INPUT ".intList")
+zephyr_linker_sources_ifdef(CONFIG_ISR_TABLES_LOCAL_DECLARATION
+  SECTIONS
+  ${ZEPHYR_BASE}/include/zephyr/linker/isr-local-drop-unused.ld
+)
 
-  zephyr_linker_section_configure(SECTION /DISCARD/ KEEP INPUT ".irq_info" PASS LINKER_ZEPHYR_FINAL)
-  zephyr_linker_section_configure(SECTION /DISCARD/ KEEP INPUT ".intList"  PASS LINKER_ZEPHYR_FINAL)
+zephyr_linker_sources_ifdef(CONFIG_GEN_IRQ_VECTOR_TABLE
+  ROM_START
+  SORT_KEY 0x0vectors
+  ${ZEPHYR_BASE}/include/zephyr/linker/irq-vector-table-section.ld
+)
+
+if(CONFIG_GEN_ISR_TABLES)
+  # IAR Toolchain is having problems with discarding .intList
+  # This will always keep .intList in a harmless location
+  # until we can implement a proper DISCARD.
+  if(ZEPHYR_TOOLCHAIN_VARIANT STREQUAL "iar")
+    zephyr_linker_section(NAME .intList GROUP RODATA_REGION NOINPUT)
+    zephyr_linker_section_configure(SECTION .intList KEEP INPUT ".irq_info" FIRST)
+    zephyr_linker_section_configure(SECTION .intList KEEP INPUT ".intList")
+  else()
+    zephyr_linker_section(NAME .intList VMA IDT_LIST LMA IDT_LIST NOINPUT PASS NOT LINKER_ZEPHYR_FINAL)
+    zephyr_linker_section_configure(SECTION .intList KEEP INPUT ".irq_info" FIRST)
+    zephyr_linker_section_configure(SECTION .intList KEEP INPUT ".intList")
+
+    zephyr_linker_section_configure(SECTION /DISCARD/ KEEP INPUT ".irq_info" PASS LINKER_ZEPHYR_FINAL)
+    zephyr_linker_section_configure(SECTION /DISCARD/ KEEP INPUT ".intList"  PASS LINKER_ZEPHYR_FINAL)
+  endif()
 endif()
 
 zephyr_linker_sources_ifdef(CONFIG_ARCH_HAS_RAMFUNC_SUPPORT
@@ -43,9 +83,15 @@ zephyr_linker_sources_ifdef(CONFIG_NOCACHE_MEMORY
   nocache.ld
 )
 
-# Only ARM, X86 and OPENISA_RV32M1_RISCV32 use ROM_START_OFFSET.
-if (DEFINED CONFIG_ARM OR DEFINED CONFIG_X86 OR DEFINED CONFIG_ARM64
-    OR DEFINED CONFIG_SOC_OPENISA_RV32M1_RISCV32)
+# Only ARM, X86 and RISCV use ROM_START_OFFSET.
+if (DEFINED CONFIG_ARM OR DEFINED CONFIG_X86 OR DEFINED CONFIG_ARM64 OR DEFINED CONFIG_RISCV)
+  # Exclamation mark is printable character with lowest number in ASCII table.
+  # We are sure that this file will be included as a first.
+  zephyr_linker_sources(ROM_START SORT_KEY ! rom_start_address.ld)
+  # Some linkers fill unspecified region with pattern other than 0x00. Include
+  # fill_with_zeros.ld file which forces the linker to use 0x00 pattern. Please
+  # note that the pattern will affect empty spaces created after FILL(0x00).
+  zephyr_linker_sources(ROM_START SORT_KEY $ fill_with_zeros.ld)
   zephyr_linker_sources(ROM_START SORT_KEY 0x0 rom_start_offset.ld)
   # Handled in ld.cmake
 endif()
@@ -65,7 +111,7 @@ endif()
 
 if(CONFIG_COVERAGE)
   zephyr_compile_options($<TARGET_PROPERTY:compiler,coverage>)
-  zephyr_link_libraries($<TARGET_PROPERTY:linker,coverage>)
+  zephyr_link_libraries_ifndef(CONFIG_NATIVE_LIBRARY $<TARGET_PROPERTY:linker,coverage>)
 endif()
 
-zephyr_sources_ifdef(CONFIG_SEMIHOST semihost.c)
+zephyr_library_sources_ifdef(CONFIG_SEMIHOST semihost.c)

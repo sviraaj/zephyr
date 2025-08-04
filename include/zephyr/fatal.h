@@ -12,7 +12,9 @@
 #define ZEPHYR_INCLUDE_FATAL_H
 
 #include <zephyr/arch/cpu.h>
+#include <zephyr/arch/exception.h>
 #include <zephyr/toolchain.h>
+#include <zephyr/fatal_types.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,27 +25,6 @@ extern "C" {
  * @ingroup kernel_apis
  * @{
  */
-
-enum k_fatal_error_reason {
-	/** Generic CPU exception, not covered by other codes */
-	K_ERR_CPU_EXCEPTION,
-
-	/** Unhandled hardware interrupt */
-	K_ERR_SPURIOUS_IRQ,
-
-	/** Faulting context overflowed its stack buffer */
-	K_ERR_STACK_CHK_FAIL,
-
-	/** Moderate severity software error */
-	K_ERR_KERNEL_OOPS,
-
-	/** High severity software error */
-	K_ERR_KERNEL_PANIC
-
-	/* TODO: add more codes for exception types that are common across
-	 * architectures
-	 */
-};
 
 /**
  * @brief Halt the system on a fatal error
@@ -84,10 +65,10 @@ FUNC_NORETURN void k_fatal_halt(unsigned int reason);
  * @param esf Exception context, with details and partial or full register
  *            state when the error occurred. May in some cases be NULL.
  */
-void k_sys_fatal_error_handler(unsigned int reason, const z_arch_esf_t *esf);
+void k_sys_fatal_error_handler(unsigned int reason, const struct arch_esf *esf);
 
 /**
- * Called by architecture code upon a fatal error.
+ * @brief Called by architecture code upon a fatal error.
  *
  * This function dumps out architecture-agnostic information about the error
  * and then makes a policy decision on what to do by invoking
@@ -100,7 +81,7 @@ void k_sys_fatal_error_handler(unsigned int reason, const z_arch_esf_t *esf);
  * @param esf Exception context, with details and partial or full register
  *            state when the error occurred. May in some cases be NULL.
  */
-void z_fatal_error(unsigned int reason, const z_arch_esf_t *esf);
+void z_fatal_error(unsigned int reason, const struct arch_esf *esf);
 
 /** @} */
 

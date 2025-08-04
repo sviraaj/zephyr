@@ -9,13 +9,14 @@
 #include <soc.h>
 #include <stm32_ll_bus.h>
 #include <stm32_ll_rcc.h>
+#include <stm32_ll_pwr.h>
 #include <stm32_ll_utils.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
 #include "clock_stm32_ll_common.h"
 
-#if STM32_SYSCLK_SRC_PLL
+#if defined(STM32_PLL_ENABLED)
 
 /* Macros to fill up multiplication and division factors values */
 #define z_pll_mul(v) LL_RCC_PLL_MUL_ ## v
@@ -42,6 +43,22 @@ static uint32_t get_pll_source(void)
 }
 
 /**
+ * @brief get the pll source frequency
+ */
+__unused
+uint32_t get_pllsrc_frequency(void)
+{
+	if (IS_ENABLED(STM32_PLL_SRC_HSI)) {
+		return STM32_HSI_FREQ;
+	} else if (IS_ENABLED(STM32_PLL_SRC_HSE)) {
+		return STM32_HSE_FREQ;
+	}
+
+	__ASSERT(0, "Invalid source");
+	return 0;
+}
+
+/**
  * @brief Set up pll configuration
  */
 __unused
@@ -58,12 +75,28 @@ void config_pll_sysclock(void)
 __unused
 uint32_t get_pllout_frequency(void)
 {
-	return __LL_RCC_CALC_PLLCLK_FREQ(get_pll_source(),
+	return __LL_RCC_CALC_PLLCLK_FREQ(get_pllsrc_frequency(),
 					 pll_mul(STM32_PLL_MULTIPLIER),
 					 pll_div(STM32_PLL_DIVISOR));
 }
 
-#endif /* STM32_SYSCLK_SRC_PLL */
+#endif /* defined(STM32_PLL_ENABLED) */
+
+/**
+ * @brief Set up voltage regulator voltage
+ */
+void config_regulator_voltage(uint32_t hclk_freq)
+{
+	if (hclk_freq <= MHZ(4.2)) {
+		LL_PWR_SetRegulVoltageScaling(LL_PWR_REGU_VOLTAGE_SCALE3);
+	} else if (hclk_freq <= MHZ(16)) {
+		LL_PWR_SetRegulVoltageScaling(LL_PWR_REGU_VOLTAGE_SCALE2);
+	} else {
+		LL_PWR_SetRegulVoltageScaling(LL_PWR_REGU_VOLTAGE_SCALE1);
+	}
+	while (LL_PWR_IsActiveFlag_VOS() == 1) {
+	}
+}
 
 /**
  * @brief Activate default clocks
@@ -76,4 +109,5 @@ void config_enable_default_clocks(void)
 	/* Enable System Configuration Controller clock. */
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_SYSCFG);
 #endif
+	LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_PWR);
 }

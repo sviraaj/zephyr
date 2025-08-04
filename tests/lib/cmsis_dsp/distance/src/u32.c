@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/ztest.h>
+#include <zephyr/kernel.h>
 #include <stdlib.h>
 #include <arm_math.h>
 #include "../../common/test_common.h"
@@ -44,7 +44,7 @@ static void test_arm_distance(int op, const uint16_t *dims,
 
 	/* Enumerate input */
 	for (index = 0; index < length; index++) {
-		float32_t val;
+		float32_t val = 0.0f;
 
 		/* Run test function */
 		switch (op) {

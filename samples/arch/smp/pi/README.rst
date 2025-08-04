@@ -1,7 +1,7 @@
-.. _smp_pi:
+.. zephyr:code-sample:: smp_pi
+   :name: SMP Pi
 
-SMP Pi
-###########
+   Calculate the first 240 digits of Pi on multiple execution units.
 
 Overview
 ********
@@ -10,7 +10,7 @@ demonstrates the benefit of multiple execution units (CPU cores)
 when compute-intensive tasks can be run in parallel, with
 no cross-dependencies or shared resources.
 
-By changing the value of CONFIG_MP_NUM_CPUS on SMP systems, you
+By changing the value of CONFIG_MP_MAX_NUM_CPUS on SMP systems, you
 can see that using more cores takes almost linearly less time
 to complete the computational task.
 
@@ -26,7 +26,7 @@ required for all the calculation to be done. It can be built and executed
 on Synopsys ARC HSDK board as follows:
 
 .. zephyr-app-commands::
-   :zephyr-app: samples/smp/pi
+   :zephyr-app: samples/arch/smp/pi
    :host-os: unix
    :board: qemu_x86_64
    :goals: run

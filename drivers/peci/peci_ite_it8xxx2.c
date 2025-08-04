@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define DT_DRV_COMPAT ite_peci_it8xxx2
+#define DT_DRV_COMPAT ite_it8xxx2_peci
 
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/pinctrl.h>
@@ -17,6 +17,7 @@
 #include <soc_dt.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/irq.h>
 
 LOG_MODULE_REGISTER(peci_ite_it8xxx2, CONFIG_PECI_LOG_LEVEL);
 
@@ -217,10 +218,11 @@ static void peci_it8xxx2_rst_module(const struct device *dev)
 	const struct peci_it8xxx2_config *config = dev->config;
 	struct peci_it8xxx2_regs *const peci_regs =
 		(struct peci_it8xxx2_regs *)config->base_addr;
+	struct gctrl_it8xxx2_regs *const gctrl_regs = GCTRL_IT8XXX2_REGS_BASE;
 
 	LOG_ERR("[PECI] Module Reset for Status Error.\r\n");
 	/* Reset IT8XXX2 PECI Module Thoroughly */
-	IT83XX_GCTRL_RSTC4 |= RPECI;
+	gctrl_regs->GCTRL_RSTC4 |= IT8XXX2_GCTRL_RPECI;
 	/*
 	 * Due to the fact that we've checked if the peci_enable()
 	 * called before calling the peci_transfer(), so the peci
@@ -299,7 +301,7 @@ static void peci_it8xxx2_isr(const struct device *dev)
 	k_sem_give(&data->device_sync_sem);
 }
 
-static const struct peci_driver_api peci_it8xxx2_driver_api = {
+static DEVICE_API(peci, peci_it8xxx2_driver_api) = {
 	.config = peci_it8xxx2_configure,
 	.enable = peci_it8xxx2_enable,
 	.disable = peci_it8xxx2_disable,

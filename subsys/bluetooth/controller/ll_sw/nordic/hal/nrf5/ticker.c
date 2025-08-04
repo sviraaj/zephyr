@@ -5,8 +5,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdint.h>
 #include <stdbool.h>
-#include <zephyr/sys/dlist.h>
+
 #include <zephyr/sys/util.h>
 
 #include "hal/cntr.h"
@@ -18,9 +19,6 @@
 
 #include "ll_sw/lll.h"
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
-#define LOG_MODULE_NAME bt_ctlr_hal_ticker
-#include "common/log.h"
 #include "hal/debug.h"
 
 #define TICKER_MAYFLY_CALL_ID_ISR     TICKER_USER_ID_LLL
@@ -196,5 +194,9 @@ void hal_ticker_instance0_sched(uint8_t caller_id, uint8_t callee_id, uint8_t ch
 
 void hal_ticker_instance0_trigger_set(uint32_t value)
 {
-	cntr_cmp_set(0, value);
+#if defined(CONFIG_BT_CTLR_NRF_GRTC)
+	cntr_cmp_set(HAL_CNTR_GRTC_CC_IDX_TICKER, value);
+#else /* !CONFIG_BT_CTLR_NRF_GRTC */
+	cntr_cmp_set(0U, value);
+#endif /* !CONFIG_BT_CTLR_NRF_GRTC */
 }

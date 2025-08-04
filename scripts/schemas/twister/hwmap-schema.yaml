@@ -1,7 +1,7 @@
 type: seq
 sequence:
   - type: map
-    required: no
+    required: false
     mapping:
       "available":
         type: bool
@@ -16,7 +16,7 @@ sequence:
         type: str
         required: false
       "platform":
-        type: str
+        type: any
         required: true
       "probe_id":
         type: str
@@ -52,6 +52,28 @@ sequence:
         required: false
       "fixtures":
         type: seq
-        required: no
+        required: false
         sequence:
           - type: str
+      "flash_timeout":
+        type: int
+        required: false
+      "flash_with_test":
+        type: bool
+        required: false
+      "flash_before":
+        type: bool
+        required: false
+      "script_param":
+        type: map
+        required: false
+        mapping:
+          "pre_script_timeout":
+            type: int
+            required: false
+          "post_script_timeout":
+            type: int
+            required: false
+          "post_flash_timeout":
+            type: int
+            required: false

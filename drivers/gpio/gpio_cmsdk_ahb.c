@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2016 Linaro Limited.
+ * Copyright (c) 2025 Atmosic
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,9 +15,10 @@
 #include <zephyr/init.h>
 #include <soc.h>
 #include <zephyr/drivers/clock_control/arm_clock_control.h>
+#include <zephyr/drivers/gpio/gpio_cmsdk_ahb.h>
+#include <zephyr/irq.h>
 
-#include "gpio_cmsdk_ahb.h"
-#include "gpio_utils.h"
+#include <zephyr/drivers/gpio/gpio_utils.h>
 
 /**
  * @brief GPIO driver for ARM CMSDK AHB GPIO
@@ -95,8 +97,7 @@ static int gpio_cmsdk_ahb_port_toggle_bits(const struct device *dev,
 	return 0;
 }
 
-static int cmsdk_ahb_gpio_config(const struct device *dev, uint32_t mask,
-				 gpio_flags_t flags)
+int cmsdk_ahb_gpio_config(const struct device *dev, uint32_t mask, gpio_flags_t flags)
 {
 	const struct gpio_cmsdk_ahb_cfg * const cfg = dev->config;
 
@@ -133,6 +134,23 @@ static int cmsdk_ahb_gpio_config(const struct device *dev, uint32_t mask,
 
 	return 0;
 }
+
+#ifdef CONFIG_GPIO_GET_CONFIG
+static int gpio_cmsdk_ahb_get_config(const struct device *dev, gpio_pin_t pin, gpio_flags_t *flags)
+{
+	const struct gpio_cmsdk_ahb_cfg *const cfg = dev->config;
+
+	uint32_t mask = BIT(pin);
+
+	*flags = GPIO_DISCONNECTED;
+
+	if (cfg->port->outenableset & mask) {
+		*flags |= (cfg->port->dataout & mask) ? GPIO_OUTPUT_HIGH : GPIO_OUTPUT_LOW;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_GPIO_GET_CONFIG */
 
 /**
  * @brief Configure pin or port
@@ -215,8 +233,11 @@ static int gpio_cmsdk_ahb_manage_callback(const struct device *dev,
 	return gpio_manage_callback(&data->gpio_cb, callback, set);
 }
 
-static const struct gpio_driver_api gpio_cmsdk_ahb_drv_api_funcs = {
+static DEVICE_API(gpio, gpio_cmsdk_ahb_drv_api_funcs) = {
 	.pin_configure = gpio_cmsdk_ahb_config,
+#ifdef CONFIG_GPIO_GET_CONFIG
+	.pin_get_config = gpio_cmsdk_ahb_get_config,
+#endif
 	.port_get_raw = gpio_cmsdk_ahb_port_get_raw,
 	.port_set_masked_raw = gpio_cmsdk_ahb_port_set_masked_raw,
 	.port_set_bits_raw = gpio_cmsdk_ahb_port_set_bits_raw,
@@ -238,13 +259,16 @@ static int gpio_cmsdk_ahb_init(const struct device *dev)
 
 #ifdef CONFIG_CLOCK_CONTROL
 	/* Enable clock for subsystem */
-	const struct device *clk =
-		device_get_binding(CONFIG_ARM_CLOCK_CONTROL_DEV_NAME);
+	const struct device *const clk = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(0));
+
+	if (!device_is_ready(clk)) {
+		return -ENODEV;
+	}
 
 #ifdef CONFIG_SOC_SERIES_BEETLE
-	clock_control_on(clk, (clock_control_subsys_t *) &cfg->gpio_cc_as);
-	clock_control_off(clk, (clock_control_subsys_t *) &cfg->gpio_cc_ss);
-	clock_control_off(clk, (clock_control_subsys_t *) &cfg->gpio_cc_dss);
+	clock_control_on(clk, (clock_control_subsys_t) &cfg->gpio_cc_as);
+	clock_control_off(clk, (clock_control_subsys_t) &cfg->gpio_cc_ss);
+	clock_control_off(clk, (clock_control_subsys_t) &cfg->gpio_cc_dss);
 #endif /* CONFIG_SOC_SERIES_BEETLE */
 #endif /* CONFIG_CLOCK_CONTROL */
 

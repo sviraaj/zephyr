@@ -9,10 +9,12 @@
 
 #include <soc.h>
 #include <zephyr/drivers/watchdog.h>
+#include <zephyr/irq.h>
 #include <em_wdog.h>
 #include <em_cmu.h>
 
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(wdt_gecko, CONFIG_WDT_LOG_LEVEL);
 
 #ifdef cmuClock_CORELE
@@ -96,6 +98,10 @@ static int wdt_gecko_setup(const struct device *dev, uint8_t options)
 		return -EINVAL;
 	}
 
+#if defined(_WDOG_CFG_EM1RUN_MASK)
+	data->wdog_config.em1Run =
+		(options & WDT_OPT_PAUSE_IN_SLEEP) == 0U;
+#endif
 	data->wdog_config.em2Run =
 		(options & WDT_OPT_PAUSE_IN_SLEEP) == 0U;
 	data->wdog_config.em3Run =
@@ -252,11 +258,13 @@ static int wdt_gecko_init(const struct device *dev)
 	/* Enable ULFRCO (1KHz) oscillator */
 	CMU_OscillatorEnable(cmuOsc_ULFRCO, true, false);
 
-#if !defined(_SILICON_LABS_32B_SERIES_2)
 	/* Ensure LE modules are clocked */
 	CMU_ClockEnable(config->clock, true);
-#else
+
+#if defined(_SILICON_LABS_32B_SERIES_2)
 	CMU_ClockSelectSet(config->clock, cmuSelect_ULFRCO);
+	/* Enable Watchdog clock. */
+	CMU_ClockEnable(cmuClock_WDOG0, true);
 #endif
 
 	/* Enable IRQs */
@@ -267,7 +275,7 @@ static int wdt_gecko_init(const struct device *dev)
 	return 0;
 }
 
-static const struct wdt_driver_api wdt_gecko_driver_api = {
+static DEVICE_API(wdt, wdt_gecko_driver_api) = {
 	.setup = wdt_gecko_setup,
 	.disable = wdt_gecko_disable,
 	.install_timeout = wdt_gecko_install_timeout,

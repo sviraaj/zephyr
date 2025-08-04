@@ -17,11 +17,13 @@
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/device_mmio.h>
+#include <zephyr/sys/printk-hooks.h>
+#include <zephyr/sys/libc-hooks.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(uart_hvc_xen, CONFIG_UART_LOG_LEVEL);
 
-static struct hvc_xen_data hvc_data = {0};
+static struct hvc_xen_data xen_hvc_data = {0};
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 static void hvc_uart_evtchn_cb(void *priv);
@@ -196,7 +198,7 @@ static void xen_hvc_irq_callback_set(const struct device *dev,
 }
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
-static const struct uart_driver_api xen_hvc_api = {
+static DEVICE_API(uart, xen_hvc_api) = {
 	.poll_in = xen_hvc_poll_in,
 	.poll_out = xen_hvc_poll_out,
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
@@ -233,14 +235,14 @@ int xen_console_init(const struct device *dev)
 
 	data->dev = dev;
 
-	ret = hvm_get_parameter(HVM_PARAM_CONSOLE_EVTCHN, &data->evtchn);
+	ret = hvm_get_parameter(HVM_PARAM_CONSOLE_EVTCHN, DOMID_SELF, &data->evtchn);
 	if (ret) {
 		LOG_ERR("%s: failed to get Xen console evtchn, ret = %d\n",
 				__func__, ret);
 		return ret;
 	}
 
-	ret = hvm_get_parameter(HVM_PARAM_CONSOLE_PFN, &console_pfn);
+	ret = hvm_get_parameter(HVM_PARAM_CONSOLE_PFN, DOMID_SELF, &console_pfn);
 	if (ret) {
 		LOG_ERR("%s: failed to get Xen console PFN, ret = %d\n",
 				__func__, ret);
@@ -262,14 +264,11 @@ int xen_console_init(const struct device *dev)
 	return 0;
 }
 
-DEVICE_DT_DEFINE(DT_NODELABEL(xen_hvc), xen_console_init, NULL, &hvc_data,
+DEVICE_DT_DEFINE(DT_NODELABEL(xen_hvc), xen_console_init, NULL, &xen_hvc_data,
 		NULL, PRE_KERNEL_1, CONFIG_XEN_HVC_INIT_PRIORITY,
 		&xen_hvc_api);
 
 #ifdef CONFIG_XEN_EARLY_CONSOLEIO
-extern void __printk_hook_install(int (*fn)(int));
-extern void __stdout_hook_install(int (*fn)(int));
-
 int xen_consoleio_putc(int c)
 {
 	char symbol = (char) c;
@@ -280,9 +279,8 @@ int xen_consoleio_putc(int c)
 
 
 
-int consoleio_hooks_set(const struct device *dev)
+int consoleio_hooks_set(void)
 {
-	ARG_UNUSED(dev);
 
 	/* Will be replaced with poll_in/poll_out by uart_console.c later on boot */
 	__stdout_hook_install(xen_consoleio_putc);

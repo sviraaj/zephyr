@@ -201,7 +201,7 @@ static int ipcp_ip_address_parse(struct ppp_fsm *fsm, struct net_pkt *pkt,
 					 sizeof(dst));
 
 		NET_DBG("[IPCP] Received peer address %s",
-			log_strdup(addr_str));
+			addr_str);
 	}
 
 	data->addr_present = true;
@@ -327,6 +327,8 @@ static void ipcp_set_dns_servers(struct ppp_fsm *fsm)
 		(struct sockaddr *) &dns2,
 		NULL
 	};
+	int ifindex = net_if_get_by_iface(ctx->iface);
+	int interfaces[2] = { ifindex, ifindex };
 	int ret;
 
 	if (!dns1.sin_addr.s_addr) {
@@ -338,7 +340,9 @@ static void ipcp_set_dns_servers(struct ppp_fsm *fsm)
 	}
 
 	dnsctx = dns_resolve_get_default();
-	ret = dns_resolve_reconfigure(dnsctx, NULL, dns_servers);
+	ret = dns_resolve_reconfigure_with_interfaces(dnsctx, NULL, dns_servers,
+						      interfaces,
+						      DNS_SOURCE_PPP);
 	if (ret < 0) {
 		NET_ERR("Could not set DNS servers");
 		return;
@@ -409,11 +413,11 @@ static void ipcp_up(struct ppp_fsm *fsm)
 				    NET_ADDR_MANUAL,
 				    0);
 	if (addr == NULL) {
-		NET_ERR("Could not set IP address %s", log_strdup(addr_str));
+		NET_ERR("Could not set IP address %s", addr_str);
 		return;
 	}
 
-	NET_DBG("PPP up with address %s", log_strdup(addr_str));
+	NET_DBG("PPP up with address %s", addr_str);
 	ppp_network_up(ctx, PPP_IP);
 
 	ctx->is_ipcp_up = true;

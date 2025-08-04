@@ -22,11 +22,16 @@ LOG_MODULE_REGISTER(net_websocket, CONFIG_NET_WEBSOCKET_LOG_LEVEL);
 #include <zephyr/sys/fdtable.h>
 #include <zephyr/net/net_core.h>
 #include <zephyr/net/net_ip.h>
+#if defined(CONFIG_POSIX_API)
+#include <zephyr/posix/unistd.h>
+#include <zephyr/posix/sys/socket.h>
+#else
 #include <zephyr/net/socket.h>
-#include <zephyr/net/http_client.h>
+#endif
+#include <zephyr/net/http/client.h>
 #include <zephyr/net/websocket.h>
 
-#include <zephyr/random/rand32.h>
+#include <zephyr/random/random.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/base64.h>
 #include <mbedtls/sha1.h>
@@ -94,8 +99,6 @@ static int websocket_context_unref(struct websocket_context *ctx)
 
 static inline bool websocket_context_is_used(struct websocket_context *ctx)
 {
-	NET_ASSERT(ctx);
-
 	return !!atomic_get(&ctx->refcount);
 }
 
@@ -146,9 +149,9 @@ static struct websocket_context *websocket_find(int real_sock)
 	return ctx;
 }
 
-static void response_cb(struct http_response *rsp,
-			enum http_final_call final_data,
-			void *user_data)
+static int response_cb(struct http_response *rsp,
+		       enum http_final_call final_data,
+		       void *user_data)
 {
 	struct websocket_context *ctx = user_data;
 
@@ -161,6 +164,8 @@ static void response_cb(struct http_response *rsp,
 			rsp->data_len);
 		ctx->all_received = true;
 	}
+
+	return 0;
 }
 
 static int on_header_field(struct http_parser *parser, const char *at,
@@ -269,10 +274,11 @@ int websocket_connect(int sock, struct websocket_request *wreq,
 	}
 
 	ctx->real_sock = sock;
-	ctx->tmp_buf = wreq->tmp_buf;
-	ctx->tmp_buf_len = wreq->tmp_buf_len;
+	ctx->recv_buf.buf = wreq->tmp_buf;
+	ctx->recv_buf.size = wreq->tmp_buf_len;
 	ctx->sec_accept_key = sec_accept_key;
 	ctx->http_cb = wreq->http_cb;
+	ctx->is_client = 1;
 
 	mbedtls_sha1((const unsigned char *)&rnd_value, sizeof(rnd_value),
 			 sec_accept_key);
@@ -357,15 +363,15 @@ int websocket_connect(int sock, struct websocket_request *wreq,
 
 	ctx->user_data = user_data;
 
-	fd = z_reserve_fd();
+	fd = zvfs_reserve_fd();
 	if (fd < 0) {
 		ret = -ENOSPC;
 		goto out;
 	}
 
 	ctx->sock = fd;
-	z_finalize_fd(fd, ctx,
-		      (const struct fd_op_vtable *)&websocket_fd_op_vtable);
+	zvfs_finalize_typed_fd(fd, ctx, (const struct fd_op_vtable *)&websocket_fd_op_vtable,
+			    ZVFS_MODE_IFSOCK);
 
 	/* Call the user specified callback and if it accepts the connection
 	 * then continue.
@@ -380,16 +386,22 @@ int websocket_connect(int sock, struct websocket_request *wreq,
 
 	NET_DBG("[%p] WS connection to peer established (fd %d)", ctx, fd);
 
-	/* We will re-use the temp buffer in receive function if needed but
-	 * in order that to work the amount of data in buffer must be set to 0
+	/* We will re-use the temp buffer in receive function. If there were
+	 * any leftover data from HTTP headers processing, we need to reflect
+	 * this in the count variable.
 	 */
-	ctx->tmp_buf_pos = 0;
+	ctx->recv_buf.count = req.data_len;
+
+	/* Init parser FSM */
+	ctx->parser_state = WEBSOCKET_PARSER_STATE_OPCODE;
+
+	(void)sock_obj_core_alloc_find(ctx->real_sock, fd, SOCK_STREAM);
 
 	return fd;
 
 out:
 	if (fd >= 0) {
-		(void)close(fd);
+		(void)zsock_close(fd);
 	}
 
 	websocket_context_unref(ctx);
@@ -398,7 +410,7 @@ out:
 
 int websocket_disconnect(int ws_sock)
 {
-	return close(ws_sock);
+	return zsock_close(ws_sock);
 }
 
 static int websocket_interal_disconnect(struct websocket_context *ctx)
@@ -411,7 +423,13 @@ static int websocket_interal_disconnect(struct websocket_context *ctx)
 
 	NET_DBG("[%p] Disconnecting", ctx);
 
-	ret = close(ctx->real_sock);
+	ret = websocket_send_msg(ctx->sock, NULL, 0, WEBSOCKET_OPCODE_CLOSE,
+				 ctx->is_client, true, SYS_FOREVER_MS);
+	if (ret < 0) {
+		NET_DBG("[%p] Failed to send close message (err %d).", ctx, ret);
+	}
+
+	(void)sock_obj_core_dealloc(ctx->sock);
 
 	websocket_context_unref(ctx);
 
@@ -425,10 +443,15 @@ static int websocket_close_vmeth(void *obj)
 
 	ret = websocket_interal_disconnect(ctx);
 	if (ret < 0) {
-		NET_DBG("[%p] Cannot close (%d)", obj, ret);
+		/* Ignore error if we are not connected */
+		if (ret != -ENOTCONN) {
+			NET_DBG("[%p] Cannot close (%d)", obj, ret);
 
-		errno = -ret;
-		return -1;
+			errno = -ret;
+			return -1;
+		}
+
+		ret = 0;
 	}
 
 	return ret;
@@ -437,7 +460,7 @@ static int websocket_close_vmeth(void *obj)
 static inline int websocket_poll_offload(struct zsock_pollfd *fds, int nfds,
 					 int timeout)
 {
-	int fd_backup[CONFIG_NET_SOCKETS_POLL_MAX];
+	int fd_backup[CONFIG_ZVFS_POLL_MAX];
 	const struct fd_op_vtable *vtable;
 	void *ctx;
 	int ret = 0;
@@ -447,7 +470,7 @@ static inline int websocket_poll_offload(struct zsock_pollfd *fds, int nfds,
 	for (i = 0; i < nfds; i++) {
 		fd_backup[i] = fds[i].fd;
 
-		ctx = z_get_fd_obj(fds[i].fd,
+		ctx = zvfs_get_fd_obj(fds[i].fd,
 				   (const struct fd_op_vtable *)
 						     &websocket_fd_op_vtable,
 				   0);
@@ -459,7 +482,7 @@ static inline int websocket_poll_offload(struct zsock_pollfd *fds, int nfds,
 	}
 
 	/* Get offloaded sockets vtable. */
-	ctx = z_get_fd_obj_and_vtable(fds[0].fd,
+	ctx = zvfs_get_fd_obj_and_vtable(fds[0].fd,
 				      (const struct fd_op_vtable **)&vtable,
 				      NULL);
 	if (ctx == NULL) {
@@ -468,7 +491,7 @@ static inline int websocket_poll_offload(struct zsock_pollfd *fds, int nfds,
 		goto exit;
 	}
 
-	ret = z_fdtable_call_ioctl(vtable, ctx, ZFD_IOCTL_POLL_OFFLOAD,
+	ret = zvfs_fdtable_call_ioctl(vtable, ctx, ZFD_IOCTL_POLL_OFFLOAD,
 				   fds, nfds, timeout);
 
 exit:
@@ -497,11 +520,15 @@ static int websocket_ioctl_vmeth(void *obj, unsigned int request, va_list args)
 		return websocket_poll_offload(fds, nfds, timeout);
 	}
 
+	case ZFD_IOCTL_SET_LOCK:
+		/* Ignore, don't want to overwrite underlying socket lock. */
+		return 0;
+
 	default: {
 		const struct fd_op_vtable *vtable;
 		void *core_obj;
 
-		core_obj = z_get_fd_obj_and_vtable(
+		core_obj = zvfs_get_fd_obj_and_vtable(
 				ctx->real_sock,
 				(const struct fd_op_vtable **)&vtable,
 				NULL);
@@ -519,7 +546,8 @@ static int websocket_ioctl_vmeth(void *obj, unsigned int request, va_list args)
 }
 
 #if !defined(CONFIG_NET_TEST)
-static int sendmsg_all(int sock, const struct msghdr *message, int flags)
+static int sendmsg_all(int sock, const struct msghdr *message, int flags,
+			const k_timepoint_t req_end_timepoint)
 {
 	int ret, i;
 	size_t offset = 0;
@@ -531,7 +559,25 @@ static int sendmsg_all(int sock, const struct msghdr *message, int flags)
 
 	while (offset < total_len) {
 		ret = zsock_sendmsg(sock, message, flags);
-		if (ret < 0) {
+
+		if ((ret == 0) || (ret < 0 && errno == EAGAIN)) {
+			struct zsock_pollfd pfd;
+			int pollres;
+			k_ticks_t req_timeout_ticks =
+				sys_timepoint_timeout(req_end_timepoint).ticks;
+			int req_timeout_ms = k_ticks_to_ms_floor32(req_timeout_ticks);
+
+			pfd.fd = sock;
+			pfd.events = ZSOCK_POLLOUT;
+			pollres = zsock_poll(&pfd, 1, req_timeout_ms);
+			if (pollres == 0) {
+				return -ETIMEDOUT;
+			} else if (pollres > 0) {
+				continue;
+			} else {
+				return -errno;
+			}
+		} else if (ret < 0) {
 			return -errno;
 		}
 
@@ -578,7 +624,11 @@ static int websocket_prepare_and_send(struct websocket_context *ctx,
 
 	if (HEXDUMP_SENT_PACKETS) {
 		LOG_HEXDUMP_DBG(header, header_len, "Header");
-		LOG_HEXDUMP_DBG(payload, payload_len, "Payload");
+		if ((payload != NULL) && (payload_len > 0)) {
+			LOG_HEXDUMP_DBG(payload, payload_len, "Payload");
+		} else {
+			LOG_DBG("No payload");
+		}
 	}
 
 #if defined(CONFIG_NET_TEST)
@@ -593,8 +643,12 @@ static int websocket_prepare_and_send(struct websocket_context *ctx,
 		tout = K_MSEC(timeout);
 	}
 
+	k_timeout_t req_timeout = K_MSEC(timeout);
+	k_timepoint_t req_end_timepoint = sys_timepoint_calc(req_timeout);
+
 	return sendmsg_all(ctx->real_sock, &msg,
-			   K_TIMEOUT_EQ(tout, K_NO_WAIT) ? MSG_DONTWAIT : 0);
+			   K_TIMEOUT_EQ(tout, K_NO_WAIT) ? ZSOCK_MSG_DONTWAIT : 0,
+			   req_end_timepoint);
 #endif /* CONFIG_NET_TEST */
 }
 
@@ -616,21 +670,20 @@ int websocket_send_msg(int ws_sock, const uint8_t *payload, size_t payload_len,
 		return -EINVAL;
 	}
 
-#if defined(CONFIG_NET_TEST)
-	/* Websocket unit test does not use socket layer but feeds
-	 * the data directly here when testing this function.
-	 */
-	ctx = UINT_TO_POINTER((unsigned int) ws_sock);
-#else
-	ctx = z_get_fd_obj(ws_sock, NULL, 0);
+	ctx = zvfs_get_fd_obj(ws_sock, NULL, 0);
 	if (ctx == NULL) {
 		return -EBADF;
 	}
 
+#if !defined(CONFIG_NET_TEST)
+	/* Websocket unit test does not use context from pool but allocates
+	 * its own, hence skip the check.
+	 */
+
 	if (!PART_OF_ARRAY(contexts, ctx)) {
 		return -ENOENT;
 	}
-#endif /* CONFIG_NET_TEST */
+#endif /* !defined(CONFIG_NET_TEST) */
 
 	NET_DBG("[%p] Len %zd %s/%d/%s", ctx, payload_len, opcode2str(opcode),
 		mask, final ? "final" : "more");
@@ -677,16 +730,17 @@ int websocket_send_msg(int ws_sock, const uint8_t *payload, size_t payload_len,
 		header[hdr_len++] |= ctx->masking_value >> 8;
 		header[hdr_len++] |= ctx->masking_value;
 
-		data_to_send = k_malloc(payload_len);
-		if (!data_to_send) {
-			return -ENOMEM;
-		}
+		if ((payload != NULL) && (payload_len > 0)) {
+			data_to_send = k_malloc(payload_len);
+			if (!data_to_send) {
+				return -ENOMEM;
+			}
 
-		memcpy(data_to_send, payload, payload_len);
+			memcpy(data_to_send, payload, payload_len);
 
-		for (i = 0; i < payload_len; i++) {
-			data_to_send[i] ^=
-				ctx->masking_value >> (8 * (3 - i % 4));
+			for (i = 0; i < payload_len; i++) {
+				data_to_send[i] ^= ctx->masking_value >> (8 * (3 - i % 4));
+			}
 		}
 	}
 
@@ -702,103 +756,217 @@ quit:
 		k_free(data_to_send);
 	}
 
+	/* Do no math with 0 and error codes */
+	if (ret <= 0) {
+		return ret;
+	}
+
 	return ret - hdr_len;
 }
 
-static bool websocket_parse_header(uint8_t *buf, size_t buf_len, bool *masked,
-				   uint32_t *mask_value, uint64_t *message_length,
-				   uint32_t *message_type_flag,
-				   size_t *header_len)
+static uint32_t websocket_opcode2flag(uint8_t data)
 {
-	uint8_t len_len; /* length of the length field in header */
-	uint8_t len;     /* message length byte */
-	uint16_t value;
-
-	value = sys_get_be16(&buf[0]);
-	if (value & 0x8000) {
-		*message_type_flag |= WEBSOCKET_FLAG_FINAL;
-	}
-
-	switch (value & 0x0f00) {
-	case 0x0100:
-		*message_type_flag |= WEBSOCKET_FLAG_TEXT;
-		break;
-	case 0x0200:
-		*message_type_flag |= WEBSOCKET_FLAG_BINARY;
-		break;
-	case 0x0800:
-		*message_type_flag |= WEBSOCKET_FLAG_CLOSE;
-		break;
-	case 0x0900:
-		*message_type_flag |= WEBSOCKET_FLAG_PING;
-		break;
-	case 0x0A00:
-		*message_type_flag |= WEBSOCKET_FLAG_PONG;
+	switch (data & 0x0f) {
+	case WEBSOCKET_OPCODE_DATA_TEXT:
+		return WEBSOCKET_FLAG_TEXT;
+	case WEBSOCKET_OPCODE_DATA_BINARY:
+		return WEBSOCKET_FLAG_BINARY;
+	case WEBSOCKET_OPCODE_CLOSE:
+		return WEBSOCKET_FLAG_CLOSE;
+	case WEBSOCKET_OPCODE_PING:
+		return WEBSOCKET_FLAG_PING;
+	case WEBSOCKET_OPCODE_PONG:
+		return WEBSOCKET_FLAG_PONG;
+	default:
 		break;
 	}
+	return 0;
+}
 
-	len = value & 0x007f;
-	if (len < 126) {
-		len_len = 0;
-		*message_length = len;
-	} else if (len == 126) {
-		len_len = 2;
-		*message_length = sys_get_be16(&buf[2]);
-	} else {
-		len_len = 8;
-		*message_length = sys_get_be64(&buf[2]);
-	}
+static int websocket_parse(struct websocket_context *ctx, struct websocket_buffer *payload)
+{
+	int len;
+	uint8_t data;
+	size_t parsed_count = 0;
 
-	/* Minimum websocket header is 2 bytes, header length might be
-	 * bigger depending on length field len.
-	 */
-	*header_len = MIN_HEADER_LEN + len_len;
+	do {
+		if (parsed_count >= ctx->recv_buf.count) {
+			return parsed_count;
+		}
+		if (ctx->parser_state != WEBSOCKET_PARSER_STATE_PAYLOAD) {
+			data = ctx->recv_buf.buf[parsed_count++];
 
-	if (buf_len >= *header_len) {
-		if (value & 0x0080) {
-			*masked = true;
-			*mask_value = sys_get_be32(&buf[2 + len_len]);
-			*header_len += 4;
+			switch (ctx->parser_state) {
+			case WEBSOCKET_PARSER_STATE_OPCODE:
+				ctx->message_type = websocket_opcode2flag(data);
+				if ((data & 0x80) != 0) {
+					ctx->message_type |= WEBSOCKET_FLAG_FINAL;
+				}
+				ctx->parser_state = WEBSOCKET_PARSER_STATE_LENGTH;
+				break;
+			case WEBSOCKET_PARSER_STATE_LENGTH:
+				ctx->masked = (data & 0x80) != 0;
+				len = data & 0x7f;
+				if (len < 126) {
+					ctx->message_len = len;
+					if (ctx->masked) {
+						ctx->masking_value = 0;
+						ctx->parser_remaining = 4;
+						ctx->parser_state = WEBSOCKET_PARSER_STATE_MASK;
+					} else {
+						ctx->parser_remaining = ctx->message_len;
+						ctx->parser_state =
+							(ctx->parser_remaining == 0)
+								? WEBSOCKET_PARSER_STATE_OPCODE
+								: WEBSOCKET_PARSER_STATE_PAYLOAD;
+					}
+				} else {
+					ctx->message_len = 0;
+					ctx->parser_remaining = (len < 127) ? 2 : 8;
+					ctx->parser_state = WEBSOCKET_PARSER_STATE_EXT_LEN;
+				}
+				break;
+			case WEBSOCKET_PARSER_STATE_EXT_LEN:
+				ctx->parser_remaining--;
+				ctx->message_len |= ((uint64_t)data << (ctx->parser_remaining * 8));
+				if (ctx->parser_remaining == 0) {
+					if (ctx->masked) {
+						ctx->masking_value = 0;
+						ctx->parser_remaining = 4;
+						ctx->parser_state = WEBSOCKET_PARSER_STATE_MASK;
+					} else {
+						ctx->parser_remaining = ctx->message_len;
+						ctx->parser_state = WEBSOCKET_PARSER_STATE_PAYLOAD;
+					}
+				}
+				break;
+			case WEBSOCKET_PARSER_STATE_MASK:
+				ctx->parser_remaining--;
+				ctx->masking_value |=
+					(uint32_t)((uint64_t)data << (ctx->parser_remaining * 8));
+				if (ctx->parser_remaining == 0) {
+					if (ctx->message_len == 0) {
+						ctx->parser_remaining = 0;
+						ctx->parser_state = WEBSOCKET_PARSER_STATE_OPCODE;
+					} else {
+						ctx->parser_remaining = ctx->message_len;
+						ctx->parser_state = WEBSOCKET_PARSER_STATE_PAYLOAD;
+					}
+				}
+				break;
+			default:
+				return -EFAULT;
+			}
+
+#if (LOG_LEVEL >= LOG_LEVEL_DBG)
+			if ((ctx->parser_state == WEBSOCKET_PARSER_STATE_PAYLOAD) ||
+			    ((ctx->parser_state == WEBSOCKET_PARSER_STATE_OPCODE) &&
+			     (ctx->message_len == 0))) {
+				NET_DBG("[%p] %smasked, mask 0x%08x, type 0x%02x, msg %zd", ctx,
+					ctx->masked ? "" : "un",
+					ctx->masked ? ctx->masking_value : 0, ctx->message_type,
+					(size_t)ctx->message_len);
+			}
+#endif
 		} else {
-			*masked = false;
+			size_t remaining_in_recv_buf = ctx->recv_buf.count - parsed_count;
+			size_t payload_in_recv_buf =
+				MIN(remaining_in_recv_buf, ctx->parser_remaining);
+			size_t free_in_payload_buf = payload->size - payload->count;
+			size_t ready_to_copy = MIN(payload_in_recv_buf, free_in_payload_buf);
+
+			if (free_in_payload_buf == 0) {
+				break;
+			}
+
+			memcpy(&payload->buf[payload->count], &ctx->recv_buf.buf[parsed_count],
+			       ready_to_copy);
+			parsed_count += ready_to_copy;
+			payload->count += ready_to_copy;
+			ctx->parser_remaining -= ready_to_copy;
+			if (ctx->parser_remaining == 0) {
+				ctx->parser_remaining = 0;
+				ctx->parser_state = WEBSOCKET_PARSER_STATE_OPCODE;
+			}
 		}
 
-		return true;
+	} while (ctx->parser_state != WEBSOCKET_PARSER_STATE_OPCODE);
+
+	return parsed_count;
+}
+
+#if !defined(CONFIG_NET_TEST)
+static int wait_rx(int sock, int timeout)
+{
+	struct zsock_pollfd fds = {
+		.fd = sock,
+		.events = ZSOCK_POLLIN,
+	};
+	int ret;
+
+	ret = zsock_poll(&fds, 1, timeout);
+	if (ret < 0) {
+		return ret;
 	}
 
-	return false;
+	if (ret == 0) {
+		/* Timeout */
+		return -EAGAIN;
+	}
+
+	if (fds.revents & ZSOCK_POLLNVAL) {
+		return -EBADF;
+	}
+
+	if (fds.revents & ZSOCK_POLLERR) {
+		return -EIO;
+	}
+
+	return 0;
 }
+
+static int timeout_to_ms(k_timeout_t *timeout)
+{
+	if (K_TIMEOUT_EQ(*timeout, K_NO_WAIT)) {
+		return 0;
+	} else if (K_TIMEOUT_EQ(*timeout, K_FOREVER)) {
+		return SYS_FOREVER_MS;
+	} else {
+		return k_ticks_to_ms_floor32(timeout->ticks);
+	}
+}
+
+#endif /* !defined(CONFIG_NET_TEST) */
 
 int websocket_recv_msg(int ws_sock, uint8_t *buf, size_t buf_len,
 		       uint32_t *message_type, uint64_t *remaining, int32_t timeout)
 {
 	struct websocket_context *ctx;
-	size_t header_len = 0;
-	int recv_len = 0;
-	size_t can_copy, left;
 	int ret;
+	k_timepoint_t end;
 	k_timeout_t tout = K_FOREVER;
+	struct websocket_buffer payload = {.buf = buf, .size = buf_len, .count = 0};
 
 	if (timeout != SYS_FOREVER_MS) {
 		tout = K_MSEC(timeout);
 	}
 
-#if defined(CONFIG_NET_TEST)
-	/* Websocket unit test does not use socket layer but feeds
-	 * the data directly here when testing this function.
-	 */
-	struct test_data {
-		uint8_t *input_buf;
-		size_t input_len;
-		struct websocket_context *ctx;
-	};
+	if ((buf == NULL) || (buf_len == 0)) {
+		return -EINVAL;
+	}
 
-	struct test_data *test_data =
-	    UINT_TO_POINTER((unsigned int) ws_sock);
+	end = sys_timepoint_calc(tout);
+
+#if defined(CONFIG_NET_TEST)
+	struct test_data *test_data = zvfs_get_fd_obj(ws_sock, NULL, 0);
+
+	if (test_data == NULL) {
+		return -EBADF;
+	}
 
 	ctx = test_data->ctx;
 #else
-	ctx = z_get_fd_obj(ws_sock, NULL, 0);
+	ctx = zvfs_get_fd_obj(ws_sock, NULL, 0);
 	if (ctx == NULL) {
 		return -EBADF;
 	}
@@ -808,178 +976,96 @@ int websocket_recv_msg(int ws_sock, uint8_t *buf, size_t buf_len,
 	}
 #endif /* CONFIG_NET_TEST */
 
-	/* If we have not received the websocket header yet, read it first */
-	if (!ctx->header_received) {
+	do {
+		size_t parsed_count;
+
+		if (ctx->recv_buf.count == 0) {
 #if defined(CONFIG_NET_TEST)
-		size_t input_len = MIN(ctx->tmp_buf_len - ctx->tmp_buf_pos,
-				       test_data->input_len);
+			size_t input_len = MIN(ctx->recv_buf.size,
+					       test_data->input_len - test_data->input_pos);
 
-		memcpy(&ctx->tmp_buf[ctx->tmp_buf_pos], test_data->input_buf,
-		       input_len);
-		test_data->input_buf += input_len;
-		ret = input_len;
-#else
-		ret = recv(ctx->real_sock, &ctx->tmp_buf[ctx->tmp_buf_pos],
-			   ctx->tmp_buf_len - ctx->tmp_buf_pos,
-			   K_TIMEOUT_EQ(tout, K_NO_WAIT) ? MSG_DONTWAIT : 0);
-#endif /* CONFIG_NET_TEST */
-
-		if (ret < 0) {
-			return -errno;
-		}
-
-		if (ret == 0) {
-			/* Socket closed */
-			return 0;
-		}
-
-		ctx->tmp_buf_pos += ret;
-
-		if (ctx->tmp_buf_pos >= MIN_HEADER_LEN) {
-			bool masked;
-
-			/* Now we will be able to figure out what is the
-			 * actual size of the header.
-			 */
-			if (websocket_parse_header(&ctx->tmp_buf[0],
-						   ctx->tmp_buf_pos,
-						   &masked,
-						   &ctx->masking_value,
-						   &ctx->message_len,
-						   &ctx->message_type,
-						   &header_len)) {
-				ctx->masked = masked;
-
-				if (message_type) {
-					*message_type = ctx->message_type;
-				}
+			if (input_len > 0) {
+				memcpy(ctx->recv_buf.buf,
+				       &test_data->input_buf[test_data->input_pos], input_len);
+				test_data->input_pos += input_len;
+				ret = input_len;
 			} else {
-				return -EAGAIN;
+				/* emulate timeout */
+				ret = -EAGAIN;
 			}
-		} else {
-			return -EAGAIN;
-		}
-
-		if (ctx->tmp_buf_pos < header_len) {
-			return -EAGAIN;
-		}
-
-		/* All of the header is now received, we can read the payload
-		 * data next.
-		 */
-		ctx->header_received = true;
-
-		if (HEXDUMP_RECV_PACKETS) {
-			LOG_HEXDUMP_DBG(&ctx->tmp_buf[0], header_len,
-					"Header");
-			NET_DBG("[%p] masked %d mask 0x%04x hdr %zd msg %zd",
-				ctx, ctx->masked,
-				ctx->masked ? ctx->masking_value : 0,
-				header_len, (size_t)ctx->message_len);
-		}
-
-		ctx->total_read = 0;
-
-		memmove(ctx->tmp_buf, &ctx->tmp_buf[header_len],
-			ctx->tmp_buf_len - header_len);
-		ctx->tmp_buf_pos -= header_len;
-
-		if (ctx->tmp_buf_pos == 0) {
-			/* No data after the header, let the caller call
-			 * this function again to get the payload.
-			 */
-			return -EAGAIN;
-		}
-
-		NET_DBG("There is %zd bytes of data", ctx->tmp_buf_pos);
-	}
-
-	/* Now read the whole payload or parts of it */
-
-	if (ctx->tmp_buf_pos == 0) {
-		/* Read more data into temp buffer */
-#if defined(CONFIG_NET_TEST)
-		size_t input_len = MIN(ctx->tmp_buf_len, test_data->input_len);
-
-		memcpy(ctx->tmp_buf, test_data->input_buf, input_len);
-		test_data->input_buf += input_len;
-
-		ret = input_len;
 #else
-		ret = recv(ctx->real_sock, ctx->tmp_buf, ctx->tmp_buf_len,
-			   K_TIMEOUT_EQ(tout, K_NO_WAIT) ? MSG_DONTWAIT : 0);
+			tout = sys_timepoint_timeout(end);
+
+			ret = wait_rx(ctx->real_sock, timeout_to_ms(&tout));
+			if (ret == 0) {
+				ret = zsock_recv(ctx->real_sock, ctx->recv_buf.buf,
+						 ctx->recv_buf.size, ZSOCK_MSG_DONTWAIT);
+				if (ret < 0) {
+					ret = -errno;
+				}
+			}
 #endif /* CONFIG_NET_TEST */
 
+			if (ret < 0) {
+				if ((ret == -EAGAIN) && (payload.count > 0)) {
+					/* go to unmasking */
+					break;
+				}
+				return ret;
+			}
+
+			if (ret == 0) {
+				/* Socket closed */
+				return -ENOTCONN;
+			}
+
+			ctx->recv_buf.count = ret;
+
+			NET_DBG("[%p] Received %d bytes", ctx, ret);
+		}
+
+		ret = websocket_parse(ctx, &payload);
 		if (ret < 0) {
-			return -errno;
+			return ret;
+		}
+		parsed_count = ret;
+
+		if ((ctx->parser_state == WEBSOCKET_PARSER_STATE_OPCODE) ||
+		    (payload.count >= payload.size)) {
+			if (remaining != NULL) {
+				*remaining = ctx->parser_remaining;
+			}
+			if (message_type != NULL) {
+				*message_type = ctx->message_type;
+			}
+
+			size_t left = ctx->recv_buf.count - parsed_count;
+
+			if (left > 0) {
+				memmove(ctx->recv_buf.buf, &ctx->recv_buf.buf[parsed_count], left);
+			}
+			ctx->recv_buf.count = left;
+			break;
 		}
 
-		if (ret == 0) {
-			return 0;
-		}
+		ctx->recv_buf.count -= parsed_count;
 
-		ctx->tmp_buf_pos = ret;
-	}
-
-	if (ctx->tmp_buf_pos <= buf_len) {
-		/* Is there already any data in the temp buffer? If yes,
-		 * just return it to the caller.
-		 */
-		can_copy = MIN(ctx->message_len - ctx->total_read,
-			       ctx->tmp_buf_pos);
-	} else {
-		/* We have more data in tmp buffer that will fit into
-		 * user buffer.
-		 */
-		can_copy = MIN(ctx->message_len - ctx->total_read, buf_len);
-	}
-
-	left = ctx->tmp_buf_pos - can_copy;
-
-	NET_ASSERT(ctx->tmp_buf_pos >= can_copy);
-
-	memmove(buf, ctx->tmp_buf, can_copy);
-	recv_len = can_copy;
-
-	if (left > 0) {
-		memmove(ctx->tmp_buf, &ctx->tmp_buf[can_copy], left);
-	}
-
-	ctx->tmp_buf_pos = left;
-	ctx->total_read += recv_len;
+	} while (true);
 
 	/* Unmask the data */
 	if (ctx->masked) {
-		/* As we might have less than 4 received bytes, we must select
-		 * which byte from masking value to take. The mask_shift will
-		 * tell that.
-		 */
-		int mask_shift = (ctx->total_read - recv_len) % sizeof(uint32_t);
-		int i;
+		uint8_t *mask_as_bytes = (uint8_t *)&ctx->masking_value;
+		size_t data_buf_offset = ctx->message_len - ctx->parser_remaining - payload.count;
 
-		for (i = 0; i < recv_len; i++) {
-			buf[i] ^= ctx->masking_value >>
-				(8 * (3 - (i + mask_shift) % 4));
+		for (size_t i = 0; i < payload.count; i++) {
+			size_t m = data_buf_offset % 4;
+
+			payload.buf[i] ^= mask_as_bytes[3 - m];
+			data_buf_offset++;
 		}
 	}
 
-#if HEXDUMP_RECV_PACKETS
-	LOG_HEXDUMP_DBG(buf, recv_len, "Payload");
-#endif
-
-	if (remaining) {
-		*remaining = ctx->message_len - ctx->total_read;
-	}
-
-	/* Start to read the header again if all the data has been received */
-	if (ctx->message_len == ctx->total_read) {
-		ctx->header_received = false;
-		ctx->message_len = 0;
-		ctx->message_type = 0;
-		ctx->total_read = 0;
-	}
-
-	return recv_len;
+	return payload.count;
 }
 
 static int websocket_send(struct websocket_context *ctx, const uint8_t *buf,
@@ -989,15 +1075,16 @@ static int websocket_send(struct websocket_context *ctx, const uint8_t *buf,
 
 	NET_DBG("[%p] Sending %zd bytes", ctx, buf_len);
 
-	ret = websocket_send_msg(ctx->sock, buf, buf_len,
-				 WEBSOCKET_OPCODE_DATA_TEXT,
-				 true, true, timeout);
+	ret = websocket_send_msg(ctx->sock, buf, buf_len, WEBSOCKET_OPCODE_DATA_TEXT,
+				 ctx->is_client, true, timeout);
 	if (ret < 0) {
 		errno = -ret;
 		return -1;
 	}
 
 	NET_DBG("[%p] Sent %d bytes", ctx, ret);
+
+	sock_obj_core_update_send_stats(ctx->sock, ret);
 
 	return ret;
 }
@@ -1017,11 +1104,17 @@ static int websocket_recv(struct websocket_context *ctx, uint8_t *buf,
 	ret = websocket_recv_msg(ctx->sock, buf, buf_len, &message_type,
 				 &remaining, timeout);
 	if (ret < 0) {
-		errno = -ret;
-		return -1;
+		if (ret == -ENOTCONN) {
+			ret = 0;
+		} else {
+			errno = -ret;
+			return -1;
+		}
 	}
 
 	NET_DBG("[%p] Received %d bytes", ctx, ret);
+
+	sock_obj_core_update_recv_stats(ctx->sock, ret);
 
 	return ret;
 }
@@ -1070,6 +1163,108 @@ static ssize_t websocket_recvfrom_ctx(void *obj, void *buf, size_t max_len,
 	ARG_UNUSED(addrlen);
 
 	return (ssize_t)websocket_recv(ctx, buf, max_len, timeout);
+}
+
+int websocket_register(int sock, uint8_t *recv_buf, size_t recv_buf_len)
+{
+	struct websocket_context *ctx;
+	int ret, fd;
+
+	if (sock < 0) {
+		return -EINVAL;
+	}
+
+	ctx = websocket_find(sock);
+	if (ctx) {
+		NET_DBG("[%p] Websocket for sock %d already exists!", ctx, sock);
+		return -EEXIST;
+	}
+
+	ctx = websocket_get();
+	if (!ctx) {
+		return -ENOENT;
+	}
+
+	ctx->real_sock = sock;
+	ctx->recv_buf.buf = recv_buf;
+	ctx->recv_buf.size = recv_buf_len;
+	ctx->is_client = 0;
+
+	fd = zvfs_reserve_fd();
+	if (fd < 0) {
+		ret = -ENOSPC;
+		goto out;
+	}
+
+	ctx->sock = fd;
+	zvfs_finalize_typed_fd(fd, ctx, (const struct fd_op_vtable *)&websocket_fd_op_vtable,
+			    ZVFS_MODE_IFSOCK);
+
+	NET_DBG("[%p] WS connection to peer established (fd %d)", ctx, fd);
+
+	ctx->recv_buf.count = 0;
+	ctx->parser_state = WEBSOCKET_PARSER_STATE_OPCODE;
+
+	(void)sock_obj_core_alloc_find(ctx->real_sock, fd, SOCK_STREAM);
+
+	return fd;
+
+out:
+	websocket_context_unref(ctx);
+
+	return ret;
+}
+
+static struct websocket_context *websocket_search(int sock)
+{
+	struct websocket_context *ctx = NULL;
+	int i;
+
+	k_sem_take(&contexts_lock, K_FOREVER);
+
+	for (i = 0; i < ARRAY_SIZE(contexts); i++) {
+		if (!websocket_context_is_used(&contexts[i])) {
+			continue;
+		}
+
+		if (contexts[i].sock != sock) {
+			continue;
+		}
+
+		ctx = &contexts[i];
+		break;
+	}
+
+	k_sem_give(&contexts_lock);
+
+	return ctx;
+}
+
+int websocket_unregister(int sock)
+{
+	struct websocket_context *ctx;
+
+	if (sock < 0) {
+		return -EINVAL;
+	}
+
+	ctx = websocket_search(sock);
+	if (ctx == NULL) {
+		NET_DBG("[%p] Real socket for websocket sock %d not found!", ctx, sock);
+		return -ENOENT;
+	}
+
+	if (ctx->real_sock < 0) {
+		return -EALREADY;
+	}
+
+	(void)zsock_close(sock);
+	(void)zsock_close(ctx->real_sock);
+
+	ctx->real_sock = -1;
+	ctx->sock = -1;
+
+	return 0;
 }
 
 static const struct socket_op_vtable websocket_fd_op_vtable = {

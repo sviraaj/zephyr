@@ -12,8 +12,7 @@ It was developed as an expansion component for the reel board.
 See :ref:`reel_board` documentation for more information about
 link board family and how to connect it to the reel board.
 
-.. image:: ./img/link_board_eth.png
-     :width: 720px
+.. image:: img/link_board_eth.jpg
      :align: center
      :alt: link board ETH
 
@@ -103,7 +102,7 @@ For more information about the link board ETH and ENC424J600:
 Programming
 ***********
 
-Set ``-DSHIELD=link_board_eth`` when you invoke ``west build`` or ``cmake`` in your
+Set ``--shield link_board_eth`` when you invoke ``west build`` or ``cmake`` in your
 Zephyr application. For example:
 
 .. zephyr-app-commands::
@@ -114,7 +113,7 @@ Zephyr application. For example:
    :goals: build
 
 .. _link board ETH Website:
-   https://www.phytec.eu/product-eu/internet-of-things/link-board-eth
+   https://www.phytec.eu/en/produkte/low-power-solutions/reel-board/
 
 .. _ENC424J600 Website:
    https://www.microchip.com/wwwproducts/en/ENC424J600

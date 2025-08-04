@@ -7,16 +7,14 @@
 #ifndef ZEPHYR_INCLUDE_DRIVERS_CONSOLE_NATIVE_POSIX_CONSOLE_H_
 #define ZEPHYR_INCLUDE_DRIVERS_CONSOLE_NATIVE_POSIX_CONSOLE_H_
 
-#include <zephyr/kernel.h>
+#warning "This header is now deprecated and will be removed by v4.4. "\
+	 "Use posix_arch_console.h instead."
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+/*
+ * This header is left for compatibility with old applications
+ * The console for native_posix is now provided by the posix_arch_console driver
+ */
 
-void posix_flush_stdout(void);
-
-#ifdef __cplusplus
-}
-#endif
+#include <posix_arch_console.h>
 
 #endif /* ZEPHYR_INCLUDE_DRIVERS_CONSOLE_NATIVE_POSIX_CONSOLE_H_ */

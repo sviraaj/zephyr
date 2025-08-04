@@ -6,8 +6,10 @@
 
 #define DT_DRV_COMPAT xlnx_xps_timer_1_00_a
 
+#include <zephyr/arch/cpu.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/counter.h>
+#include <zephyr/irq.h>
 #include <zephyr/sys/sys_io.h>
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(xlnx_axi_timer, CONFIG_COUNTER_LOG_LEVEL);
@@ -307,7 +309,7 @@ static int xlnx_axi_timer_init(const struct device *dev)
 	return 0;
 }
 
-static const struct counter_driver_api xlnx_axi_timer_driver_api = {
+static DEVICE_API(counter, xlnx_axi_timer_driver_api) = {
 	.start = xlnx_axi_timer_start,
 	.stop = xlnx_axi_timer_stop,
 	.get_value = xlnx_axi_timer_get_value,

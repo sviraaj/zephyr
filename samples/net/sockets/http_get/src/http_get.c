@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#if !defined(__ZEPHYR__) || defined(CONFIG_POSIX_API)
+#if !defined(__ZEPHYR__)
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -25,6 +25,8 @@
 #include "ca_certificate.h"
 #endif
 
+#include "net_sample_common.h"
+
 #endif
 
 /* HTTP server to connect to */
@@ -38,11 +40,10 @@
 /* HTTP path to request */
 #define HTTP_PATH "/"
 
-
 #define SSTRLEN(s) (sizeof(s) - 1)
-#define CHECK(r) { if (r == -1) { printf("Error: " #r "\n"); exit(1); } }
+#define CHECK(r) { if (r < 0) { printf("Error: %d\n", (int)r); exit(1); } }
 
-#define REQUEST "GET " HTTP_PATH " HTTP/1.0\r\nHost: " HTTP_HOST "\r\n\r\n"
+#define REQUEST "GET " HTTP_PATH " HTTP/1.1\r\nHost: " HTTP_HOST "\r\n\r\n"
 
 static char response[1024];
 
@@ -50,16 +51,17 @@ void dump_addrinfo(const struct addrinfo *ai)
 {
 	printf("addrinfo @%p: ai_family=%d, ai_socktype=%d, ai_protocol=%d, "
 	       "sa_family=%d, sin_port=%x\n",
-	       ai, ai->ai_family, ai->ai_socktype, ai->ai_protocol,
-	       ai->ai_addr->sa_family,
-	       ((struct sockaddr_in *)ai->ai_addr)->sin_port);
+	       ai, ai->ai_family, ai->ai_socktype, ai->ai_protocol, ai->ai_addr->sa_family,
+	       ntohs(((struct sockaddr_in *)ai->ai_addr)->sin_port));
 }
 
-void main(void)
+int main(void)
 {
 	static struct addrinfo hints;
 	struct addrinfo *res;
 	int st, sock;
+
+	wait_for_network();
 
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
 	tls_credential_add(CA_CERTIFICATE_TAG, TLS_CREDENTIAL_CA_CERTIFICATE,
@@ -76,7 +78,7 @@ void main(void)
 
 	if (st != 0) {
 		printf("Unable to resolve address, quitting\n");
-		return;
+		return 0;
 	}
 
 #if 0
@@ -106,7 +108,9 @@ void main(void)
 			 HTTP_HOST, sizeof(HTTP_HOST)))
 #endif
 
+	printf("Connecting to server...\n");
 	CHECK(connect(sock, res->ai_addr, res->ai_addrlen));
+	printf("Connected!\r\nSending request...\n");
 	CHECK(send(sock, REQUEST, SSTRLEN(REQUEST), 0));
 
 	printf("Response:\n\n");
@@ -116,7 +120,7 @@ void main(void)
 
 		if (len < 0) {
 			printf("Error reading response\n");
-			return;
+			return 0;
 		}
 
 		if (len == 0) {
@@ -127,7 +131,8 @@ void main(void)
 		printf("%s", response);
 	}
 
-	printf("\n");
+	printf("\nClose socket\n");
 
 	(void)close(sock);
+	return 0;
 }

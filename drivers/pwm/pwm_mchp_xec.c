@@ -8,23 +8,21 @@
 #define DT_DRV_COMPAT microchip_xec_pwm
 
 #include <errno.h>
+#include <stdlib.h>
+#include <stdint.h>
 
 #include <zephyr/device.h>
+#include <zephyr/drivers/pwm.h>
 #ifdef CONFIG_SOC_SERIES_MEC172X
 #include <zephyr/drivers/clock_control/mchp_xec_clock_control.h>
 #include <zephyr/drivers/interrupt_controller/intc_mchp_xec_ecia.h>
 #endif
-#ifdef CONFIG_PINCTRL
 #include <zephyr/drivers/pinctrl.h>
-#endif
-#include <zephyr/drivers/pwm.h>
-#include <errno.h>
-#include <zephyr/kernel.h>
-#include <zephyr/init.h>
-#include <soc.h>
-#include <stdlib.h>
-
 #include <zephyr/logging/log.h>
+#include <zephyr/pm/device.h>
+
+#include <soc.h>
+
 LOG_MODULE_REGISTER(pwm_mchp_xec, CONFIG_PWM_LOG_LEVEL);
 
 /* Minimal on/off are 1 & 1 both are incremented, so 4.
@@ -56,15 +54,17 @@ struct pwm_xec_config {
 	struct pwm_regs * const regs;
 	uint8_t pcr_idx;
 	uint8_t pcr_pos;
-#ifdef CONFIG_PINCTRL
 	const struct pinctrl_dev_config *pcfg;
-#endif
 };
 
 struct xec_params {
 	uint32_t on;
 	uint32_t off;
 	uint8_t div;
+};
+
+struct pwm_xec_data {
+	uint32_t config;
 };
 
 #define NUM_DIV_ELEMS		16
@@ -85,7 +85,7 @@ static const uint32_t max_freq_high_on_div[NUM_DIV_ELEMS] = {
 	3692307,
 	3428571,
 	3200000,
-	3000000
+	3000000,
 };
 
 static const uint32_t max_freq_low_on_div[NUM_DIV_ELEMS] = {
@@ -104,7 +104,7 @@ static const uint32_t max_freq_low_on_div[NUM_DIV_ELEMS] = {
 	7692,
 	7142,
 	6666,
-	6250
+	6250,
 };
 
 static uint32_t xec_compute_frequency(uint32_t clk, uint32_t on, uint32_t off)
@@ -300,13 +300,14 @@ done:
 
 	params = xec_compare_params(target_freq, &hc_params, &lc_params);
 	if (params == &hc_params) {
-		cfgval |= MCHP_PWM_CFG_CLK_SEL_48M;
+		cfgval &= ~MCHP_PWM_CFG_CLK_SEL_100K;
 	} else {
 		cfgval |= MCHP_PWM_CFG_CLK_SEL_100K;
 	}
 
 	regs->COUNT_ON = params->on;
 	regs->COUNT_OFF = params->off;
+	cfgval &= ~MCHP_PWM_CFG_CLK_PRE_DIV(0xF);
 	cfgval |= MCHP_PWM_CFG_CLK_PRE_DIV(params->div);
 	cfgval |= MCHP_PWM_CFG_ENABLE;
 
@@ -326,9 +327,8 @@ static int pwm_xec_set_cycles(const struct device *dev, uint32_t channel,
 		return -EIO;
 	}
 
-	if (flags) {
-		/* PWM polarity not supported (yet?) */
-		return -ENOTSUP;
+	if (flags & PWM_POLARITY_INVERTED) {
+		regs->CONFIG |= MCHP_PWM_CFG_ON_POL_LO;
 	}
 
 	on = pulse_cycles;
@@ -374,14 +374,57 @@ static int pwm_xec_get_cycles_per_sec(const struct device *dev,
 	return 0;
 }
 
-static const struct pwm_driver_api pwm_xec_driver_api = {
+#ifdef CONFIG_PM_DEVICE
+static int pwm_xec_pm_action(const struct device *dev, enum pm_device_action action)
+{
+	const struct pwm_xec_config *const devcfg = dev->config;
+	struct pwm_regs * const regs = devcfg->regs;
+	struct pwm_xec_data * const data = dev->data;
+	int ret = 0;
+
+	switch (action) {
+	case PM_DEVICE_ACTION_RESUME:
+		ret = pinctrl_apply_state(devcfg->pcfg, PINCTRL_STATE_DEFAULT);
+		if (ret != 0) {
+			LOG_ERR("XEC PWM pinctrl setup failed (%d)", ret);
+		}
+
+		/* Turn on PWM only if it is ON before sleep */
+		if ((data->config & MCHP_PWM_CFG_ENABLE) == MCHP_PWM_CFG_ENABLE) {
+
+			regs->CONFIG |= MCHP_PWM_CFG_ENABLE;
+
+			data->config &= (~MCHP_PWM_CFG_ENABLE);
+		}
+	break;
+	case PM_DEVICE_ACTION_SUSPEND:
+		if ((regs->CONFIG & MCHP_PWM_CFG_ENABLE) == MCHP_PWM_CFG_ENABLE) {
+			/* Do copy first, then clear mode. */
+			data->config = regs->CONFIG;
+
+			regs->CONFIG &= ~(MCHP_PWM_CFG_ENABLE);
+		}
+
+		ret = pinctrl_apply_state(devcfg->pcfg, PINCTRL_STATE_SLEEP);
+		/* pinctrl-1 does not exist. */
+		if (ret == -ENOENT) {
+			ret = 0;
+		}
+	break;
+	default:
+		ret = -ENOTSUP;
+	}
+	return ret;
+}
+#endif /* CONFIG_PM_DEVICE */
+
+static DEVICE_API(pwm, pwm_xec_driver_api) = {
 	.set_cycles = pwm_xec_set_cycles,
 	.get_cycles_per_sec = pwm_xec_get_cycles_per_sec,
 };
 
 static int pwm_xec_init(const struct device *dev)
 {
-#ifdef CONFIG_PINCTRL
 	const struct pwm_xec_config * const cfg = dev->config;
 	int ret = pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_DEFAULT);
 
@@ -389,15 +432,10 @@ static int pwm_xec_init(const struct device *dev)
 		LOG_ERR("XEC PWM pinctrl init failed (%d)", ret);
 		return ret;
 	}
-#else
-	ARG_UNUSED(dev);
-#endif
 
 	return 0;
 }
 
-#ifdef CONFIG_PINCTRL
-#define XEC_PWM_PINCTRL_DEF(inst) PINCTRL_DT_INST_DEFINE(inst)
 #define XEC_PWM_CONFIG(inst)							\
 	static struct pwm_xec_config pwm_xec_config_##inst = {			\
 		.regs = (struct pwm_regs * const)DT_INST_REG_ADDR(inst),	\
@@ -406,27 +444,21 @@ static int pwm_xec_init(const struct device *dev)
 		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),			\
 	};
 
-#else
-#define XEC_PWM_PINCTRL_DEF(inst)
-#define XEC_PWM_CONFIG(inst)							\
-	static struct pwm_xec_config pwm_xec_config_##inst = {			\
-		.regs = (struct pwm_regs * const)DT_INST_REG_ADDR(inst),	\
-		.pcr_idx = (uint8_t)DT_INST_PROP_BY_IDX(inst, pcrs, 0),		\
-		.pcr_pos = (uint8_t)DT_INST_PROP_BY_IDX(inst, pcrs, 1),		\
-	};
-#endif
-
 #define XEC_PWM_DEVICE_INIT(index)					\
 									\
-	XEC_PWM_PINCTRL_DEF(index);					\
+	static struct pwm_xec_data pwm_xec_data_##index;		\
+									\
+	PINCTRL_DT_INST_DEFINE(index);					\
 									\
 	XEC_PWM_CONFIG(index);						\
 									\
+	PM_DEVICE_DT_INST_DEFINE(index, pwm_xec_pm_action);		\
+									\
 	DEVICE_DT_INST_DEFINE(index, &pwm_xec_init,			\
-			      NULL,					\
-			      NULL,					\
+			      PM_DEVICE_DT_INST_GET(index),		\
+			      &pwm_xec_data_##index,			\
 			      &pwm_xec_config_##index, POST_KERNEL,	\
-			      CONFIG_KERNEL_INIT_PRIORITY_DEVICE,	\
+			      CONFIG_PWM_INIT_PRIORITY,			\
 			      &pwm_xec_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(XEC_PWM_DEVICE_INIT)

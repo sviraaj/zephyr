@@ -4,7 +4,7 @@
 # EDAC configuration options
 
 menuconfig EDAC
-	bool "Error Detection and Correction (EDAC) Drivers"
+	bool "Error Detection and Correction (EDAC) drivers"
 	help
 	  Enable Error Detection and Correction (EDAC) driver.
 
@@ -19,7 +19,6 @@ config EDAC_ERROR_INJECT
 config EDAC_SHELL
 	bool "EDAC Shell"
 	depends on SHELL
-	default y if SHELL
 	help
 	  Enable EDAC shell for debugging EDAC.
 
@@ -28,6 +27,13 @@ config EDAC_IBECC
 	depends on X86 && PCIE
 	help
 	  This option selects In-Band ECC (IBECC) IP support.
+
+config EDAC_SYNOPSYS
+	bool "Synopsis DDR controller EDAC driver"
+	default y
+	depends on DT_HAS_XLNX_ZYNQMP_DDRC_2_40A_ENABLED
+	help
+	  Enable the Synopsys DDR controller EDAC driver.
 
 module = EDAC
 module-str = edac

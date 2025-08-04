@@ -8,7 +8,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/entropy.h>
-#include <zephyr/random/rand32.h>
+#include <zephyr/random/random.h>
 #include <zephyr/init.h>
 
 #include "fsl_rng.h"
@@ -24,29 +24,19 @@ static int entropy_mcux_rng_get_entropy(const struct device *dev,
 	const struct mcux_entropy_config *config = dev->config;
 	status_t status;
 
-	ARG_UNUSED(dev);
-
 	status = RNG_GetRandomData(config->base, buffer, length);
 	__ASSERT_NO_MSG(!status);
 
 	return 0;
 }
 
-static const struct entropy_driver_api entropy_mcux_rng_api_funcs = {
+static DEVICE_API(entropy, entropy_mcux_rng_api_funcs) = {
 	.get_entropy = entropy_mcux_rng_get_entropy
 };
 
 static const struct mcux_entropy_config entropy_mcux_config = {
 	.base = (RNG_Type *)DT_INST_REG_ADDR(0)
 };
-
-static int entropy_mcux_rng_init(const struct device *);
-
-DEVICE_DT_INST_DEFINE(0,
-		    entropy_mcux_rng_init, NULL, NULL,
-		    &entropy_mcux_config,
-		    PRE_KERNEL_1, CONFIG_ENTROPY_INIT_PRIORITY,
-		    &entropy_mcux_rng_api_funcs);
 
 static int entropy_mcux_rng_init(const struct device *dev)
 {
@@ -56,3 +46,9 @@ static int entropy_mcux_rng_init(const struct device *dev)
 
 	return 0;
 }
+
+DEVICE_DT_INST_DEFINE(0,
+		    entropy_mcux_rng_init, NULL, NULL,
+		    &entropy_mcux_config,
+		    PRE_KERNEL_1, CONFIG_ENTROPY_INIT_PRIORITY,
+		    &entropy_mcux_rng_api_funcs);

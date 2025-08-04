@@ -12,7 +12,9 @@
 
 #ifdef CONFIG_ASSERT
 #ifndef __ASSERT_ON
+#ifdef CONFIG_ASSERT_LEVEL
 #define __ASSERT_ON CONFIG_ASSERT_LEVEL
+#endif
 #endif
 #endif
 
@@ -21,12 +23,16 @@
 #define __ASSERT_ON 0
 #endif
 
+#ifndef __ASSERT_ON
+#define __ASSERT_ON 0
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* Wrapper around printk to avoid including printk.h in assert.h */
-void assert_print(const char *fmt, ...);
+void __printf_like(1, 2) assert_print(const char *fmt, ...);
 
 #ifdef __cplusplus
 }
@@ -87,6 +93,17 @@ void assert_post_action(const char *file, unsigned int line);
 #define __ASSERT_POST_ACTION() assert_post_action(__FILE__, __LINE__)
 #endif /* CONFIG_ASSERT_NO_FILE_INFO */
 
+/*
+ * When the assert test mode is enabled, the default kernel fatal error handler
+ * and the custom assert hook function may return in order to allow the test to
+ * proceed.
+ */
+#ifdef CONFIG_ASSERT_TEST
+#define __ASSERT_UNREACHABLE
+#else
+#define __ASSERT_UNREACHABLE CODE_UNREACHABLE
+#endif
+
 #ifdef __cplusplus
 }
 #endif
@@ -96,6 +113,7 @@ void assert_post_action(const char *file, unsigned int line);
 		if (!(test)) {                                            \
 			__ASSERT_LOC(test);                               \
 			__ASSERT_POST_ACTION();                           \
+			__ASSERT_UNREACHABLE;                             \
 		}                                                         \
 	} while (false)
 
@@ -105,6 +123,7 @@ void assert_post_action(const char *file, unsigned int line);
 			__ASSERT_LOC(test);                               \
 			__ASSERT_MSG_INFO(fmt, ##__VA_ARGS__);            \
 			__ASSERT_POST_ACTION();                           \
+			__ASSERT_UNREACHABLE;                             \
 		}                                                         \
 	} while (false)
 
@@ -121,11 +140,13 @@ void assert_post_action(const char *file, unsigned int line);
 #define __ASSERT(test, fmt, ...) { }
 #define __ASSERT_EVAL(expr1, expr2, test, fmt, ...) expr1
 #define __ASSERT_NO_MSG(test) { }
+#define __ASSERT_POST_ACTION() { }
 #endif
 #else
 #define __ASSERT(test, fmt, ...) { }
 #define __ASSERT_EVAL(expr1, expr2, test, fmt, ...) expr1
 #define __ASSERT_NO_MSG(test) { }
+#define __ASSERT_POST_ACTION() { }
 #endif
 
 #endif /* ZEPHYR_INCLUDE_SYS___ASSERT_H_ */

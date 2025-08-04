@@ -4,8 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
-#include <tc_util.h>
+#include <bos_desc.h>
+
+#include <zephyr/ztest.h>
+#include <zephyr/tc_util.h>
 
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/usb/usb_device.h>
@@ -18,10 +20,6 @@ LOG_MODULE_REGISTER(test_main, LOG_LEVEL_DBG);
 /*
  * Compare old style USB BOS definition with section aligned
  */
-
-static const uint8_t dummy_descriptor[] = {
-	0x00, 0x01, 0x02
-};
 
 static struct webusb_bos_desc {
 	struct usb_bos_descriptor bos;
@@ -89,8 +87,8 @@ static struct webusb_bos_desc {
 	.capability_data_msos = {
 		/* Windows version (8.1) (0x06030000) */
 		.dwWindowsVersion = sys_cpu_to_le32(0x06030000),
-		.wMSOSDescriptorSetTotalLength =
-			sys_cpu_to_le16(sizeof(dummy_descriptor)),
+		/* The MSOS2.0 descriptor is not relevant here. */
+		.wMSOSDescriptorSetTotalLength = 0,
 		.bMS_VendorCode = 0x02,
 		.bAltEnumCode = 0x00
 	}
@@ -158,8 +156,8 @@ USB_DEVICE_BOS_DESC_DEFINE_CAP struct usb_bos_msosv2 {
 	.cap = {
 		/* Windows version (8.1) (0x06030000) */
 		.dwWindowsVersion = sys_cpu_to_le32(0x06030000),
-		.wMSOSDescriptorSetTotalLength =
-			sys_cpu_to_le16(sizeof(dummy_descriptor)),
+		/* The MSOS2.0 descriptor is not relevant here. */
+		.wMSOSDescriptorSetTotalLength = 0,
 		.bMS_VendorCode = 0x02,
 		.bAltEnumCode = 0x00,
 	},
@@ -216,7 +214,7 @@ static void test_usb_bos(void)
 }
 
 /* test case main entry */
-void test_main(void)
+ZTEST(osdesc_bos, test_osdesc)
 {
 	/* Prepare webusb_bos_descriptor_2 */
 	memcpy(&webusb_bos_descriptor_2.bos,
@@ -237,8 +235,7 @@ void test_main(void)
 	       &webusb_bos_descriptor.capability_data_webusb,
 	       sizeof(struct usb_bos_capability_webusb));
 
-	ztest_test_suite(test_osdesc,
-			 ztest_unit_test(test_usb_bos_macros),
-			 ztest_unit_test(test_usb_bos));
-	ztest_run_test_suite(test_osdesc);
+	test_usb_bos_macros();
+	test_usb_bos();
 }
+ZTEST_SUITE(osdesc_bos, NULL, NULL, NULL, NULL, NULL);

@@ -5,6 +5,7 @@
  */
 
 #include <zephyr/drivers/uart.h>
+#include <zephyr/kernel.h>
 #include <SEGGER_RTT.h>
 
 #define DT_DRV_COMPAT segger_rtt_uart
@@ -97,21 +98,8 @@ static int uart_rtt_tx(const struct device *dev,
 
 	ARG_UNUSED(timeout);
 
-	/* RTT mutex cannot be claimed in ISRs */
-	if (k_is_in_isr()) {
-		return -ENOTSUP;
-	}
-
-	/* Claim the RTT lock */
-	if (k_mutex_lock(&rtt_term_mutex, K_NO_WAIT) != 0) {
-		return -EBUSY;
-	}
-
 	/* Output the buffer */
-	SEGGER_RTT_WriteNoLock(ch, buf, len);
-
-	/* Return RTT lock */
-	SEGGER_RTT_UNLOCK();
+	SEGGER_RTT_Write(ch, buf, len);
 
 	/* Send the TX complete callback */
 	if (data->callback) {
@@ -172,7 +160,7 @@ static int uart_rtt_rx_buf_rsp(const struct device *dev,
 
 #endif /* CONFIG_UART_ASYNC_API */
 
-static const struct uart_driver_api uart_rtt_driver_api = {
+static DEVICE_API(uart, uart_rtt_driver_api) = {
 	.poll_in = uart_rtt_poll_in,
 	.poll_out = uart_rtt_poll_out,
 #ifdef CONFIG_UART_ASYNC_API
@@ -200,6 +188,7 @@ static const struct uart_driver_api uart_rtt_driver_api = {
 		.up_size = sizeof(uart_rtt##idx##_tx_buf),		    \
 		.down_buffer = uart_rtt##idx##_rx_buf,			    \
 		.down_size = sizeof(uart_rtt##idx##_rx_buf),		    \
+		.channel = idx,						    \
 	}
 
 #define UART_RTT_INIT(idx, config)					      \

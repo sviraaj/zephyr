@@ -5,19 +5,13 @@ set_ifndef(C++ g++)
 # Configures CMake for using GCC, this script is re-used by several
 # GCC-based toolchains
 
-if("${SPARSE}" STREQUAL "y")
-  find_program(CMAKE_C_COMPILER cgcc)
-  find_program(REAL_CC ${CROSS_COMPILE}${CC} PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-  set(ENV{REAL_CC} ${REAL_CC})
-else()
-  find_program(CMAKE_C_COMPILER ${CROSS_COMPILE}${CC} PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-endif()
+find_program(CMAKE_C_COMPILER ${CROSS_COMPILE}${CC} PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
 
 if(${CMAKE_C_COMPILER} STREQUAL CMAKE_C_COMPILER-NOTFOUND)
   message(FATAL_ERROR "C compiler ${CROSS_COMPILE}${CC} not found - Please check your toolchain installation")
 endif()
 
-if(CONFIG_CPLUSPLUS)
+if(CONFIG_CPP)
   set(cplusplus_compiler ${CROSS_COMPILE}${C++})
 else()
   if(EXISTS ${CROSS_COMPILE}${C++})
@@ -39,7 +33,22 @@ if(NOT DEFINED NOSYSDEF_CFLAG)
   set(NOSYSDEF_CFLAG -undef)
 endif()
 
-foreach(file_name include/stddef.h include-fixed/limits.h)
+# GCC-13, does not install limits.h on include-fixed anymore
+# https://gcc.gnu.org/git/gitweb.cgi?p=gcc.git;h=be9dd80f933480
+# Add check for GCC version >= 13.1
+execute_process(
+    COMMAND ${CMAKE_C_COMPILER} -dumpfullversion
+    OUTPUT_VARIABLE GCC_COMPILER_VERSION
+    )
+
+if("${GCC_COMPILER_VERSION}" VERSION_LESS 4.3.0 OR
+    "${GCC_COMPILER_VERSION}" VERSION_GREATER_EQUAL 13.1.0)
+    set(fix_header_file include/limits.h)
+else()
+    set(fix_header_file include-fixed/limits.h)
+endif()
+
+foreach(file_name include/stddef.h "${fix_header_file}")
   execute_process(
     COMMAND ${CMAKE_C_COMPILER} --print-file-name=${file_name}
     OUTPUT_VARIABLE _OUTPUT
@@ -58,9 +67,7 @@ if("${ARCH}" STREQUAL "arm")
 elseif("${ARCH}" STREQUAL "arm64")
   include(${ZEPHYR_BASE}/cmake/compiler/gcc/target_arm64.cmake)
 elseif("${ARCH}" STREQUAL "arc")
-  list(APPEND TOOLCHAIN_C_FLAGS
-    -mcpu=${GCC_M_CPU}
-    )
+  include(${ZEPHYR_BASE}/cmake/compiler/gcc/target_arc.cmake)
 elseif("${ARCH}" STREQUAL "riscv")
   include(${CMAKE_CURRENT_LIST_DIR}/target_riscv.cmake)
 elseif("${ARCH}" STREQUAL "x86")
@@ -69,6 +76,10 @@ elseif("${ARCH}" STREQUAL "sparc")
   include(${CMAKE_CURRENT_LIST_DIR}/target_sparc.cmake)
 elseif("${ARCH}" STREQUAL "mips")
   include(${CMAKE_CURRENT_LIST_DIR}/target_mips.cmake)
+elseif("${ARCH}" STREQUAL "xtensa")
+  include(${CMAKE_CURRENT_LIST_DIR}/target_xtensa.cmake)
+elseif("${ARCH}" STREQUAL "rx")
+  include(${CMAKE_CURRENT_LIST_DIR}/target_rx.cmake)
 endif()
 
 if(SYSROOT_DIR)
@@ -100,8 +111,7 @@ get_filename_component(LIBGCC_DIR ${LIBGCC_FILE_NAME} DIRECTORY)
 
 assert_exists(LIBGCC_DIR)
 
-LIST(APPEND LIB_INCLUDE_DIR "-L\"${LIBGCC_DIR}\"")
-LIST(APPEND TOOLCHAIN_LIBS gcc)
+set_linker_property(PROPERTY lib_include_dir "-L\"${LIBGCC_DIR}\"")
 
 # For CMake to be able to test if a compiler flag is supported by the
 # toolchain we need to give CMake the necessary flags to compile and

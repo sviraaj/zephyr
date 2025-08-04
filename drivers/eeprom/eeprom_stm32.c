@@ -8,6 +8,7 @@
 
 #include <zephyr/drivers/eeprom.h>
 #include <soc.h>
+#include <zephyr/kernel.h>
 
 #define LOG_LEVEL CONFIG_EEPROM_LOG_LEVEL
 #include <zephyr/logging/log.h>
@@ -90,8 +91,6 @@ static int eeprom_stm32_write(const struct device *dev, off_t offset,
 	ret = HAL_FLASHEx_DATAEEPROM_Lock();
 	if (ret) {
 		LOG_ERR("failed to lock EEPROM (err %d)", ret);
-		k_mutex_unlock(&lock);
-		return ret;
 	}
 
 	k_mutex_unlock(&lock);
@@ -106,12 +105,7 @@ static size_t eeprom_stm32_size(const struct device *dev)
 	return config->size;
 }
 
-static int eeprom_stm32_init(const struct device *dev)
-{
-	return 0;
-}
-
-static const struct eeprom_driver_api eeprom_stm32_api = {
+static DEVICE_API(eeprom, eeprom_stm32_api) = {
 	.read = eeprom_stm32_read,
 	.write = eeprom_stm32_write,
 	.size = eeprom_stm32_size,
@@ -122,6 +116,5 @@ static const struct eeprom_stm32_config eeprom_config = {
 	.size = DT_INST_REG_SIZE(0),
 };
 
-DEVICE_DT_INST_DEFINE(0, &eeprom_stm32_init, NULL, NULL,
-		    &eeprom_config, POST_KERNEL,
-		    CONFIG_EEPROM_INIT_PRIORITY, &eeprom_stm32_api);
+DEVICE_DT_INST_DEFINE(0, NULL, NULL, NULL, &eeprom_config, POST_KERNEL,
+		      CONFIG_EEPROM_INIT_PRIORITY, &eeprom_stm32_api);

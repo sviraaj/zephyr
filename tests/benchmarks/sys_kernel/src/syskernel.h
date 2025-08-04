@@ -9,7 +9,7 @@
 #ifndef SYSKERNEK_H
 #define SYSKERNEK_H
 
-#include <timestamp.h>
+#include <zephyr/timestamp.h>
 
 #include <stdio.h>
 #include <zephyr/toolchain.h>
@@ -22,8 +22,8 @@
 #endif
 
 
-K_THREAD_STACK_EXTERN(thread_stack1);
-K_THREAD_STACK_EXTERN(thread_stack2);
+K_THREAD_STACK_DECLARE(thread_stack1, STACK_SIZE);
+K_THREAD_STACK_DECLARE(thread_stack2, STACK_SIZE);
 extern struct k_thread thread_data1;
 extern struct k_thread thread_data2;
 
@@ -56,6 +56,7 @@ int sema_test(void);
 int lifo_test(void);
 int fifo_test(void);
 int stack_test(void);
+int malloc_test(void);
 int mem_slab_test(void);
 void begin_test(void);
 

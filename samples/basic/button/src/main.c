@@ -3,9 +3,13 @@
  * Copyright (c) 2020 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * NOTE: If you are looking into an implementation of button events with
+ * debouncing, check out `input` subsystem and `samples/subsys/input/input_dump`
+ * example instead.
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/util.h>
@@ -18,7 +22,7 @@
  * Get button configuration from the devicetree sw0 alias. This is mandatory.
  */
 #define SW0_NODE	DT_ALIAS(sw0)
-#if !DT_NODE_HAS_STATUS(SW0_NODE, okay)
+#if !DT_NODE_HAS_STATUS_OKAY(SW0_NODE)
 #error "Unsupported board: sw0 devicetree alias is not defined"
 #endif
 static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET_OR(SW0_NODE, gpios,
@@ -38,21 +42,21 @@ void button_pressed(const struct device *dev, struct gpio_callback *cb,
 	printk("Button pressed at %" PRIu32 "\n", k_cycle_get_32());
 }
 
-void main(void)
+int main(void)
 {
 	int ret;
 
-	if (!device_is_ready(button.port)) {
+	if (!gpio_is_ready_dt(&button)) {
 		printk("Error: button device %s is not ready\n",
 		       button.port->name);
-		return;
+		return 0;
 	}
 
 	ret = gpio_pin_configure_dt(&button, GPIO_INPUT);
 	if (ret != 0) {
 		printk("Error %d: failed to configure %s pin %d\n",
 		       ret, button.port->name, button.pin);
-		return;
+		return 0;
 	}
 
 	ret = gpio_pin_interrupt_configure_dt(&button,
@@ -60,14 +64,14 @@ void main(void)
 	if (ret != 0) {
 		printk("Error %d: failed to configure interrupt on %s pin %d\n",
 			ret, button.port->name, button.pin);
-		return;
+		return 0;
 	}
 
 	gpio_init_callback(&button_cb_data, button_pressed, BIT(button.pin));
 	gpio_add_callback(button.port, &button_cb_data);
 	printk("Set up button at %s pin %d\n", button.port->name, button.pin);
 
-	if (led.port && !device_is_ready(led.port)) {
+	if (led.port && !gpio_is_ready_dt(&led)) {
 		printk("Error %d: LED device %s is not ready; ignoring it\n",
 		       ret, led.port->name);
 		led.port = NULL;
@@ -95,4 +99,5 @@ void main(void)
 			k_msleep(SLEEP_TIME_MS);
 		}
 	}
+	return 0;
 }

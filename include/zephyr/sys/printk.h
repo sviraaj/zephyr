@@ -44,8 +44,8 @@ extern "C" {
  */
 #ifdef CONFIG_PRINTK
 
-extern __printf_like(1, 2) void printk(const char *fmt, ...);
-extern __printf_like(1, 0) void vprintk(const char *fmt, va_list ap);
+__printf_like(1, 2) void printk(const char *fmt, ...);
+__printf_like(1, 0) void vprintk(const char *fmt, va_list ap);
 
 #else
 static inline __printf_like(1, 2) void printk(const char *fmt, ...)
@@ -60,10 +60,21 @@ static inline __printf_like(1, 0) void vprintk(const char *fmt, va_list ap)
 }
 #endif
 
-extern __printf_like(3, 4) int snprintk(char *str, size_t size,
+#ifdef CONFIG_PICOLIBC
+
+#include <stdio.h>
+
+#define snprintk(...) snprintf(__VA_ARGS__)
+#define vsnprintk(str, size, fmt, ap) vsnprintf(str, size, fmt, ap)
+
+#else
+
+__printf_like(3, 4) int snprintk(char *str, size_t size,
 					const char *fmt, ...);
-extern __printf_like(3, 0) int vsnprintk(char *str, size_t size,
+__printf_like(3, 0) int vsnprintk(char *str, size_t size,
 					  const char *fmt, va_list ap);
+
+#endif
 
 #ifdef __cplusplus
 }

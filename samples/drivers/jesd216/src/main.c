@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/flash.h>
 #include <jesd216.h>
@@ -14,8 +14,22 @@
 
 #if DT_HAS_COMPAT_STATUS_OKAY(jedec_spi_nor)
 #define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(jedec_spi_nor)
+#elif DT_HAS_COMPAT_STATUS_OKAY(jedec_mspi_nor)
+#define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(jedec_mspi_nor)
 #elif DT_HAS_COMPAT_STATUS_OKAY(nordic_qspi_nor)
 #define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_qspi_nor)
+#elif DT_HAS_COMPAT_STATUS_OKAY(st_stm32_qspi_nor)
+#define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(st_stm32_qspi_nor)
+#elif DT_HAS_COMPAT_STATUS_OKAY(st_stm32_ospi_nor)
+#define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(st_stm32_ospi_nor)
+#elif DT_HAS_COMPAT_STATUS_OKAY(st_stm32_xspi_nor)
+#define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(st_stm32_xspi_nor)
+#elif DT_HAS_COMPAT_STATUS_OKAY(nxp_s32_qspi_nor)
+#define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(nxp_s32_qspi_nor)
+#elif DT_HAS_COMPAT_STATUS_OKAY(nxp_imx_flexspi_nor)
+#define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(nxp_imx_flexspi_nor)
+#elif DT_HAS_COMPAT_STATUS_OKAY(renesas_ra_ospi_b_nor)
+#define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(renesas_ra_ospi_b_nor)
 #else
 #error Unsupported flash driver
 #define FLASH_NODE DT_INVALID_NODE
@@ -135,7 +149,7 @@ static void summarize_dw11(const struct jesd216_param_header *php,
 	       dw11.page_prog_us,
 	       dw11.typ_max_factor * dw11.page_prog_us);
 
-	printf("Page size: %u By\n", dw11.page_size);
+	printf("Page program size: %u By\n", dw11.page_size);
 }
 
 static void summarize_dw12(const struct jesd216_param_header *php,
@@ -191,7 +205,7 @@ static void summarize_dw15(const struct jesd216_param_header *php,
 		printf("0-4-4 Mode methods: entry 0x%01x ; exit 0x%02x\n",
 		       dw15.entry_044, dw15.exit_044);
 	} else {
-		printf("0-4-4 Mode: not supported");
+		printf("0-4-4 Mode: not supported\n");
 	}
 	printf("4-4-4 Mode sequences: enable 0x%02x ; disable 0x%01x\n",
 	       dw15.enable_444, dw15.disable_444);
@@ -272,13 +286,13 @@ static void dump_bytes(const struct jesd216_param_header *php,
 	printf("];\n");
 }
 
-void main(void)
+int main(void)
 {
-	const struct device *dev = DEVICE_DT_GET(FLASH_NODE);
+	const struct device *const dev = DEVICE_DT_GET(FLASH_NODE);
 
 	if (!device_is_ready(dev)) {
 		printf("%s: device not ready\n", dev->name);
-		return;
+		return 0;
 	}
 
 	const uint8_t decl_nph = 5;
@@ -292,14 +306,14 @@ void main(void)
 	if (rc != 0) {
 		printf("Read SFDP not supported: device not JESD216-compliant "
 		       "(err %d)\n", rc);
-		return;
+		return 0;
 	}
 
 	uint32_t magic = jesd216_sfdp_magic(hp);
 
 	if (magic != JESD216_SFDP_MAGIC) {
 		printf("SFDP magic %08x invalid", magic);
-		return;
+		return 0;
 	}
 
 	printf("%s: SFDP v %u.%u AP %x with %u PH\n", dev->name,
@@ -321,14 +335,14 @@ void main(void)
 		rc = flash_sfdp_read(dev, addr, dw, sizeof(dw));
 		if (rc != 0) {
 			printf("Read failed: %d\n", rc);
-			return;
+			return 0;
 		}
 
 		if (id == JESD216_SFDP_PARAM_ID_BFP) {
 			const struct jesd216_bfp *bfp = (struct jesd216_bfp *)dw;
 
 			dump_bfp(php, bfp);
-			printf("size = <%u>;\n", (uint32_t)jesd216_bfp_density(bfp));
+			printf("size = <%u>; // bits\n", (uint32_t)jesd216_bfp_density(bfp));
 			printf("sfdp-bfp =");
 		} else {
 			printf("sfdp-%04x =", id);
@@ -348,4 +362,5 @@ void main(void)
 	} else {
 		printf("JEDEC ID read failed: %d\n", rc);
 	}
+	return 0;
 }

@@ -5,7 +5,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <nxp/nxp_rt.dtsi>
+#include <nxp/nxp_rt10xx.dtsi>
+
+&flexram {
+	flexram,num-ram-banks = <8>;
+};
 
 &sysclk {
 	clock-frequency = <500000000>;
@@ -28,17 +32,23 @@
 	reg = <0x20200000 DT_SIZE_K(128)>;
 };
 
+&ccm {
+	ipg-podf {
+		clock-div = <4>;
+	};
+};
+
 &flexspi {
 	status = "okay";
 	reg = <0x402a8000 0x4000>, <0x60000000 DT_SIZE_M(4)>;
-	is25wp032: is25wp032@0 {
+	/* 32 megabit internal flash present on chip */
+	w25q32jvwj0: w25q32jvwj@0 {
 		compatible = "nxp,imx-flexspi-nor";
-		size = <DT_SIZE_M(32)>;
-		label = "IS25WP032";
+		size = <DT_SIZE_M(4 * 8)>;
 		reg = <0>;
 		spi-max-frequency = <133000000>;
 		status = "okay";
-		jedec-id = [9d 70 17];
+		jedec-id = [ef 40 16];
 		erase-block-size = <DT_SIZE_K(4)>;
 		write-block-size = <1>;
 	};
@@ -52,6 +62,8 @@
 		/delete-node/ gpio@42004000;
 		/delete-node/ gpio@42008000;
 		/delete-node/ gpio@4200c000;
+		/* RT1024 has only one flexSPI controller */
+		/delete-node/ spi@402a4000;
 	};
 };
 
@@ -88,6 +100,7 @@
 		<&iomuxc_gpio_ad_b1_13_gpio1_io29>,
 		<&iomuxc_gpio_ad_b1_14_gpio1_io30>,
 		<&iomuxc_gpio_ad_b1_15_gpio1_io31>;
+	gpio-reserved-ranges = <16 6>;
 };
 
 &gpio2{
@@ -155,6 +168,7 @@
 		<&iomuxc_gpio_sd_b1_09_gpio3_io29>,
 		<&iomuxc_gpio_sd_b1_10_gpio3_io30>,
 		<&iomuxc_gpio_sd_b1_11_gpio3_io31>;
+	gpio-reserved-ranges = <10 3>;
 };
 
 &gpio5{

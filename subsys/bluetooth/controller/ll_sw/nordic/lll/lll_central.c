@@ -21,6 +21,8 @@
 #include "util/memq.h"
 #include "util/dbuf.h"
 
+#include "pdu_df.h"
+#include "pdu_vendor.h"
 #include "pdu.h"
 
 #include "lll.h"
@@ -35,9 +37,6 @@
 #include "lll_df_internal.h"
 #include "lll_tim_internal.h"
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
-#define LOG_MODULE_NAME bt_ctlr_lll_central
-#include "common/log.h"
 #include <soc.h>
 #include "hal/debug.h"
 
@@ -76,8 +75,8 @@ void lll_central_prepare(void *param)
 	LL_ASSERT(err >= 0);
 
 	/* Invoke common pipeline handling of prepare */
-	err = lll_prepare(lll_is_abort_cb, lll_conn_abort_cb, prepare_cb, 0,
-			  param);
+	err = lll_prepare(lll_conn_central_is_abort_cb, lll_conn_abort_cb,
+			  prepare_cb, 0, param);
 	LL_ASSERT(!err || err == -EINPROGRESS);
 }
 
@@ -102,6 +101,7 @@ static int prepare_cb(struct lll_prepare_param *p)
 	struct ull_hdr *ull;
 	uint32_t remainder;
 	uint8_t cte_len;
+	uint32_t ret;
 
 	DEBUG_RADIO_START_M(1);
 
@@ -120,7 +120,8 @@ static int prepare_cb(struct lll_prepare_param *p)
 	lll_conn_prepare_reset();
 
 	/* Calculate the current event latency */
-	lll->latency_event = lll->latency_prepare + p->lazy;
+	lll->lazy_prepare = p->lazy;
+	lll->latency_event = lll->latency_prepare + lll->lazy_prepare;
 
 	/* Calculate the current event counter value */
 	event_counter = lll->event_counter + lll->latency_event;
@@ -158,10 +159,12 @@ static int prepare_cb(struct lll_prepare_param *p)
 
 #if defined(CONFIG_BT_CTLR_DF_CONN_CTE_TX)
 	if (pdu_data_tx->cp) {
-		cte_len = CTE_LEN_US(pdu_data_tx->cte_info.time);
+		cte_len = CTE_LEN_US(pdu_data_tx->octet3.cte_info.time);
 
-		lll_df_cte_tx_configure(pdu_data_tx->cte_info.type, pdu_data_tx->cte_info.time,
-					lll->df_tx_cfg.ant_sw_len, lll->df_tx_cfg.ant_ids);
+		lll_df_cte_tx_configure(pdu_data_tx->octet3.cte_info.type,
+					pdu_data_tx->octet3.cte_info.time,
+					lll->df_tx_cfg.ant_sw_len,
+					lll->df_tx_cfg.ant_ids);
 	} else
 #endif /* CONFIG_BT_CTLR_DF_CONN_CTE_TX */
 	{
@@ -183,7 +186,7 @@ static int prepare_cb(struct lll_prepare_param *p)
 
 	radio_isr_set(lll_conn_isr_tx, lll);
 
-	radio_tmr_tifs_set(EVENT_IFS_US);
+	radio_tmr_tifs_set(lll->tifs_rx_us);
 
 #if defined(CONFIG_BT_CTLR_DF_CONN_CTE_RX)
 	/* If CTE RX is enabled and the PHY is not CODED, store channel used for
@@ -239,19 +242,22 @@ static int prepare_cb(struct lll_prepare_param *p)
 
 #if defined(CONFIG_BT_CTLR_XTAL_ADVANCED) && \
 	(EVENT_OVERHEAD_PREEMPT_US <= EVENT_OVERHEAD_PREEMPT_MIN_US)
+	uint32_t overhead;
+
+	overhead = lll_preempt_calc(ull, (TICKER_ID_CONN_BASE + lll->handle), ticks_at_event);
 	/* check if preempt to start has changed */
-	if (lll_preempt_calc(ull, (TICKER_ID_CONN_BASE + lll->handle),
-			     ticks_at_event)) {
+	if (overhead) {
+		LL_ASSERT_OVERHEAD(overhead);
+
 		radio_isr_set(lll_isr_abort, lll);
 		radio_disable();
-	} else
-#endif /* CONFIG_BT_CTLR_XTAL_ADVANCED */
-	{
-		uint32_t ret;
 
-		ret = lll_prepare_done(lll);
-		LL_ASSERT(!ret);
+		return -ECANCELED;
 	}
+#endif /* !CONFIG_BT_CTLR_XTAL_ADVANCED */
+
+	ret = lll_prepare_done(lll);
+	LL_ASSERT(!ret);
 
 	DEBUG_RADIO_START_M(1);
 

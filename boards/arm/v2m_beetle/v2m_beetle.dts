@@ -3,7 +3,6 @@
 /dts-v1/;
 
 #include <arm/armv7-m.dtsi>
-
 / {
 	compatible = "arm,beetle";
 	#address-cells = <1>;
@@ -52,46 +51,47 @@
 			compatible = "arm,cmsdk-timer";
 			reg = <0x40000000 0x1000>;
 			interrupts = <8 3>;
-			label = "TIMER_0";
+			clocks = <&syscon>;
 		};
 
 		timer1: timer@40001000 {
 			compatible = "arm,cmsdk-timer";
 			reg = <0x40001000 0x1000>;
 			interrupts = <9 3>;
-			label = "TIMER_1";
+			clocks = <&syscon>;
 		};
 
 		dtimer0: dtimer@40002000 {
 			compatible = "arm,cmsdk-dtimer";
 			reg = <0x40002000 0x1000>;
 			interrupts = <10 3>;
-			label = "DTIMER_0";
+			clocks = <&syscon>;
 		};
 
 		uart0: uart@40004000 {
 			compatible = "arm,cmsdk-uart";
 			reg = <0x40004000 0x1000>;
 			interrupts = <0 3>;
-			clocks = <&sysclk>;
+			clocks = <&sysclk &syscon>;
 			current-speed = <115200>;
-			label = "UART_0";
+			pinctrl-0 = <&uart0_default>;
+			pinctrl-names = "default";
 		};
 
 		uart1: uart@40005000 {
 			compatible = "arm,cmsdk-uart";
 			reg = <0x40005000 0x1000>;
 			interrupts = <2 3>;
-			clocks = <&sysclk>;
+			clocks = <&sysclk &syscon>;
 			current-speed = <115200>;
-			label = "UART_1";
+			pinctrl-0 = <&uart1_default>;
+			pinctrl-names = "default";
 		};
 
 		wdog0: wdog@40008000 {
 			compatible = "arm,cmsdk-watchdog";
 			clocks = <&sysclk>;
 			reg = <0x40008000 0x1000>;
-			label = "WATCHDOG";
 		};
 
 		gpio0: gpio@40010000 {
@@ -100,7 +100,7 @@
 			interrupts = <6 3>;
 			gpio-controller;
 			#gpio-cells = <2>;
-			label = "GPIO_0";
+			clocks = <&syscon>;
 		};
 
 		gpio1: gpio@40011000 {
@@ -109,7 +109,7 @@
 			interrupts = <7 3>;
 			gpio-controller;
 			#gpio-cells = <2>;
-			label = "GPIO_1";
+			clocks = <&syscon>;
 		};
 
 		gpio2: gpio@40012000 {
@@ -118,7 +118,7 @@
 			interrupts = <42 3>;
 			gpio-controller;
 			#gpio-cells = <2>;
-			label = "GPIO_2";
+			clocks = <&syscon>;
 		};
 
 		gpio3: gpio@40013000 {
@@ -127,7 +127,18 @@
 			interrupts = <43 3>;
 			gpio-controller;
 			#gpio-cells = <2>;
-			label = "GPIO_3";
+			clocks = <&syscon>;
+		};
+
+		syscon: syscon@4001f000 {
+			compatible = "arm,beetle-syscon";
+			reg = <0x4001f000 0x1000>;
+			#clock-cells = <0>;
+		};
+
+		pinctrl: pinctrl {
+			compatible = "arm,mps3-pinctrl";
+			status = "okay";
 		};
 	};
 };
@@ -135,3 +146,4 @@
 &nvic {
 	arm,num-irq-priority-bits = <3>;
 };
+#include "v2m_beetle-pinctrl.dtsi"

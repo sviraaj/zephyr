@@ -11,7 +11,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_test, NET_LOG_LEVEL);
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/linker/sections.h>
 
 #include <zephyr/types.h>
@@ -22,19 +22,19 @@ LOG_MODULE_REGISTER(net_test, NET_LOG_LEVEL);
 #include <zephyr/device.h>
 #include <zephyr/init.h>
 #include <zephyr/sys/printk.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 #include <zephyr/net/net_core.h>
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/net/net_ip.h>
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/dummy.h>
 #include <zephyr/net/udp.h>
-#include <zephyr/random/rand32.h>
+#include <zephyr/random/random.h>
 
 #include "ipv4.h"
 #include "ipv6.h"
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 #if NET_LOG_LEVEL >= LOG_LEVEL_DBG
 #define DBG(fmt, ...) printk(fmt, ##__VA_ARGS__)
@@ -78,7 +78,7 @@ static uint8_t *net_udp_get_mac(const struct device *dev)
 		context->mac_addr[2] = 0x5E;
 		context->mac_addr[3] = 0x00;
 		context->mac_addr[4] = 0x53;
-		context->mac_addr[5] = sys_rand32_get();
+		context->mac_addr[5] = sys_rand8_get();
 	}
 
 	return context->mac_addr;
@@ -107,24 +107,6 @@ static int tester_send(const struct device *dev, struct net_pkt *pkt)
 	return 0;
 }
 
-static inline struct in_addr *if_get_addr(struct net_if *iface)
-{
-	int i;
-
-	for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
-		if (iface->config.ip.ipv4->unicast[i].is_used &&
-		    iface->config.ip.ipv4->unicast[i].address.family ==
-								AF_INET &&
-		    iface->config.ip.ipv4->unicast[i].addr_state ==
-							NET_ADDR_PREFERRED) {
-			return
-			    &iface->config.ip.ipv4->unicast[i].address.in_addr;
-		}
-	}
-
-	return NULL;
-}
-
 struct net_udp_context net_udp_context_data;
 
 static struct dummy_api net_udp_if_api = {
@@ -141,13 +123,13 @@ NET_DEVICE_INIT(net_udp_test, "net_udp_test",
 		CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
 		&net_udp_if_api, _ETH_L2_LAYER, _ETH_L2_CTX_TYPE, 127);
 
-static void test_setup(void)
+static void *test_setup(void)
 {
 	struct net_if *iface;
 	struct net_if_addr *ifaddr;
 
 	struct sockaddr_in6 any_addr6;
-	const struct in6_addr in6addr_any = IN6ADDR_ANY_INIT;
+	const struct in6_addr in6addr_anyaddr = IN6ADDR_ANY_INIT;
 
 	struct sockaddr_in6 my_addr6;
 	struct in6_addr in6addr_my = { { { 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
@@ -169,7 +151,7 @@ static void test_setup(void)
 	iface = net_if_get_first_by_type(&NET_L2_GET_NAME(DUMMY));
 	test_failed = false;
 
-	net_ipaddr_copy(&any_addr6.sin6_addr, &in6addr_any);
+	net_ipaddr_copy(&any_addr6.sin6_addr, &in6addr_anyaddr);
 	any_addr6.sin6_family = AF_INET6;
 
 	net_ipaddr_copy(&my_addr6.sin6_addr, &in6addr_my);
@@ -202,9 +184,11 @@ static void test_setup(void)
 		       net_sprint_ipv4_addr(&in4addr_my), iface);
 		zassert_true(0, "exiting");
 	}
+
+	return NULL;
 }
 
-static void test_net_shell(void)
+ZTEST(net_shell_test_suite, test_net_shell)
 {
 	int ret;
 
@@ -217,10 +201,4 @@ static void test_net_shell(void)
 	zassert_equal(ret, 1, "");
 }
 
-void test_main(void)
-{
-	ztest_test_suite(test_net_shell_usability,
-			 ztest_unit_test(test_setup),
-			 ztest_unit_test(test_net_shell));
-	ztest_run_test_suite(test_net_shell_usability);
-}
+ZTEST_SUITE(net_shell_test_suite, NULL, test_setup, NULL, NULL, NULL);

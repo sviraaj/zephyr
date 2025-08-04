@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2021 Nordic Semiconductor ASA
+ * Copyright (c) 2021-2024 Nordic Semiconductor ASA
  *
  *  SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stddef.h>
-#include <errno.h>
-#include <zephyr/zephyr.h>
+#include <stdint.h>
+#include <zephyr/kernel.h>
 
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/byteorder.h>
@@ -15,6 +15,8 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/gap.h>
 #include <zephyr/bluetooth/direction.h>
+#include <zephyr/bluetooth/hci.h>
+#include <zephyr/bluetooth/hci_vs.h>
 
 #define DEVICE_NAME     CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
@@ -29,14 +31,14 @@
 #define ADV_DATA_HEX_STR_LEN_MAX (BT_GAP_ADV_MAX_EXT_ADV_DATA_LEN * 2 + 1)
 
 static struct bt_le_per_adv_sync_param sync_create_param;
-static struct bt_le_per_adv_sync *sync;
+static struct bt_le_per_adv_sync *adv_sync;
 static bt_addr_le_t per_addr;
 static bool per_adv_found;
 static bool scan_enabled;
 static bool sync_wait;
 static bool sync_terminated;
 static uint8_t per_sid;
-static uint32_t sync_create_timeout_ms;
+static uint16_t sync_create_timeout;
 
 static K_SEM_DEFINE(sem_per_adv, 0, 1);
 static K_SEM_DEFINE(sem_per_sync, 0, 1);
@@ -76,9 +78,19 @@ static struct bt_le_scan_cb scan_callbacks = {
 	.recv = scan_recv,
 };
 
-static uint32_t sync_create_timeout_get(uint16_t interval)
+static uint16_t sync_create_timeout_get(uint16_t interval)
 {
-	return BT_GAP_PER_ADV_INTERVAL_TO_MS(interval) * SYNC_CREATE_TIMEOUT_INTERVAL_NUM;
+	uint32_t interval_us;
+	uint32_t timeout;
+
+	/* Add retries and convert to unit in 10's of ms */
+	interval_us = BT_GAP_PER_ADV_INTERVAL_TO_US(interval);
+	timeout = BT_GAP_US_TO_PER_ADV_SYNC_TIMEOUT(interval_us) * SYNC_CREATE_TIMEOUT_INTERVAL_NUM;
+
+	/* Enforce restraints */
+	timeout = CLAMP(timeout, BT_GAP_PER_ADV_MIN_TIMEOUT, BT_GAP_PER_ADV_MAX_TIMEOUT);
+
+	return (uint16_t)timeout;
 }
 
 static const char *phy2str(uint8_t phy)
@@ -100,6 +112,18 @@ static const char *cte_type2str(uint8_t type)
 	case BT_DF_CTE_TYPE_AOD_2US: return "AOD 2 [us]";
 	case BT_DF_CTE_TYPE_NONE: return "";
 	default: return "Unknown";
+	}
+}
+
+static const char *sample_type2str(enum bt_df_iq_sample type)
+{
+	switch (type) {
+	case BT_DF_IQ_SAMPLE_8_BITS_INT:
+		return "8 bits int";
+	case BT_DF_IQ_SAMPLE_16_BITS_INT:
+		return "16 bits int";
+	default:
+		return "Unknown";
 	}
 }
 
@@ -183,11 +207,26 @@ static void recv_cb(struct bt_le_per_adv_sync *sync,
 static void cte_recv_cb(struct bt_le_per_adv_sync *sync,
 			struct bt_df_per_adv_sync_iq_samples_report const *report)
 {
-	printk("CTE[%u]: samples count %d, cte type %s, slot durations: %u [us], "
+	printk("CTE[%u]: samples type: %s, samples count %d, cte type %s, slot durations: %u [us], "
 	       "packet status %s, RSSI %i\n",
-	       bt_le_per_adv_sync_get_index(sync), report->sample_count,
-	       cte_type2str(report->cte_type), report->slot_durations,
+	       bt_le_per_adv_sync_get_index(sync), sample_type2str(report->sample_type),
+	       report->sample_count, cte_type2str(report->cte_type), report->slot_durations,
 	       pocket_status2str(report->packet_status), report->rssi);
+
+	if (IS_ENABLED(CONFIG_DF_LOCATOR_APP_IQ_REPORT_PRINT_IQ_SAMPLES)) {
+		for (uint8_t idx = 0; idx < report->sample_count; idx++) {
+			if (report->sample_type == BT_DF_IQ_SAMPLE_8_BITS_INT) {
+				printk(" IQ[%d]: %d, %d\n", idx, report->sample[idx].i,
+				       report->sample[idx].q);
+			} else if (IS_ENABLED(CONFIG_BT_DF_VS_CL_IQ_REPORT_16_BITS_IQ_SAMPLES)) {
+				printk(" IQ[%" PRIu8 "]: %d, %d\n", idx, report->sample16[idx].i,
+				       report->sample16[idx].q);
+			} else {
+				printk("Unhandled vendor specific IQ samples type\n");
+				break;
+			}
+		}
+	}
 }
 
 static void scan_recv(const struct bt_le_scan_recv_info *info,
@@ -215,7 +254,7 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 	       info->interval, info->interval * 5 / 4, info->sid);
 
 	if (!per_adv_found && info->interval != 0) {
-		sync_create_timeout_ms = sync_create_timeout_get(info->interval);
+		sync_create_timeout = sync_create_timeout_get(info->interval);
 		per_adv_found = true;
 		per_sid = info->sid;
 		bt_addr_le_copy(&per_addr, info->addr);
@@ -234,8 +273,8 @@ static void create_sync(void)
 	sync_create_param.options = BT_LE_PER_ADV_SYNC_OPT_SYNC_ONLY_CONST_TONE_EXT;
 	sync_create_param.sid = per_sid;
 	sync_create_param.skip = 0;
-	sync_create_param.timeout = 0xa;
-	err = bt_le_per_adv_sync_create(&sync_create_param, &sync);
+	sync_create_param.timeout = sync_create_timeout;
+	err = bt_le_per_adv_sync_create(&sync_create_param, &adv_sync);
 	if (err != 0) {
 		printk("failed (err %d)\n", err);
 		return;
@@ -248,7 +287,7 @@ static int delete_sync(void)
 	int err;
 
 	printk("Deleting Periodic Advertising Sync...");
-	err = bt_le_per_adv_sync_delete(sync);
+	err = bt_le_per_adv_sync_delete(adv_sync);
 	if (err != 0) {
 		printk("failed (err %d)\n", err);
 		return err;
@@ -275,7 +314,7 @@ static void enable_cte_rx(void)
 	};
 
 	printk("Enable receiving of CTE...\n");
-	err = bt_df_per_adv_sync_cte_rx_enable(sync, &cte_rx_params);
+	err = bt_df_per_adv_sync_cte_rx_enable(adv_sync, &cte_rx_params);
 	if (err != 0) {
 		printk("failed (err %d)\n", err);
 		return;
@@ -335,7 +374,7 @@ static void scan_disable(void)
 	scan_enabled = false;
 }
 
-void main(void)
+int main(void)
 {
 	int err;
 
@@ -359,7 +398,7 @@ void main(void)
 		err = k_sem_take(&sem_per_adv, K_FOREVER);
 		if (err != 0) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("success. Found periodic advertising.\n");
 
@@ -369,7 +408,7 @@ void main(void)
 		create_sync();
 
 		printk("Waiting for periodic sync...\n");
-		err = k_sem_take(&sem_per_sync, K_MSEC(sync_create_timeout_ms));
+		err = k_sem_take(&sem_per_sync, K_MSEC(sync_create_timeout));
 		if (err != 0 || sync_terminated) {
 			if (err != 0) {
 				printk("failed (err %d)\n", err);
@@ -381,7 +420,7 @@ void main(void)
 
 			err = delete_sync();
 			if (err != 0) {
-				return;
+				return 0;
 			}
 
 			continue;
@@ -398,8 +437,9 @@ void main(void)
 		err = k_sem_take(&sem_per_sync_lost, K_FOREVER);
 		if (err != 0) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("Periodic sync lost.\n");
 	} while (true);
+	return 0;
 }

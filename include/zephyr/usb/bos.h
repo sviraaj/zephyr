@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018 Intel Corporation
+ * Copyright (c) 2023 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,22 +8,40 @@
 #ifndef ZEPHYR_INCLUDE_USB_BOS_H_
 #define ZEPHYR_INCLUDE_USB_BOS_H_
 
-#if defined(CONFIG_USB_DEVICE_BOS)
-#define USB_DEVICE_BOS_DESC_DEFINE_HDR \
-	static __in_section(usb, bos_desc_area, 0) __aligned(1) __used
-#define USB_DEVICE_BOS_DESC_DEFINE_CAP \
-	static __in_section(usb, bos_desc_area, 1) __aligned(1) __used
+#include <stdint.h>
 
-/*
- * DESCRIPTOR_TYPE_BOS macro is deprecated in 2.7 release.
- * Please replace with macros from Chapter 9 header, include/usb/usb_ch9.h
+/**
+ * @brief USB Binary Device Object Store support
+ * @defgroup usb_bos USB BOS support
+ * @ingroup usb
+ * @since 1.13
+ * @version 1.0.0
+ * @{
  */
-#define DESCRIPTOR_TYPE_BOS		__DEPRECATED_MACRO 0x0F
 
-#define USB_BOS_CAPABILITY_EXTENSION	0x02
-#define USB_BOS_CAPABILITY_PLATFORM	0x05
+/** Root BOS Descriptor */
+struct usb_bos_descriptor {
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint16_t wTotalLength;
+	uint8_t bNumDeviceCaps;
+} __packed;
 
-/* BOS Capability Descriptor */
+/** Device capability type codes */
+enum usb_bos_capability_types {
+	USB_BOS_CAPABILITY_EXTENSION = 0x02,
+	USB_BOS_CAPABILITY_PLATFORM = 0x05,
+};
+
+/** BOS USB 2.0 extension capability descriptor */
+struct usb_bos_capability_lpm {
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint8_t bDevCapabilityType;
+	uint32_t bmAttributes;
+} __packed;
+
+/** BOS platform capability descriptor */
 struct usb_bos_platform_descriptor {
 	uint8_t bLength;
 	uint8_t bDescriptorType;
@@ -31,22 +50,14 @@ struct usb_bos_platform_descriptor {
 	uint8_t PlatformCapabilityUUID[16];
 } __packed;
 
-/* BOS Descriptor */
-struct usb_bos_descriptor {
-	uint8_t bLength;
-	uint8_t bDescriptorType;
-	uint16_t wTotalLength;
-	uint8_t bNumDeviceCaps;
-} __packed;
-
-/* BOS Capability webusb */
+/** WebUSB specific part of platform capability descriptor */
 struct usb_bos_capability_webusb {
 	uint16_t bcdVersion;
 	uint8_t bVendorCode;
 	uint8_t iLandingPage;
 } __packed;
 
-/* BOS Capability MS OS Descriptors version 2 */
+/** Microsoft OS 2.0 descriptor specific part of platform capability descriptor */
 struct usb_bos_capability_msos {
 	uint32_t dwWindowsVersion;
 	uint16_t wMSOSDescriptorSetTotalLength;
@@ -54,20 +65,8 @@ struct usb_bos_capability_msos {
 	uint8_t bAltEnumCode;
 } __packed;
 
-struct usb_bos_capability_lpm {
-	uint8_t bLength;
-	uint8_t bDescriptorType;
-	uint8_t bDevCapabilityType;
-	uint32_t bmAttributes;
-} __packed;
-
-size_t usb_bos_get_length(void);
-void usb_bos_fix_total_length(void);
-void usb_bos_register_cap(struct usb_bos_platform_descriptor *hdr);
-const void *usb_bos_get_header(void);
-int usb_handle_bos(struct usb_setup_packet *setup, int32_t *len, uint8_t **data);
-#else
-#define usb_handle_bos(x, y, z)		-ENOTSUP
-#endif
+/**
+ * @}
+ */
 
 #endif	/* ZEPHYR_INCLUDE_USB_BOS_H_ */

@@ -6,11 +6,14 @@
 
 #define DT_DRV_COMPAT nxp_imx_wdog
 
+#include <zephyr/drivers/pinctrl.h>
 #include <zephyr/drivers/watchdog.h>
+#include <zephyr/sys_clock.h>
 #include <fsl_wdog.h>
 
 #define LOG_LEVEL CONFIG_WDT_LOG_LEVEL
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(wdt_mcux_wdog);
 
 #define WDOG_TMOUT_SEC(x)  (((x * 2) / MSEC_PER_SEC) - 1)
@@ -18,6 +21,7 @@ LOG_MODULE_REGISTER(wdt_mcux_wdog);
 struct mcux_wdog_config {
 	WDOG_Type *base;
 	void (*irq_config_func)(const struct device *dev);
+	const struct pinctrl_dev_config *pcfg;
 };
 
 struct mcux_wdog_data {
@@ -37,14 +41,27 @@ static int mcux_wdog_setup(const struct device *dev, uint8_t options)
 		return -EINVAL;
 	}
 
+	/*
+	 * WDT_OPT_PAUSE_IN_SLEEP is a bit tricky because depending on
+	 * the frequency the platform is running at and the wdog timeout
+	 * value relative to the sleep time, the system may wakeup enough
+	 * to keep system time accurate enough on timer rollovers. During
+	 * this time, the wdog will start ticking again so you can
+	 * possibly still have the wdog expire.
+	 *
+	 */
+	data->wdog_config.workMode.enableWait =
+		(options & WDT_OPT_PAUSE_IN_SLEEP) == 0U;
+
 	data->wdog_config.workMode.enableStop =
 		(options & WDT_OPT_PAUSE_IN_SLEEP) == 0U;
 
 	data->wdog_config.workMode.enableDebug =
 		(options & WDT_OPT_PAUSE_HALTED_BY_DBG) == 0U;
 
+	LOG_DBG("Setup the watchdog: options: %d", options);
+
 	WDOG_Init(base, &data->wdog_config);
-	LOG_DBG("Setup the watchdog");
 
 	return 0;
 }
@@ -133,13 +150,19 @@ static void mcux_wdog_isr(const struct device *dev)
 static int mcux_wdog_init(const struct device *dev)
 {
 	const struct mcux_wdog_config *config = dev->config;
+	int ret;
 
 	config->irq_config_func(dev);
+
+	ret = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
+	if (ret < 0 && ret != -ENOENT) {
+		return ret;
+	}
 
 	return 0;
 }
 
-static const struct wdt_driver_api mcux_wdog_api = {
+static DEVICE_API(wdt, mcux_wdog_api) = {
 	.setup = mcux_wdog_setup,
 	.disable = mcux_wdog_disable,
 	.install_timeout = mcux_wdog_install_timeout,
@@ -148,9 +171,12 @@ static const struct wdt_driver_api mcux_wdog_api = {
 
 static void mcux_wdog_config_func(const struct device *dev);
 
+PINCTRL_DT_INST_DEFINE(0);
+
 static const struct mcux_wdog_config mcux_wdog_config = {
 	.base = (WDOG_Type *) DT_INST_REG_ADDR(0),
 	.irq_config_func = mcux_wdog_config_func,
+	.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(0),
 };
 
 static struct mcux_wdog_data mcux_wdog_data;

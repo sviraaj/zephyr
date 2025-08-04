@@ -13,7 +13,9 @@
 LOG_MODULE_REGISTER(spi_psoc6);
 
 #include <errno.h>
+#include <zephyr/drivers/pinctrl.h>
 #include <zephyr/drivers/spi.h>
+#include <zephyr/drivers/spi/rtio.h>
 #include <soc.h>
 
 #include "spi_context.h"
@@ -31,8 +33,7 @@ struct spi_psoc6_config {
 	CySCB_Type *base;
 	uint32_t periph_id;
 	void (*irq_config_func)(const struct device *dev);
-	uint32_t num_pins;
-	struct soc_gpio_pin pins[];
+	const struct pinctrl_dev_config *pcfg;
 };
 
 struct spi_psoc6_transfer {
@@ -62,7 +63,7 @@ static void spi_psoc6_transfer_next_packet(const struct device *dev)
 		xfer->dataSize = 0U;
 
 		spi_context_cs_control(ctx, false);
-		spi_context_complete(ctx, 0U);
+		spi_context_complete(ctx, dev, 0U);
 		return;
 	}
 
@@ -124,7 +125,7 @@ err:
 	xfer->dataSize = 0U;
 
 	spi_context_cs_control(ctx, false);
-	spi_context_complete(ctx, -ENOMEM);
+	spi_context_complete(ctx, dev, -ENOMEM);
 }
 
 static void spi_psoc6_isr(const struct device *dev)
@@ -168,7 +169,7 @@ static uint32_t spi_psoc6_get_freqdiv(uint32_t frequency)
 	uint32_t oversample;
 	uint32_t bus_freq = 100000000UL;
 	/*
-	 * TODO: Get PerBusSpeed when clocks are available to PSoC-6.
+	 * TODO: Get PerBusSpeed when clocks are available to PSOC 6.
 	 * Currently the bus freq is fixed to 50Mhz and max SPI clk can be
 	 * 12.5MHz.
 	 */
@@ -296,13 +297,14 @@ static int spi_psoc6_transceive(const struct device *dev,
 				const struct spi_buf_set *tx_bufs,
 				const struct spi_buf_set *rx_bufs,
 				bool asynchronous,
-				struct k_poll_signal *signal)
+				spi_callback_t cb,
+				void *userdata)
 {
 	const struct spi_psoc6_config *config = dev->config;
 	struct spi_psoc6_data *data = dev->data;
 	int ret;
 
-	spi_context_lock(&data->ctx, asynchronous, signal, spi_cfg);
+	spi_context_lock(&data->ctx, asynchronous, cb, userdata, spi_cfg);
 
 	LOG_DBG("\n\n");
 
@@ -344,7 +346,7 @@ static int spi_psoc6_transceive_sync(const struct device *dev,
 				     const struct spi_buf_set *rx_bufs)
 {
 	return spi_psoc6_transceive(dev, spi_cfg, tx_bufs,
-				    rx_bufs, false, NULL);
+				    rx_bufs, false, NULL, NULL);
 }
 
 #ifdef CONFIG_SPI_ASYNC
@@ -352,10 +354,11 @@ static int spi_psoc6_transceive_async(const struct device *dev,
 				      const struct spi_config *spi_cfg,
 				      const struct spi_buf_set *tx_bufs,
 				      const struct spi_buf_set *rx_bufs,
-				      struct k_poll_signal *async)
+				      spi_callback_t cb,
+				      void *userdata)
 {
 	return spi_psoc6_transceive(dev, spi_cfg, tx_bufs,
-				    rx_bufs, true, async);
+				    rx_bufs, true, cb, userdata);
 }
 #endif /* CONFIG_SPI_ASYNC */
 
@@ -375,7 +378,12 @@ static int spi_psoc6_init(const struct device *dev)
 	const struct spi_psoc6_config *config = dev->config;
 	struct spi_psoc6_data *data = dev->data;
 
-	soc_gpio_list_configure(config->pins, config->num_pins);
+
+	/* Configure dt provided device signals when available */
+	err = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
+	if (err < 0) {
+		return err;
+	}
 
 	Cy_SysClk_PeriphAssignDivider(config->periph_id,
 				      CY_SYSCLK_DIV_8_BIT,
@@ -397,21 +405,24 @@ static int spi_psoc6_init(const struct device *dev)
 	return spi_psoc6_release(dev, NULL);
 }
 
-static const struct spi_driver_api spi_psoc6_driver_api = {
+static DEVICE_API(spi, spi_psoc6_driver_api) = {
 	.transceive = spi_psoc6_transceive_sync,
 #ifdef CONFIG_SPI_ASYNC
 	.transceive_async = spi_psoc6_transceive_async,
+#endif
+#ifdef CONFIG_SPI_RTIO
+	.iodev_submit = spi_rtio_iodev_default_submit,
 #endif
 	.release = spi_psoc6_release,
 };
 
 #define SPI_PSOC6_DEVICE_INIT(n)					\
+	PINCTRL_DT_INST_DEFINE(n);					\
 	static void spi_psoc6_spi##n##_irq_cfg(const struct device *port); \
 	static const struct spi_psoc6_config spi_psoc6_config_##n = {	\
 		.base = (CySCB_Type *)DT_INST_REG_ADDR(n),		\
 		.periph_id = DT_INST_PROP(n, peripheral_id),		\
-		.num_pins = CY_PSOC6_DT_INST_NUM_PINS(n),		\
-		.pins = CY_PSOC6_DT_INST_PINS(n),			\
+		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),		\
 		.irq_config_func = spi_psoc6_spi##n##_irq_cfg,		\
 	};								\
 	static struct spi_psoc6_data spi_psoc6_dev_data_##n = {		\
@@ -419,7 +430,7 @@ static const struct spi_driver_api spi_psoc6_driver_api = {
 		SPI_CONTEXT_INIT_SYNC(spi_psoc6_dev_data_##n, ctx),	\
 		SPI_CONTEXT_CS_GPIOS_INITIALIZE(DT_DRV_INST(n), ctx)	\
 	};								\
-	DEVICE_DT_INST_DEFINE(n, &spi_psoc6_init, NULL,			\
+	SPI_DEVICE_DT_INST_DEFINE(n, spi_psoc6_init, NULL,		\
 			      &spi_psoc6_dev_data_##n,			\
 			      &spi_psoc6_config_##n, POST_KERNEL,	\
 			      CONFIG_SPI_INIT_PRIORITY,			\

@@ -19,13 +19,13 @@
  * IN THE SOFTWARE.
  */
 
-#include <zephyr/net/http_parser.h>
+#include <zephyr/net/http/parser.h>
 #include <string.h>
 #include <errno.h>
 
 #include <zephyr/sys/printk.h>
-#include <tc_util.h>
-#include <ztest.h>
+#include <zephyr/tc_util.h>
+#include <zephyr/ztest.h>
 
 static
 struct http_parser_settings settings_null = {
@@ -572,7 +572,7 @@ const struct url_test url_tests[] = {
 #endif
 };
 
-void test_preserve_data(void)
+ZTEST(http_header_fields_fn, test_preserve_data)
 {
 	struct http_parser parser = { 0 };
 	char my_data[] = "application-specific data";
@@ -584,7 +584,7 @@ void test_preserve_data(void)
 	zassert_equal(parser.data, my_data, "test_preserve_data error");
 }
 
-void test_parse_url(void)
+ZTEST(http_header_fields_fn, test_parse_url)
 {
 	struct http_parser_url u;
 	const struct url_test *test;
@@ -616,7 +616,7 @@ void test_parse_url(void)
 	}
 }
 
-void test_method_str(void)
+ZTEST(http_header_fields_fn, test_method_str)
 {
 	/**TESTPOINT: Check test_method_str function*/
 	zassert_false(strcmp("GET", http_method_str(HTTP_GET)),
@@ -625,7 +625,7 @@ void test_method_str(void)
 			"http_method_str error");
 }
 
-void test_header_nread_value(void)
+ZTEST(http_header_fields_fn, test_header_nread_value)
 {
 	struct http_parser parser = { 0 };
 	const char *buf;
@@ -821,7 +821,91 @@ int test_header_cr_no_lf_error(int req)
 	return TC_FAIL;
 }
 
-void test_http_header_fields(void)
+int test_content_range_supplied(int req)
+{
+	struct http_parser parser = { 0 };
+	const char *buf;
+	size_t parsed;
+	size_t buflen;
+
+	http_parser_init(&parser, req ? HTTP_REQUEST : HTTP_RESPONSE);
+	buf = req ? "GET / HTTP/1.1\r\n" : "HTTP/1.1 200 OK\r\n";
+	parsed = http_parser_execute(&parser, &settings_null, buf, strlen(buf));
+
+	/**TESTPOINTS: Check http_parser_execute*/
+	zassert_equal(parsed, strlen(buf),
+			"http_parser_execute error");
+
+	buf = "Content-Range: bytes 100-150/200\r\n\r\n";
+	buflen = strlen(buf);
+	parsed = http_parser_execute(&parser, &settings_null, buf, buflen);
+
+	zassert_equal(parsed, strlen(buf), "http_parser_execute error");
+	zassert_equal(parser.content_range.start, 100, "http_parser_execute error");
+	zassert_equal(parser.content_range.end, 150, "http_parser_execute error");
+	zassert_equal(parser.content_range.total, 200, "http_parser_execute error");
+
+	return TC_PASS;
+}
+
+int test_content_range_asterisk_total(int req)
+{
+	struct http_parser parser = { 0 };
+	const char *buf;
+	size_t parsed;
+	size_t buflen;
+
+	http_parser_init(&parser, req ? HTTP_REQUEST : HTTP_RESPONSE);
+	buf = req ? "GET / HTTP/1.1\r\n" : "HTTP/1.1 200 OK\r\n";
+	parsed = http_parser_execute(&parser, &settings_null, buf, strlen(buf));
+
+	/**TESTPOINTS: Check http_parser_execute*/
+	zassert_equal(parsed, strlen(buf),
+			"http_parser_execute error");
+
+	buf = "Content-Range: bytes 32-64/*\r\n\r\n";
+	buflen = strlen(buf);
+	parsed = http_parser_execute(&parser, &settings_null, buf, buflen);
+
+	zassert_equal(parsed, strlen(buf), "http_parser_execute error");
+	zassert_equal(parser.content_range.start, 32, "http_parser_execute error");
+	zassert_equal(parser.content_range.end, 64, "http_parser_execute error");
+	zassert_equal(parser.content_range.total, 0, "http_parser_execute error");
+
+	return TC_PASS;
+}
+
+int test_double_content_range_error(int req)
+{
+	struct http_parser parser = { 0 };
+	const char *buf;
+	size_t parsed;
+	size_t buflen;
+
+	http_parser_init(&parser, req ? HTTP_REQUEST : HTTP_RESPONSE);
+	buf = req ? "GET / HTTP/1.1\r\n" : "HTTP/1.1 200 OK\r\n";
+	parsed = http_parser_execute(&parser, &settings_null, buf, strlen(buf));
+
+	/**TESTPOINTS: Check http_parser_execute*/
+	zassert_equal(parsed, strlen(buf),
+			"http_parser_execute error");
+
+	buf = "Content-Range: 0-100/200\r\nContent-Range: 100-150/200\r\n\r\n";
+	buflen = strlen(buf);
+	parsed = http_parser_execute(&parser, &settings_null, buf, buflen);
+	if (parsed != buflen) {
+		int error = HTTP_PARSER_ERRNO(&parser);
+
+		zassert_equal(error, HPE_UNEXPECTED_CONTENT_RANGE,
+			"http_parser_execute error");
+
+		return TC_PASS;
+	}
+
+	return TC_FAIL;
+}
+
+ZTEST(http_header_fields_fn, test_http_header_fields)
 {
 	int rc;
 
@@ -851,6 +935,21 @@ void test_http_header_fields(void)
 	/**TESTPOINT: Check test_invalid_header_field_content_error*/
 	zassert_false(rc, "test_invalid_header_field_content_error failed");
 
+	rc = test_content_range_supplied(HTTP_REQUEST);
+
+	/**TESTPOINT: Check test_content_range_supplied*/
+	zassert_false(rc, "test_content_range_supplied failed");
+
+	rc = test_content_range_asterisk_total(HTTP_REQUEST);
+
+	/**TESTPOINT: Check test_content_range_asterisk_total*/
+	zassert_false(rc, "test_content_range_asterisk_total failed");
+
+	rc = test_double_content_range_error(HTTP_REQUEST);
+
+	/**TESTPOINT: Check test_double_content_range_error*/
+	zassert_false(rc, "test_double_content_range_error failed");
+
 	rc = test_double_content_length_error(HTTP_RESPONSE);
 
 	/**TESTPOINT: Check test_double_content_length_error*/
@@ -875,16 +974,21 @@ void test_http_header_fields(void)
 
 	/**TESTPOINT: Check test_invalid_header_field_content_error*/
 	zassert_false(rc, "test_invalid_header_field_content_error failed");
+
+	rc = test_content_range_supplied(HTTP_RESPONSE);
+
+	/**TESTPOINT: Check test_content_range_supplied*/
+	zassert_false(rc, "test_content_range_supplied failed");
+
+	rc = test_content_range_asterisk_total(HTTP_RESPONSE);
+
+	/**TESTPOINT: Check test_content_range_asterisk_total*/
+	zassert_false(rc, "test_content_range_asterisk_total failed");
+
+	rc = test_double_content_range_error(HTTP_RESPONSE);
+
+	/**TESTPOINT: Check test_double_content_range_error*/
+	zassert_false(rc, "test_double_content_range_error failed");
 }
 
-void test_main(void)
-{
-	ztest_test_suite(test_http_header_fields_fn,
-		ztest_unit_test(test_preserve_data),
-		ztest_unit_test(test_parse_url),
-		ztest_unit_test(test_method_str),
-		ztest_unit_test(test_header_nread_value),
-		ztest_unit_test(test_http_header_fields)
-		);
-	ztest_run_test_suite(test_http_header_fields_fn);
-}
+ZTEST_SUITE(http_header_fields_fn, NULL, NULL, NULL, NULL, NULL);

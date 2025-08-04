@@ -36,8 +36,9 @@ static enum FPGA_status eos_s3_fpga_get_status(const struct device *dev)
 
 	if (PMU->FB_STATUS == FPGA_STATUS_ACTIVE) {
 		return FPGA_STATUS_ACTIVE;
-	} else
+	} else {
 		return FPGA_STATUS_INACTIVE;
+	}
 }
 
 static const char *eos_s3_fpga_get_info(const struct device *dev)
@@ -115,6 +116,12 @@ static int eos_s3_fpga_load(const struct device *dev, uint32_t *image_ptr, uint3
 	PIF->CFG_CTL = CFG_CTL_LOAD_DISABLE;
 	PMU->FB_ISOLATION = FB_ISOLATION_DISABLE;
 
+	/* disable software resets */
+	CRU->FB_SW_RESET &= ~(FB_C21_DOMAIN_SW_RESET
+			    | FB_C16_DOMAIN_SW_RESET
+			    | FB_C02_DOMAIN_SW_RESET
+			    | FB_C09_DOMAIN_SW_RESET);
+
 	return 0;
 }
 
@@ -133,7 +140,7 @@ static int eos_s3_fpga_init(const struct device *dev)
 
 static struct quickfeather_fpga_data fpga_data;
 
-static const struct fpga_driver_api eos_s3_api = {
+static DEVICE_API(fpga, eos_s3_api) = {
 	.reset = eos_s3_fpga_reset,
 	.load = eos_s3_fpga_load,
 	.get_status = eos_s3_fpga_get_status,
@@ -142,5 +149,5 @@ static const struct fpga_driver_api eos_s3_api = {
 	.get_info = eos_s3_fpga_get_info
 };
 
-DEVICE_DT_DEFINE(DT_NODELABEL(fpga0), &eos_s3_fpga_init, NULL, &fpga_data, NULL, APPLICATION,
-	      CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &eos_s3_api);
+DEVICE_DT_DEFINE(DT_NODELABEL(fpga0), &eos_s3_fpga_init, NULL, &fpga_data, NULL, POST_KERNEL,
+	      CONFIG_FPGA_INIT_PRIORITY, &eos_s3_api);

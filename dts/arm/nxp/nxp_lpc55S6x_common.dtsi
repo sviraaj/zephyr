@@ -1,14 +1,19 @@
 /*
  * Copyright (c) 2020, Linaro Ltd.
+ * Copyright 2024 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <mem.h>
+#include <zephyr/dt-bindings/adc/adc.h>
 #include <zephyr/dt-bindings/clock/mcux_lpc_syscon_clock.h>
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/inputmux/inputmux_trigger_ports.h>
+#include <zephyr/dt-bindings/memory-attr/memory-attr-arm.h>
 #include <arm/armv8-m.dtsi>
+#include <zephyr/dt-bindings/reset/nxp_syscon_reset_common.h>
 
 / {
 	aliases {
@@ -28,16 +33,25 @@
 			reg = <0>;
 			#address-cells = <1>;
 			#size-cells = <1>;
+			cpu-power-states = <&sleep>;
 
 			mpu: mpu@e000ed90 {
 				compatible = "arm,armv8m-mpu";
 				reg = <0xe000ed90 0x40>;
-				arm,num-mpu-regions = <8>;
 			};
 		};
 		cpu@1 {
 			compatible = "arm,cortex-m33";
 			reg = <1>;
+		};
+
+		power-states {
+			sleep: sleep {
+				compatible = "zephyr,power-state";
+				power-state-name = "runtime-idle";
+				min-residency-us = <4>;
+				exit-latency-us = <4>;
+			};
 		};
 	};
 };
@@ -69,17 +83,17 @@
 		reg = <0x20010000 DT_SIZE_K(64)>;
 	};
 
-	sram2: memory@20018000 {
+	sram2: memory@20020000 {
 		compatible = "mmio-sram";
 		reg = <0x20020000 DT_SIZE_K(64)>;
 	};
 
-	sram3: memory@20020000 {
+	sram3: memory@20030000 {
 		compatible = "mmio-sram";
 		reg = <0x20030000 DT_SIZE_K(64)>;
 	};
 
-	sram4: memory@40100000 {
+	sram4: memory@20040000 {
 		compatible = "mmio-sram";
 		reg = <0x20040000  DT_SIZE_K(16)>;
 	};
@@ -89,22 +103,31 @@
 	#address-cells = <1>;
 	#size-cells = <1>;
 
+	usb_sram: memory@100000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x100000 DT_SIZE_K(16)>;
+		zephyr,memory-region = "USB_SRAM";
+		zephyr,memory-attr = <( DT_MEM_ARM(ATTR_MPU_RAM) )>;
+	};
+
 	syscon: syscon@0 {
 		compatible = "nxp,lpc-syscon";
 		reg = <0x0 0x1000>;
-		label = "SYSCON";
 		#clock-cells = <1>;
+		reset: reset {
+			compatible = "nxp,lpc-syscon-reset";
+			#reset-cells = <1>;
+		};
 	};
 
 	iap: flash-controller@34000 {
-		compatible = "nxp,lpc-iap";
-		label = "FLASH_IAP";
+		compatible = "nxp,iap-fmc55";
 		reg = <0x34000 0x1000>;
 		#address-cells = <1>;
 		#size-cells = <1>;
+		status = "disabled";
 		flash0: flash@0 {
 			compatible = "soc-nv-flash";
-			label = "MCUX_FLASH";
 			reg = <0x0 DT_SIZE_K(630)>;
 			erase-block-size = <512>;
 			write-block-size = <512>;
@@ -136,41 +159,51 @@
 		pinctrl: pinctrl {
 			compatible = "nxp,lpc-iocon-pinctrl";
 		};
-		pio0: pio0@0 {
-			compatible = "nxp,lpc-iocon-pio";
-			reg = <0x0 0x80>;
+	};
+
+	gpio: gpio@8c000 {
+		compatible = "nxp,lpc-gpio";
+		reg = <0x8c000 0x2488>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		gpio0: gpio@0 {
+			compatible = "nxp,lpc-gpio-port";
+			reg = <0>;
+			int-source = "pint";
+			gpio-controller;
+			#gpio-cells = <2>;
 		};
-		pio1: pio0@80 {
-			compatible = "nxp,lpc-iocon-pio";
-			reg = <0x80 0x80>;
+
+		gpio1: gpio@1 {
+			compatible = "nxp,lpc-gpio-port";
+			reg = <1>;
+			int-source = "pint";
+			gpio-controller;
+			#gpio-cells = <2>;
 		};
 	};
 
-	gpio0: gpio@0 {
-		compatible = "nxp,lpc-gpio";
-		reg = <0x8c000 0x2488>;
-		interrupts = <4 2>,<5 2>,<6 2>,<7 2>;
-		label = "GPIO_0";
-		gpio-controller;
-		#gpio-cells = <2>;
-		port = <0>;
-	};
-
-	gpio1: gpio@1 {
-		compatible = "nxp,lpc-gpio";
-		reg = <0x8c000 0x2488>;
-		interrupts = <32 2>,<33 2>,<34 2>,<35 2>;
-		label = "GPIO_1";
-		gpio-controller;
-		#gpio-cells = <2>;
-		port = <1>;
+	pint: pint@4000 {
+		compatible = "nxp,pint";
+		reg = <0x4000 0x1000>;
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		#address-cells = <0>;
+		interrupts = <4 2>, <5 2>, <6 2>, <7 2>,
+			<32 2>, <33 2>, <34 2>, <35 2>;
+		num-lines = <8>;
+		num-inputs = <64>;
 	};
 
 	dma0: dma-controller@82000 {
 		compatible = "nxp,lpc-dma";
 		reg = <0x82000 0x1000>;
 		interrupts = <1 0>;
-		label = "DMA_0";
+		dma-channels = <23>;
+		nxp,dma-num-of-otrigs = <4>;
+		nxp,dma-otrig-base-address = <LPC55S69_DMA0_OTRIG_BASE>;
+		nxp,dma-itrig-base-address = <LPC55S69_DMA0_ITRIG_BASE>;
 		status = "disabled";
 		#dma-cells = <1>;
 	};
@@ -179,7 +212,10 @@
 		compatible = "nxp,lpc-dma";
 		reg = <0xa7000 0x1000>;
 		interrupts = <58 0>;
-		label = "DMA_1";
+		dma-channels = <10>;
+		nxp,dma-num-of-otrigs = <4>;
+		nxp,dma-otrig-base-address = <LPC55S69_DMA1_OTRIG_BASE>;
+		nxp,dma-itrig-base-address = <LPC55S69_DMA1_ITRIG_BASE>;
 		status = "disabled";
 		#dma-cells = <1>;
 	};
@@ -188,7 +224,7 @@
 		compatible = "nxp,lpc-mailbox";
 		reg = <0x8b000 0xEC>;
 		interrupts = <31 0>;
-		label = "MAILBOX_0";
+		resets = <&reset NXP_SYSCON_RESET(0, 26)>;
 		status = "disabled";
 	};
 
@@ -197,7 +233,9 @@
 		reg = <0x86000 0x1000>;
 		interrupts = <14 0>;
 		clocks = <&syscon MCUX_FLEXCOMM0_CLK>;
-		label = "FLEXCOMM_0";
+		resets = <&reset NXP_SYSCON_RESET(1, 11)>;
+		dmas = <&dma0 4>, <&dma0 5>;
+		dma-names = "rx", "tx";
 		status = "disabled";
 	};
 
@@ -206,7 +244,9 @@
 		reg = <0x87000 0x1000>;
 		interrupts = <15 0>;
 		clocks = <&syscon MCUX_FLEXCOMM1_CLK>;
-		label = "FLEXCOMM_1";
+		resets = <&reset NXP_SYSCON_RESET(1, 12)>;
+		dmas = <&dma0 6 &dma0 7>;
+		dma-names = "rx", "tx";
 		status = "disabled";
 	};
 
@@ -215,7 +255,9 @@
 		reg = <0x88000 0x1000>;
 		interrupts = <16 0>;
 		clocks = <&syscon MCUX_FLEXCOMM2_CLK>;
-		label = "FLEXCOMM_2";
+		resets = <&reset NXP_SYSCON_RESET(1, 13)>;
+		dmas = <&dma0 10 &dma0 11>;
+		dma-names = "rx", "tx";
 		status = "disabled";
 	};
 
@@ -224,7 +266,9 @@
 		reg = <0x89000 0x1000>;
 		interrupts = <17 0>;
 		clocks = <&syscon MCUX_FLEXCOMM3_CLK>;
-		label = "FLEXCOMM_3";
+		resets = <&reset NXP_SYSCON_RESET(1, 14)>;
+		dmas = <&dma0 8 &dma0 9>;
+		dma-names = "rx", "tx";
 		status = "disabled";
 	};
 
@@ -233,7 +277,9 @@
 		reg = <0x8a000 0x1000>;
 		interrupts = <18 0>;
 		clocks = <&syscon MCUX_FLEXCOMM4_CLK>;
-		label = "FLEXCOMM_4";
+		resets = <&reset NXP_SYSCON_RESET(1, 15)>;
+		dmas = <&dma0 12 &dma0 13>;
+		dma-names = "rx", "tx";
 		status = "disabled";
 	};
 
@@ -242,7 +288,9 @@
 		reg = <0x96000 0x1000>;
 		interrupts = <19 0>;
 		clocks = <&syscon MCUX_FLEXCOMM5_CLK>;
-		label = "FLEXCOMM_5";
+		resets = <&reset NXP_SYSCON_RESET(1, 16)>;
+		dmas = <&dma0 14 &dma0 15>;
+		dma-names = "rx", "tx";
 		status = "disabled";
 	};
 
@@ -251,7 +299,9 @@
 		reg = <0x97000 0x1000>;
 		interrupts = <20 0>;
 		clocks = <&syscon MCUX_FLEXCOMM6_CLK>;
-		label = "FLEXCOMM_6";
+		resets = <&reset NXP_SYSCON_RESET(1, 17)>;
+		dmas = <&dma0 16 &dma0 17>;
+		dma-names = "rx", "tx";
 		status = "disabled";
 	};
 
@@ -260,7 +310,17 @@
 		reg = <0x98000 0x1000>;
 		interrupts = <21 0>;
 		clocks = <&syscon MCUX_FLEXCOMM7_CLK>;
-		label = "FLEXCOMM_7";
+		resets = <&reset NXP_SYSCON_RESET(1, 18)>;
+		dmas = <&dma0 18 &dma0 19>;
+		dma-names = "rx", "tx";
+		status = "disabled";
+	};
+
+	sdif: sdif@9b000 {
+		compatible = "nxp,lpc-sdif";
+		reg = <0x9b000 0x1000>;
+		interrupts = <42 0>;
+		clocks = <&syscon MCUX_SDIF_CLK>;
 		status = "disabled";
 	};
 
@@ -275,7 +335,9 @@
 		reg = <0x9f000 0x1000>;
 		interrupts = <59 0>;
 		clocks = <&syscon MCUX_HS_SPI_CLK>;
-		label = "HS_LSPI";
+		resets = <&reset NXP_SYSCON_RESET(2, 28)>;
+		dmas = <&dma0 2 &dma0 3>;
+		dma-names = "rx", "tx";
 		status = "disabled";
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -285,7 +347,6 @@
 		compatible = "nxp,lpc-rng";
 		reg = <0x3a000 0x1000>;
 		status = "okay";
-		label = "RNG";
 	};
 
 	wwdt0: watchdog@c000 {
@@ -294,7 +355,6 @@
 		interrupts = <0 0>;
 		status = "disabled";
 		clk-divider = <1>;
-		label = "WWDT_0";
 	};
 
 	adc0: adc@A0000 {
@@ -304,22 +364,51 @@
 		status = "disabled";
 		clk-divider = <8>;
 		clk-source = <0>;
-		voltage-ref= <2>;
+		voltage-ref= <1>;
 		calibration-average = <128>;
-		power-level = <1>;
-		label = "ADC_0";
+		power-level = <0>;
 		offset-value-a = <10>;
 		offset-value-b = <10>;
 		#io-channel-cells = <1>;
+		clocks = <&syscon MCUX_LPADC1_CLK>;
 	};
 
-	usbhs: usbhs@144000 {
-		compatible = "nxp,mcux-usbd";
+	usbfs: usbfs@84000 {
+		compatible = "nxp,lpcip3511";
+		reg = <0x84000 0x1000>;
+		interrupts = <28 1>;
+		num-bidir-endpoints = <5>;
+		maximum-speed = "full-speed";
+		status = "disabled";
+	};
+
+	usbhs: usbhs@94000 {
+		compatible = "nxp,lpcip3511";
 		reg = <0x94000 0x1000>;
 		interrupts = <47 1>;
-		num-bidir-endpoints = <5>;
+		num-bidir-endpoints = <6>;
 		status = "disabled";
-		label = "USBHS_0";
+	};
+
+	usbhfs: usbhfs@A2000 {
+		compatible = "nxp,uhc-ohci";
+		reg = <0xa2000 0x1000>;
+		interrupts = <28 1>;
+		maximum-speed = "full-speed";
+		status = "disabled";
+	};
+
+	usbhhs: usbhhs@A3000 {
+		compatible = "nxp,uhc-ip3516hs";
+		reg = <0xa3000 0x1000>;
+		interrupts = <47 1>;
+		status = "disabled";
+	};
+
+	usbphy1: usbphy@38000 {
+		compatible = "nxp,usbphy";
+		reg = <0x38000 0x1000>;
+		status = "disabled";
 	};
 
 	ctimer0: ctimer@8000 {
@@ -332,7 +421,6 @@
 		mode = <0>;
 		input = <0>;
 		prescale = <0>;
-		label = "CTIMER_0";
 	};
 
 	ctimer1: ctimer@9000 {
@@ -345,7 +433,6 @@
 		mode = <0>;
 		input = <0>;
 		prescale = <0>;
-		label = "CTIMER_1";
 	};
 
 	ctimer2: ctimer@28000 {
@@ -358,7 +445,6 @@
 		mode = <0>;
 		input = <0>;
 		prescale = <0>;
-		label = "CTIMER_2";
 	};
 
 	ctimer3: ctimer@29000 {
@@ -371,7 +457,6 @@
 		mode = <0>;
 		input = <0>;
 		prescale = <0>;
-		label = "CTIMER_3";
 	};
 
 	ctimer4: ctimer@2A000 {
@@ -384,7 +469,6 @@
 		mode = <0>;
 		input = <0>;
 		prescale = <0>;
-		label = "CTIMER_4";
 	};
 
 	sc_timer: pwm@85000 {
@@ -392,9 +476,42 @@
 		reg = <0x85000 0x1000>;
 		interrupts = <12 0>;
 		status = "disabled";
+		clocks = <&syscon MCUX_SCTIMER_CLK>;
 		prescaler = <2>;
-		label = "SC_TIMER";
 		#pwm-cells = <3>;
+	};
+
+	mrt: mrt@d000 {
+		compatible = "nxp,mrt";
+		reg = <0xd000 0x100>;
+		interrupts = <9 0>;
+		num-channels = <4>;
+		num-bits = <24>;
+		clocks = <&syscon MCUX_MRT_CLK>;
+		resets = <&reset NXP_SYSCON_RESET(1, 0)>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		mrt_channel0: mrt_channel@0 {
+			compatible = "nxp,mrt-channel";
+			reg = <0>;
+			status = "disabled";
+		};
+		mrt_channel1: mrt_channel@1 {
+			compatible = "nxp,mrt-channel";
+			reg = <1>;
+			status = "disabled";
+		};
+		mrt_channel2: mrt_channel@2 {
+			compatible = "nxp,mrt-channel";
+			reg = <2>;
+			status = "disabled";
+		};
+		mrt_channel3: mrt_channel@3 {
+			compatible = "nxp,mrt-channel";
+			reg = <3>;
+			status = "disabled";
+		};
 	};
 };
 

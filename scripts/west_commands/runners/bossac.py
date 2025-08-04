@@ -5,23 +5,15 @@
 
 '''bossac-specific runner (flash only) for Atmel SAM microcontrollers.'''
 
+import os
 import pathlib
 import pickle
 import platform
 import subprocess
 import sys
+import time
 
-from runners.core import ZephyrBinaryRunner, RunnerCaps
-
-# This is needed to load edt.pickle files.
-try:
-    from devicetree import edtlib  # pylint: disable=unused-import
-    MISSING_EDTLIB = False
-except ImportError:
-    # This can happen when building the documentation for the
-    # runners package if edtlib is not on sys.path. This is fine
-    # to ignore in that case.
-    MISSING_EDTLIB = True
+from runners.core import RunnerCaps, ZephyrBinaryRunner
 
 if platform.system() == 'Darwin':
     DEFAULT_BOSSAC_PORT = None
@@ -33,11 +25,13 @@ class BossacBinaryRunner(ZephyrBinaryRunner):
     '''Runner front-end for bossac.'''
 
     def __init__(self, cfg, bossac='bossac', port=DEFAULT_BOSSAC_PORT,
-                 speed=DEFAULT_BOSSAC_SPEED):
+                 speed=DEFAULT_BOSSAC_SPEED, boot_delay=0, erase=False):
         super().__init__(cfg)
         self.bossac = bossac
         self.port = port
         self.speed = speed
+        self.boot_delay = boot_delay
+        self.erase = erase
 
     @classmethod
     def name(cls):
@@ -45,7 +39,7 @@ class BossacBinaryRunner(ZephyrBinaryRunner):
 
     @classmethod
     def capabilities(cls):
-        return RunnerCaps(commands={'flash'})
+        return RunnerCaps(commands={'flash'}, erase=True)
 
     @classmethod
     def do_add_parser(cls, parser):
@@ -57,11 +51,17 @@ class BossacBinaryRunner(ZephyrBinaryRunner):
         parser.add_argument('--speed', default=DEFAULT_BOSSAC_SPEED,
                             help='serial port speed to use, default is ' +
                             DEFAULT_BOSSAC_SPEED)
+        parser.add_argument('--delay', default=0, type=float,
+                            help='''delay in seconds (may be a floating
+                            point number) to wait between putting the board
+                            into bootloader mode and running bossac;
+                            default is no delay''')
 
     @classmethod
     def do_create(cls, cfg, args):
         return BossacBinaryRunner(cfg, bossac=args.bossac,
-                                  port=args.bossac_port, speed=args.speed)
+                                  port=args.bossac_port, speed=args.speed,
+                                  boot_delay=args.delay, erase=args.erase)
 
     def read_help(self):
         """Run bossac --help and return the output as a list of lines"""
@@ -77,19 +77,13 @@ class BossacBinaryRunner(ZephyrBinaryRunner):
 
     def supports(self, flag):
         """Check if bossac supports a flag by searching the help"""
-        for line in self.read_help():
-            if flag in line:
-                return True
-        return False
+        return any(flag in line for line in self.read_help())
 
     def is_extended_samba_protocol(self):
         ext_samba_versions = ['CONFIG_BOOTLOADER_BOSSA_ARDUINO',
                               'CONFIG_BOOTLOADER_BOSSA_ADAFRUIT_UF2']
 
-        for x in ext_samba_versions:
-            if self.build_conf.getboolean(x):
-                return True
-        return False
+        return any(self.build_conf.getboolean(x) for x in ext_samba_versions)
 
     def is_partition_enabled(self):
         return self.build_conf.getboolean('CONFIG_USE_DT_CODE_PARTITION')
@@ -103,14 +97,18 @@ class BossacBinaryRunner(ZephyrBinaryRunner):
         b = pathlib.Path(self.cfg.build_dir)
         edt_pickle = b / 'zephyr' / 'edt.pickle'
         if not edt_pickle.is_file():
-            error_msg = "can't load devicetree; expected to find:" \
-	                + str(edt_pickle)
+            error_msg = "can't load devicetree; expected to find:" + str(edt_pickle)
 
             raise RuntimeError(error_msg)
 
         # Load the devicetree.
-        with open(edt_pickle, 'rb') as f:
-            edt = pickle.load(f)
+        try:
+            with open(edt_pickle, 'rb') as f:
+                edt = pickle.load(f)
+        except ModuleNotFoundError as err:
+            error_msg = "could not load devicetree, something may be wrong " \
+                    + "with the python environment"
+            raise RuntimeError(error_msg) from err
 
         return edt.chosen_node('zephyr,code-partition')
 
@@ -145,12 +143,21 @@ class BossacBinaryRunner(ZephyrBinaryRunner):
 
         return None
 
+    def is_gnu_coreutils_stty(self):
+        try:
+            result = subprocess.run(
+                ['stty', '--version'], capture_output=True, text=True, check=True
+            )
+            return 'coreutils' in result.stdout
+        except subprocess.CalledProcessError:
+            return False
+
     def set_serial_config(self):
         if platform.system() == 'Linux' or platform.system() == 'Darwin':
             self.require('stty')
 
             # GNU coreutils uses a capital F flag for 'file'
-            flag = '-F' if platform.system() == 'Linux' else '-f'
+            flag = '-F' if self.is_gnu_coreutils_stty() else '-f'
 
             if self.is_extended_samba_protocol():
                 self.speed = '1200'
@@ -159,11 +166,26 @@ class BossacBinaryRunner(ZephyrBinaryRunner):
                         'ospeed', self.speed, 'cs8', '-cstopb', 'ignpar',
                         'eol', '255', 'eof', '255']
             self.check_call(cmd_stty)
+            self.magic_delay()
+
+    def magic_delay(self):
+        '''There can be a time lag between the board resetting into
+        bootloader mode (done via stty above) and the OS enumerating
+        the USB device again. This function lets users tune a magic
+        delay for their system to handle this case. By default,
+        we don't wait.
+        '''
+
+        if self.boot_delay > 0:
+            time.sleep(self.boot_delay)
 
     def make_bossac_cmd(self):
         self.ensure_output('bin')
-        cmd_flash = [self.bossac, '-p', self.port, '-R', '-e', '-w', '-v',
+        cmd_flash = [self.bossac, '-p', self.port, '-R', '-w', '-v',
                      '-b', self.cfg.bin_file]
+
+        if self.erase:
+            cmd_flash += ['-e']
 
         dt_chosen_code_partition_nd = self.get_chosen_code_partition_node()
 
@@ -177,7 +199,7 @@ class BossacBinaryRunner(ZephyrBinaryRunner):
             offset = self.get_image_offset(self.supports('--offset'))
 
             if offset is not None and int(str(offset), 16) > 0:
-                cmd_flash += ['-o', '%s' % offset]
+                cmd_flash += ['-o', str(offset)]
 
         elif dt_chosen_code_partition_nd is not None:
             error_msg = 'There is no CONFIG_USE_DT_CODE_PARTITION Kconfig' \
@@ -246,14 +268,12 @@ class BossacBinaryRunner(ZephyrBinaryRunner):
         return devices[value - 1]
 
     def do_run(self, command, **kwargs):
-        if MISSING_EDTLIB:
-            self.logger.warning(
-                'could not import edtlib; something may be wrong with the '
-                'python environment')
-
-        if platform.system() == 'Windows':
-            msg = 'CAUTION: BOSSAC runner not support on Windows!'
-            raise RuntimeError(msg)
+        if platform.system() == 'Linux':
+            if 'microsoft' in platform.uname().release.lower() or \
+                os.getenv('WSL_DISTRO_NAME') is not None or \
+                    os.getenv('WSL_INTEROP') is not None:
+                msg = 'CAUTION: BOSSAC runner not supported on WSL!'
+                raise RuntimeError(msg)
         elif platform.system() == 'Darwin' and self.port is None:
             self.port = self.get_darwin_user_port_choice()
 

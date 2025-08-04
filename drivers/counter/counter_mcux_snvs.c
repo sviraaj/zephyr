@@ -17,6 +17,7 @@ LOG_MODULE_REGISTER(mcux_snvs, CONFIG_COUNTER_LOG_LEVEL);
 #endif
 
 #include <zephyr/drivers/counter.h>
+#include <zephyr/irq.h>
 #include <fsl_snvs_hp.h>
 
 #ifdef MCUX_SNVS_SRTC
@@ -292,7 +293,7 @@ static int mcux_snvs_init(const struct device *dev)
 	return 0;
 }
 
-static const struct counter_driver_api mcux_snvs_driver_api = {
+static DEVICE_API(counter, mcux_snvs_driver_api) = {
 	.start = mcux_snvs_start,
 	.stop = mcux_snvs_stop,
 	.get_value = mcux_snvs_get_value,
@@ -310,7 +311,7 @@ static const struct counter_driver_api mcux_snvs_driver_api = {
 BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) <= 1,
 	     "unsupported snvs instance");
 
-#if DT_NODE_HAS_STATUS(DT_DRV_INST(0), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_DRV_INST(0))
 static struct mcux_snvs_data mcux_snvs_data_0;
 
 static void mcux_snvs_irq_config_0(const struct device *dev);
@@ -338,4 +339,4 @@ static void mcux_snvs_irq_config_0(const struct device *dev)
 		    mcux_snvs_isr, DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQN(0));
 }
-#endif  /* DT_NODE_HAS_STATUS(DT_DRV_INST(0), okay) */
+#endif  /* DT_NODE_HAS_STATUS_OKAY(DT_DRV_INST(0)) */

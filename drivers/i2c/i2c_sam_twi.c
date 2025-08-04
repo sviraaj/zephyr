@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2017 Piotr Mienkowski
+ * Copyright (c) 2023 Gerson Fernando Budke
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -23,9 +24,11 @@
 #include <soc.h>
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/drivers/clock_control/atmel_sam_pmc.h>
 
 #define LOG_LEVEL CONFIG_I2C_LOG_LEVEL
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(i2c_sam_twi);
 
 #include "i2c-priv.h"
@@ -42,8 +45,8 @@ struct i2c_sam_twi_dev_cfg {
 	Twi *regs;
 	void (*irq_config)(void);
 	uint32_t bitrate;
+	const struct atmel_sam_pmc_config clock_cfg;
 	const struct pinctrl_dev_config *pcfg;
-	uint8_t periph_id;
 	uint8_t irq_id;
 };
 
@@ -62,21 +65,38 @@ struct twi_msg {
 
 /* Device run time data */
 struct i2c_sam_twi_dev_data {
+	struct k_sem lock;
 	struct k_sem sem;
 	struct twi_msg msg;
 };
 
-static int i2c_clk_set(Twi *const twi, uint32_t speed)
+static int i2c_clk_set(const struct device *dev, Twi * const twi, uint32_t speed)
 {
 	uint32_t ck_div = 0U;
 	uint32_t cl_div;
 	bool div_completed = false;
 
+#ifdef SOC_ATMEL_SAM_MCK_FREQ_HZ
+	ARG_UNUSED(dev);
+
+	const uint32_t rate = SOC_ATMEL_SAM_MCK_FREQ_HZ;
+#else
+	const struct i2c_sam_twi_dev_cfg *const config = dev->config;
+	uint32_t rate;
+	int ret;
+
+	ret = clock_control_get_rate(SAM_DT_PMC_CONTROLLER,
+				     (clock_control_subsys_t)&config->clock_cfg, &rate);
+	if (ret) {
+		return ret;
+	}
+#endif
+
 	/*  From the datasheet "TWI Clock Waveform Generator Register"
 	 *  T_low = ( ( CLDIV × 2^CKDIV ) + 4 ) × T_MCK
 	 */
 	while (!div_completed) {
-		cl_div =   ((SOC_ATMEL_SAM_MCK_FREQ_HZ / (speed * 2U)) - 4)
+		cl_div =   ((rate / (speed * 2U)) - 4)
 			 / (1 << ck_div);
 
 		if (cl_div <= 255U) {
@@ -101,11 +121,12 @@ static int i2c_clk_set(Twi *const twi, uint32_t speed)
 static int i2c_sam_twi_configure(const struct device *dev, uint32_t config)
 {
 	const struct i2c_sam_twi_dev_cfg *const dev_cfg = dev->config;
+	struct i2c_sam_twi_dev_data *const dev_data = dev->data;
 	Twi *const twi = dev_cfg->regs;
 	uint32_t bitrate;
 	int ret;
 
-	if (!(config & I2C_MODE_MASTER)) {
+	if (!(config & I2C_MODE_CONTROLLER)) {
 		LOG_ERR("Master Mode is not enabled");
 		return -EIO;
 	}
@@ -129,10 +150,12 @@ static int i2c_sam_twi_configure(const struct device *dev, uint32_t config)
 		return -EIO;
 	}
 
+	k_sem_take(&dev_data->lock, K_FOREVER);
+
 	/* Setup clock waveform */
-	ret = i2c_clk_set(twi, bitrate);
+	ret = i2c_clk_set(dev, twi, bitrate);
 	if (ret < 0) {
-		return ret;
+		goto unlock;
 	}
 
 	/* Disable Slave Mode */
@@ -141,7 +164,11 @@ static int i2c_sam_twi_configure(const struct device *dev, uint32_t config)
 	/* Enable Master Mode */
 	twi->TWI_CR = TWI_CR_MSEN;
 
-	return 0;
+	ret = 0;
+unlock:
+	k_sem_give(&dev_data->lock);
+
+	return ret;
 }
 
 static void write_msg_start(Twi *const twi, struct twi_msg *msg, uint8_t daddr)
@@ -179,11 +206,13 @@ static int i2c_sam_twi_transfer(const struct device *dev,
 	const struct i2c_sam_twi_dev_cfg *const dev_cfg = dev->config;
 	struct i2c_sam_twi_dev_data *const dev_data = dev->data;
 	Twi *const twi = dev_cfg->regs;
+	int ret;
 
 	__ASSERT_NO_MSG(msgs);
 	if (!num_msgs) {
 		return 0;
 	}
+	k_sem_take(&dev_data->lock, K_FOREVER);
 
 	/* Clear pending interrupts, such as NACK. */
 	(void)twi->TWI_SR;
@@ -222,11 +251,16 @@ static int i2c_sam_twi_transfer(const struct device *dev,
 
 		if (dev_data->msg.twi_sr > 0) {
 			/* Something went wrong */
-			return -EIO;
+			ret = -EIO;
+			goto unlock;
 		}
 	}
 
-	return 0;
+	ret = 0;
+unlock:
+	k_sem_give(&dev_data->lock);
+
+	return ret;
 }
 
 static void i2c_sam_twi_isr(const struct device *dev)
@@ -259,7 +293,7 @@ static void i2c_sam_twi_isr(const struct device *dev)
 
 	/* Byte sent */
 	if (isr_status & TWI_SR_TXRDY) {
-		if (msg->idx == msg->len) {
+		if (msg->idx == msg->len || msg->len == 0) {
 			if (msg->flags & I2C_MSG_STOP) {
 				/* Send a STOP condition on the TWI */
 				twi->TWI_CR = TWI_CR_STOP;
@@ -299,7 +333,8 @@ static int i2c_sam_twi_initialize(const struct device *dev)
 	/* Configure interrupts */
 	dev_cfg->irq_config();
 
-	/* Initialize semaphore */
+	/* Initialize semaphores */
+	k_sem_init(&dev_data->lock, 1, 1);
 	k_sem_init(&dev_data->sem, 0, 1);
 
 	/* Connect pins to the peripheral */
@@ -308,15 +343,16 @@ static int i2c_sam_twi_initialize(const struct device *dev)
 		return ret;
 	}
 
-	/* Enable module's clock */
-	soc_pmc_peripheral_enable(dev_cfg->periph_id);
+	/* Enable TWI clock in PMC */
+	(void)clock_control_on(SAM_DT_PMC_CONTROLLER,
+			       (clock_control_subsys_t)&dev_cfg->clock_cfg);
 
 	/* Reset TWI module */
 	twi->TWI_CR = TWI_CR_SWRST;
 
 	bitrate_cfg = i2c_map_dt_bitrate(dev_cfg->bitrate);
 
-	ret = i2c_sam_twi_configure(dev, I2C_MODE_MASTER | bitrate_cfg);
+	ret = i2c_sam_twi_configure(dev, I2C_MODE_CONTROLLER | bitrate_cfg);
 	if (ret < 0) {
 		LOG_ERR("Failed to initialize %s device", dev->name);
 		return ret;
@@ -330,9 +366,12 @@ static int i2c_sam_twi_initialize(const struct device *dev)
 	return 0;
 }
 
-static const struct i2c_driver_api i2c_sam_twi_driver_api = {
+static DEVICE_API(i2c, i2c_sam_twi_driver_api) = {
 	.configure = i2c_sam_twi_configure,
 	.transfer = i2c_sam_twi_transfer,
+#ifdef CONFIG_I2C_RTIO
+	.iodev_submit = i2c_iodev_submit_fallback,
+#endif
 };
 
 #define I2C_TWI_SAM_INIT(n)						\
@@ -347,7 +386,7 @@ static const struct i2c_driver_api i2c_sam_twi_driver_api = {
 	static const struct i2c_sam_twi_dev_cfg i2c##n##_sam_config = {	\
 		.regs = (Twi *)DT_INST_REG_ADDR(n),			\
 		.irq_config = i2c##n##_sam_irq_config,			\
-		.periph_id = DT_INST_PROP(n, peripheral_id),		\
+		.clock_cfg = SAM_DT_INST_CLOCK_PMC_CFG(n),		\
 		.irq_id = DT_INST_IRQN(n),				\
 		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),		\
 		.bitrate = DT_INST_PROP(n, clock_frequency),		\

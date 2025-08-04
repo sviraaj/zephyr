@@ -10,7 +10,8 @@
  *
  * This module provides functions to support compiler stack protection
  * using canaries.  This feature is enabled with configuration
- * CONFIG_STACK_CANARIES=y.
+ * CONFIG_STACK_CANARIES=y or CONFIG_STACK_CANARIES_STRONG=y or
+ * CONFIG_STACK_CANARIES_ALL=y or CONFIG_STACK_CANARIES_EXPLICIT=y.
  *
  * When this feature is enabled, the compiler generated code refers to
  * function __stack_chk_fail and global variable __stack_chk_guard.
@@ -46,10 +47,12 @@ void _StackCheckHandler(void)
  * Symbol referenced by GCC compiler generated code for canary value.
  * The canary value gets initialized in z_cstart().
  */
-#ifdef CONFIG_USERSPACE
-K_APP_DMEM(z_libc_partition) uintptr_t __stack_chk_guard;
+#ifdef CONFIG_STACK_CANARIES_TLS
+Z_THREAD_LOCAL volatile uintptr_t __stack_chk_guard;
+#elif CONFIG_USERSPACE
+K_APP_DMEM(z_libc_partition) volatile uintptr_t __stack_chk_guard;
 #else
-__noinit uintptr_t __stack_chk_guard;
+__noinit volatile uintptr_t __stack_chk_guard;
 #endif
 
 /**

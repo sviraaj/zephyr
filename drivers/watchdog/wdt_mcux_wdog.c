@@ -9,6 +9,7 @@
 
 #include <zephyr/drivers/watchdog.h>
 #include <zephyr/drivers/clock_control.h>
+#include <zephyr/irq.h>
 #include <fsl_wdog.h>
 
 #define LOG_LEVEL CONFIG_WDT_LOG_LEVEL
@@ -76,6 +77,11 @@ static int mcux_wdog_install_timeout(const struct device *dev,
 	if (data->timeout_valid) {
 		LOG_ERR("No more timeouts can be installed");
 		return -ENOMEM;
+	}
+
+	if (!device_is_ready(config->clock_dev)) {
+		LOG_ERR("clock control device not ready");
+		return -ENODEV;
 	}
 
 	if (clock_control_get_rate(config->clock_dev, config->clock_subsys,
@@ -150,7 +156,7 @@ static int mcux_wdog_init(const struct device *dev)
 	return 0;
 }
 
-static const struct wdt_driver_api mcux_wdog_api = {
+static DEVICE_API(wdt, mcux_wdog_api) = {
 	.setup = mcux_wdog_setup,
 	.disable = mcux_wdog_disable,
 	.install_timeout = mcux_wdog_install_timeout,

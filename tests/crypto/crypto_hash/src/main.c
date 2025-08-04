@@ -4,10 +4,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <zephyr/crypto/crypto.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
 
+#ifdef CONFIG_CRYPTO_MBEDTLS_SHIM
 #define CRYPTO_DRV_NAME CONFIG_CRYPTO_MBEDTLS_SHIM_DRV_NAME
+#elif DT_HAS_COMPAT_STATUS_OKAY(renesas_smartbond_crypto)
+#define CRYPTO_DEV_COMPAT renesas_smartbond_crypto
+#else
+#error "You need to enable one crypto device"
+#endif
 
 /* Following test are part of mbedTLS */
 
@@ -124,11 +132,24 @@ uint8_t sha256_results[7][32] = {
 	 0x86, 0x59, 0x98, 0x71, 0x4a, 0xad, 0x0b, 0x5e}
 };
 
-static void test_hash(void)
+ZTEST_USER(crypto_hash, test_hash)
 {
 	int ret;
 	struct hash_ctx ctx;
+
+#ifdef CRYPTO_DRV_NAME
 	const struct device *dev = device_get_binding(CRYPTO_DRV_NAME);
+
+	if (!dev) {
+		zassert(0, "Crypto device is not ready");
+	}
+#else
+	const struct device *dev = DEVICE_DT_GET_ONE(CRYPTO_DEV_COMPAT);
+
+	if (!device_is_ready(dev)) {
+		zassert(0, "Crypto device is not ready");
+	}
+#endif
 
 	ctx.flags = CAP_SYNC_OPS | CAP_SEPARATE_IO_BUFS;
 
@@ -161,10 +182,4 @@ static void test_hash(void)
 	hash_free_session(dev, &ctx);
 }
 
-/**test case main entry*/
-void test_main(void)
-{
-	ztest_test_suite(test_crypto_hash,
-		ztest_user_unit_test(test_hash));
-	ztest_run_test_suite(test_crypto_hash);
-}
+ZTEST_SUITE(crypto_hash, NULL, NULL, NULL, NULL, NULL);

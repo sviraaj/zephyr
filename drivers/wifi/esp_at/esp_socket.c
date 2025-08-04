@@ -32,6 +32,8 @@ struct esp_socket *esp_socket_get(struct esp_data *data,
 
 			sock->connect_cb = NULL;
 			sock->recv_cb = NULL;
+			memset(&sock->src, 0x0, sizeof(sock->src));
+			memset(&sock->dst, 0x0, sizeof(sock->dst));
 
 			atomic_inc(&sock->refcount);
 
@@ -73,6 +75,11 @@ void esp_socket_unref(struct esp_socket *sock)
 			return;
 		}
 	} while (!atomic_cas(&sock->refcount, ref, ref - 1));
+
+	/* notifies free only on 1-to-0 transition */
+	if (ref > 1) {
+		return;
+	}
 
 	k_sem_give(&sock->sem_free);
 }
@@ -140,6 +147,11 @@ static struct net_pkt *esp_socket_prepare_pkt(struct esp_socket *sock,
 	net_pkt_set_context(pkt, sock->context);
 	net_pkt_cursor_init(pkt);
 
+#if defined(CONFIG_WIFI_ESP_AT_CIPDINFO_USE)
+	memcpy(&pkt->remote, &sock->context->remote, sizeof(pkt->remote));
+	pkt->family = sock->src.sa_family;
+#endif
+
 	return pkt;
 }
 
@@ -151,8 +163,16 @@ void esp_socket_rx(struct esp_socket *sock, struct net_buf *buf,
 
 	flags = esp_socket_flags(sock);
 
+#ifdef CONFIG_WIFI_ESP_AT_PASSIVE_MODE
+	/* In Passive Receive mode, ESP modem will buffer rx data and make it still
+	 * available even though the peer has closed the connection.
+	 */
+	if (!(flags & ESP_SOCK_CONNECTED) &&
+	    !(flags & ESP_SOCK_CLOSE_PENDING)) {
+#else
 	if (!(flags & ESP_SOCK_CONNECTED) ||
 	    (flags & ESP_SOCK_CLOSE_PENDING)) {
+#endif
 		LOG_DBG("Received data on closed link %d", sock->link_id);
 		return;
 	}
@@ -174,8 +194,29 @@ void esp_socket_rx(struct esp_socket *sock, struct net_buf *buf,
 	 * net_context and socket mutex claims matches the TX code path. Failure
 	 * to do so can lead to deadlocks.
 	 */
+	/* In the close path, we will meet deadlock in the scenario:
+	 * 1. on_cmd_ipd/esp_socket_rx invokes esp_socket_ref_from_link_id
+	 *    and increments refcount.
+	 * 2. zvfs_close/esp_put locks cond.lock.
+	 * 3. zvfs_close/esp_put waits on sem_free.
+	 * 4. on_cmd_ipd/esp_socket_rx waits on cond.lock before esp_socket_unref.
+	 * 5. sem_free waits on esp_socket_unref for refcount reaching zero.
+	 */
 	if (sock->context->cond.lock) {
-		k_mutex_lock(sock->context->cond.lock, K_FOREVER);
+		int ret = -EAGAIN;
+
+		/*
+		 * If the socket is closing, we can ignore the packet and won't
+		 * trap in deadlock.
+		 */
+		while (atomic_get(&sock->refcount) > 1 && ret == -EAGAIN) {
+			ret = k_mutex_lock(sock->context->cond.lock, K_SECONDS(1));
+		}
+		if (ret != 0) {
+			/* Discard */
+			net_pkt_unref(pkt);
+			return;
+		}
 	}
 #endif /* CONFIG_NET_SOCKETS */
 	k_mutex_lock(&sock->lock, K_FOREVER);
@@ -198,7 +239,7 @@ void esp_socket_rx(struct esp_socket *sock, struct net_buf *buf,
 void esp_socket_close(struct esp_socket *sock)
 {
 	struct esp_data *dev = esp_socket_to_dev(sock);
-	char cmd_buf[sizeof("AT+CIPCLOSE=0")];
+	char cmd_buf[sizeof("AT+CIPCLOSE=000")];
 	int ret;
 
 	snprintk(cmd_buf, sizeof(cmd_buf), "AT+CIPCLOSE=%d",

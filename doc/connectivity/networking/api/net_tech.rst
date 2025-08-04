@@ -10,3 +10,5 @@ Networking Technologies
    ieee802154.rst
    thread.rst
    ppp.rst
+   wifi.rst
+   wifi_credentials.rst

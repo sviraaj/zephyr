@@ -20,6 +20,8 @@
 #include "util/dbuf.h"
 #include "util/util.h"
 
+#include "pdu_df.h"
+#include "pdu_vendor.h"
 #include "pdu.h"
 
 #include "lll.h"
@@ -34,9 +36,6 @@
 #include "lll_df_internal.h"
 #include "lll_tim_internal.h"
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
-#define LOG_MODULE_NAME bt_ctlr_lll_periph
-#include "common/log.h"
 #include <soc.h>
 #include "hal/debug.h"
 
@@ -80,17 +79,9 @@ void lll_periph_prepare(void *param)
 
 	lll = p->param;
 
-	/* Accumulate window widening */
-	lll->periph.window_widening_prepare_us +=
-	    lll->periph.window_widening_periodic_us * (p->lazy + 1);
-	if (lll->periph.window_widening_prepare_us >
-	    lll->periph.window_widening_max_us) {
-		lll->periph.window_widening_prepare_us =
-			lll->periph.window_widening_max_us;
-	}
-
 	/* Invoke common pipeline handling of prepare */
-	err = lll_prepare(lll_is_abort_cb, lll_conn_abort_cb, prepare_cb, 0, p);
+	err = lll_prepare(lll_conn_peripheral_is_abort_cb, lll_conn_abort_cb,
+			  prepare_cb, 0U, param);
 	LL_ASSERT(!err || err == -EINPROGRESS);
 }
 
@@ -114,12 +105,13 @@ static int prepare_cb(struct lll_prepare_param *p)
 	struct ull_hdr *ull;
 	uint32_t remainder;
 	uint32_t hcto;
+	uint32_t ret;
 
 	DEBUG_RADIO_START_S(1);
 
 	lll = p->param;
 
-	/* Check if stopped (on disconnection between prepare and pre-empt)
+	/* Check if stopped (on disconnection between prepare and preempt)
 	 */
 	if (unlikely(lll->handle == 0xFFFF)) {
 		radio_isr_set(lll_isr_early_abort, lll);
@@ -132,7 +124,8 @@ static int prepare_cb(struct lll_prepare_param *p)
 	lll_conn_prepare_reset();
 
 	/* Calculate the current event latency */
-	lll->latency_event = lll->latency_prepare + p->lazy;
+	lll->lazy_prepare = p->lazy;
+	lll->latency_event = lll->latency_prepare + lll->lazy_prepare;
 
 	/* Calculate the current event counter value */
 	event_counter = lll->event_counter + lll->latency_event;
@@ -160,6 +153,15 @@ static int prepare_cb(struct lll_prepare_param *p)
 					       lll->data_chan_count);
 	}
 
+	/* Accumulate window widening */
+	lll->periph.window_widening_prepare_us +=
+	    lll->periph.window_widening_periodic_us * (lll->lazy_prepare + 1U);
+	if (lll->periph.window_widening_prepare_us >
+	    lll->periph.window_widening_max_us) {
+		lll->periph.window_widening_prepare_us =
+			lll->periph.window_widening_max_us;
+	}
+
 	/* current window widening */
 	lll->periph.window_widening_event_us +=
 		lll->periph.window_widening_prepare_us;
@@ -174,6 +176,11 @@ static int prepare_cb(struct lll_prepare_param *p)
 	lll->periph.window_size_event_us +=
 		lll->periph.window_size_prepare_us;
 	lll->periph.window_size_prepare_us = 0;
+
+#if defined(CONFIG_BT_CTLR_PHY)
+	/* back up rx PHY for use in drift compensation */
+	lll->periph.phy_rx_event = lll->phy_rx;
+#endif /* CONFIG_BT_CTLR_PHY */
 
 	/* Ensure that empty flag reflects the state of the Tx queue, as a
 	 * peripheral if this is the first connection event and as no prior PDU
@@ -209,7 +216,7 @@ static int prepare_cb(struct lll_prepare_param *p)
 
 	radio_isr_set(lll_conn_isr_rx, lll);
 
-	radio_tmr_tifs_set(EVENT_IFS_US);
+	radio_tmr_tifs_set(lll->tifs_tx_us);
 
 #if defined(CONFIG_BT_CTLR_DF_CONN_CTE_RX)
 #if defined(CONFIG_BT_CTLR_DF_PHYEND_OFFSET_COMPENSATION_ENABLE)
@@ -225,7 +232,7 @@ static int prepare_cb(struct lll_prepare_param *p)
 		df_rx_params = dbuf_latest_get(&df_rx_cfg->hdr, NULL);
 
 		if (df_rx_params->is_enabled == true) {
-			lll_df_conf_cte_rx_enable(df_rx_params->slot_durations,
+			(void)lll_df_conf_cte_rx_enable(df_rx_params->slot_durations,
 						  df_rx_params->ant_sw_len, df_rx_params->ant_ids,
 						  data_chan_use, CTE_INFO_IN_S1_BYTE, lll->phy_rx);
 			lll->df_rx_cfg.chan = data_chan_use;
@@ -313,9 +320,13 @@ static int prepare_cb(struct lll_prepare_param *p)
 #endif /* HAL_RADIO_GPIO_HAVE_LNA_PIN */
 
 #if defined(CONFIG_BT_CTLR_PROFILE_ISR) || \
+	defined(CONFIG_BT_CTLR_TX_DEFER) || \
 	defined(HAL_RADIO_GPIO_HAVE_PA_PIN)
 	radio_tmr_end_capture();
-#endif /* CONFIG_BT_CTLR_PROFILE_ISR */
+#endif /* CONFIG_BT_CTLR_PROFILE_ISR ||
+	* CONFIG_BT_CTLR_TX_DEFER ||
+	* HAL_RADIO_GPIO_HAVE_PA_PIN
+	*/
 
 #if defined(CONFIG_BT_CTLR_CONN_RSSI)
 	radio_rssi_measure();
@@ -323,19 +334,22 @@ static int prepare_cb(struct lll_prepare_param *p)
 
 #if defined(CONFIG_BT_CTLR_XTAL_ADVANCED) && \
 	(EVENT_OVERHEAD_PREEMPT_US <= EVENT_OVERHEAD_PREEMPT_MIN_US)
+	uint32_t overhead;
+
+	overhead = lll_preempt_calc(ull, (TICKER_ID_CONN_BASE + lll->handle), ticks_at_event);
 	/* check if preempt to start has changed */
-	if (lll_preempt_calc(ull, (TICKER_ID_CONN_BASE + lll->handle),
-			     ticks_at_event)) {
+	if (overhead) {
+		LL_ASSERT_OVERHEAD(overhead);
+
 		radio_isr_set(lll_isr_abort, lll);
 		radio_disable();
-	} else
-#endif /* CONFIG_BT_CTLR_XTAL_ADVANCED */
-	{
-		uint32_t ret;
 
-		ret = lll_prepare_done(lll);
-		LL_ASSERT(!ret);
+		return -ECANCELED;
 	}
+#endif /* CONFIG_BT_CTLR_XTAL_ADVANCED */
+
+	ret = lll_prepare_done(lll);
+	LL_ASSERT(!ret);
 
 	DEBUG_RADIO_START_S(1);
 

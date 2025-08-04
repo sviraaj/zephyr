@@ -3,12 +3,16 @@
 
 # Common fields for PCIe bus controllers
 
-include: base.yaml
+include: [base.yaml, acpi.yaml]
+
+description: Generic PCIe host controller
+
+compatible: "pcie-controller"
 
 bus: pcie
 
 properties:
-    "#address-cells":
-      required: true
-    "#size-cells":
-      required: true
+  "#address-cells":
+    required: true
+  "#size-cells":
+    required: true

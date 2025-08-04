@@ -4,32 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/*
- * @file
- * @brief Test early sleep functionality
- *
- * @defgroup kernel_earlysleep_tests Early Sleep Tests
- *
- * @ingroup all_tests
- *
- * This test verifies that k_sleep() can be used to put the calling thread to
- * sleep for a specified number of ticks during system initialization.  In this
- * test we are calling k_sleep() at POST_KERNEL and APPLICATION level
- * initialization sequence.
- *
- * Note: We can not call k_sleep() during PRE_KERNEL1 or PRE_KERNEL2 level
- * because the core kernel objects and devices initialization happens at these
- * levels.
- * @{
- * @}
- */
+
 
 #include <zephyr/init.h>
 #include <zephyr/arch/cpu.h>
 #include <zephyr/sys_clock.h>
 #include <stdbool.h>
-#include <tc_util.h>
-#include <ztest.h>
+#include <zephyr/tc_util.h>
+#include <zephyr/ztest.h>
 
 #define THREAD_STACK		(384 + CONFIG_TEST_EXTRA_STACK_SIZE)
 
@@ -65,9 +47,8 @@ static int ticks_to_sleep(int ticks)
 }
 
 
-static int test_early_sleep_post_kernel(const struct device *unused)
+static int test_early_sleep_post_kernel(void)
 {
-	ARG_UNUSED(unused);
 	actual_post_kernel_sleep_ticks = ticks_to_sleep(TEST_TICKS_TO_SLEEP);
 	return 0;
 }
@@ -75,23 +56,29 @@ static int test_early_sleep_post_kernel(const struct device *unused)
 SYS_INIT(test_early_sleep_post_kernel,
 		POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);
 
-static int test_early_sleep_app(const struct device *unused)
+static int test_early_sleep_app(void)
 {
-	ARG_UNUSED(unused);
 	actual_app_sleep_ticks = ticks_to_sleep(TEST_TICKS_TO_SLEEP);
 	return 0;
 }
 
 SYS_INIT(test_early_sleep_app, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);
 
-/**
- * @brief Test early sleep
+/*
+ * @brief Test early sleep functionality
  *
- * @ingroup kernel_earlysleep_tests
+ * @ingroup kernel_sleep_tests
  *
- * @see k_sleep()
+ * This test verifies that k_sleep() can be used to put the calling thread to
+ * sleep for a specified number of ticks during system initialization.  In this
+ * test we are calling k_sleep() at POST_KERNEL and APPLICATION level
+ * initialization sequence.
+ *
+ * Note: We can not call k_sleep() during PRE_KERNEL1 or PRE_KERNEL2 level
+ * because the core kernel objects and devices initialization happens at these
+ * levels.
  */
-static void test_early_sleep(void)
+ZTEST(earlysleep, test_early_sleep)
 {
 	TC_PRINT("Testing early sleeping\n");
 
@@ -133,10 +120,5 @@ static void test_early_sleep(void)
 	zassert_false(test_failure, "Lower priority thread not ran!!");
 }
 
-/*test case main entry*/
-void test_main(void)
-{
-	ztest_test_suite(test_earlysleep,
-			ztest_1cpu_unit_test(test_early_sleep));
-	ztest_run_test_suite(test_earlysleep);
-}
+ZTEST_SUITE(earlysleep, NULL, NULL,
+		ztest_simple_1cpu_before, ztest_simple_1cpu_after, NULL);

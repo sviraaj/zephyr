@@ -38,7 +38,7 @@
  */
 
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/reboot.h>
 #include <zephyr/device.h>
 #include <string.h>
@@ -48,13 +48,9 @@
 
 static struct nvs_fs fs;
 
-#define STORAGE_NODE_LABEL storage
-
-/* 1000 msec = 1 sec */
-#define SLEEP_TIME      100
-/* maximum reboot counts, make high enough to trigger sector change (buffer */
-/* rotation). */
-#define MAX_REBOOT 400
+#define NVS_PARTITION		storage_partition
+#define NVS_PARTITION_DEVICE	FIXED_PARTITION_DEVICE(NVS_PARTITION)
+#define NVS_PARTITION_OFFSET	FIXED_PARTITION_OFFSET(NVS_PARTITION)
 
 #define ADDRESS_ID 1
 #define KEY_ID 2
@@ -63,7 +59,7 @@ static struct nvs_fs fs;
 #define LONG_ID 5
 
 
-void main(void)
+int main(void)
 {
 	int rc = 0, cnt = 0, cnt_his = 0;
 	char buf[16];
@@ -74,26 +70,26 @@ void main(void)
 	/* define the nvs file system by settings with:
 	 *	sector_size equal to the pagesize,
 	 *	3 sectors
-	 *	starting at FLASH_AREA_OFFSET(storage)
+	 *	starting at NVS_PARTITION_OFFSET
 	 */
-	fs.flash_device = FLASH_AREA_DEVICE(STORAGE_NODE_LABEL);
+	fs.flash_device = NVS_PARTITION_DEVICE;
 	if (!device_is_ready(fs.flash_device)) {
 		printk("Flash device %s is not ready\n", fs.flash_device->name);
-		return;
+		return 0;
 	}
-	fs.offset = FLASH_AREA_OFFSET(storage);
+	fs.offset = NVS_PARTITION_OFFSET;
 	rc = flash_get_page_info_by_offs(fs.flash_device, fs.offset, &info);
 	if (rc) {
-		printk("Unable to get page info\n");
-		return;
+		printk("Unable to get page info, rc=%d\n", rc);
+		return 0;
 	}
 	fs.sector_size = info.size;
 	fs.sector_count = 3U;
 
 	rc = nvs_mount(&fs);
 	if (rc) {
-		printk("Flash Init failed\n");
-		return;
+		printk("Flash Init failed, rc=%d\n", rc);
+		return 0;
 	}
 
 	/* ADDRESS_ID is used to store an address, lets see if we can
@@ -190,11 +186,11 @@ void main(void)
 		}
 	}
 
-	cnt = 5;
+	cnt = CONFIG_NVS_SAMPLE_REBOOT_COUNTDOWN;
 	while (1) {
-		k_msleep(SLEEP_TIME);
-		if (reboot_counter < MAX_REBOOT) {
-			if (cnt == 5) {
+		k_msleep(CONFIG_NVS_SAMPLE_SLEEP_TIME);
+		if (reboot_counter < CONFIG_NVS_SAMPLE_MAX_REBOOT) {
+			if (cnt == CONFIG_NVS_SAMPLE_REBOOT_COUNTDOWN) {
 				/* print some history information about
 				 * the reboot counter
 				 * Check the counter history in flash
@@ -228,7 +224,7 @@ void main(void)
 				(void)nvs_write(
 					&fs, RBT_CNT_ID, &reboot_counter,
 					sizeof(reboot_counter));
-				if (reboot_counter == MAX_REBOOT) {
+				if (reboot_counter == CONFIG_NVS_SAMPLE_MAX_REBOOT) {
 					printk("Doing last reboot...\n");
 				}
 				sys_reboot(0);
@@ -242,4 +238,5 @@ void main(void)
 			break;
 		}
 	}
+	return 0;
 }

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/watchdog.h>
 #include <zephyr/sys/reboot.h>
@@ -21,7 +21,7 @@
  * from there. Otherwise, the task watchdog will be used without a
  * hardware watchdog fallback.
  */
-#if DT_NODE_HAS_STATUS(DT_ALIAS(watchdog0), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_ALIAS(watchdog0))
 #define WDT_NODE DT_ALIAS(watchdog0)
 #elif DT_HAS_COMPAT_STATUS_OKAY(st_stm32_window_watchdog)
 #define WDT_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(st_stm32_window_watchdog)
@@ -33,10 +33,12 @@
 #define WDT_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(espressif_esp32_watchdog)
 #elif DT_HAS_COMPAT_STATUS_OKAY(silabs_gecko_wdog)
 #define WDT_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(silabs_gecko_wdog)
-#elif DT_HAS_COMPAT_STATUS_OKAY(nxp_kinetis_wdog32)
-#define WDT_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(nxp_kinetis_wdog32)
+#elif DT_HAS_COMPAT_STATUS_OKAY(nxp_wdog32)
+#define WDT_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(nxp_wdog32)
 #elif DT_HAS_COMPAT_STATUS_OKAY(microchip_xec_watchdog)
 #define WDT_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(microchip_xec_watchdog)
+#else
+#define WDT_NODE DT_INVALID_NODE
 #endif
 
 static void task_wdt_callback(int channel_id, void *user_data)
@@ -56,27 +58,23 @@ static void task_wdt_callback(int channel_id, void *user_data)
 	sys_reboot(SYS_REBOOT_COLD);
 }
 
-void main(void)
+int main(void)
 {
 	int ret;
-#ifdef WDT_NODE
-	const struct device *hw_wdt_dev = DEVICE_DT_GET(WDT_NODE);
-#else
-	const struct device *hw_wdt_dev = NULL;
-#endif
+	const struct device *const hw_wdt_dev = DEVICE_DT_GET_OR_NULL(WDT_NODE);
 
 	printk("Task watchdog sample application.\n");
 
 	if (!device_is_ready(hw_wdt_dev)) {
-		printk("Hardware watchdog %s is not ready; ignoring it.\n",
-		       hw_wdt_dev->name);
-		hw_wdt_dev = NULL;
+		printk("Hardware watchdog not ready; ignoring it.\n");
+		ret = task_wdt_init(NULL);
+	} else {
+		ret = task_wdt_init(hw_wdt_dev);
 	}
 
-	ret = task_wdt_init(hw_wdt_dev);
 	if (ret != 0) {
 		printk("task wdt init failure: %d\n", ret);
-		return;
+		return 0;
 	}
 
 
@@ -88,6 +86,7 @@ void main(void)
 		task_wdt_feed(task_wdt_id);
 		k_sleep(K_MSEC(1000));
 	}
+	return 0;
 }
 
 /*

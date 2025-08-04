@@ -7,25 +7,34 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
-#include <zephyr/types.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
-#include <zephyr/sys/check.h>
-
-#include <zephyr/device.h>
-#include <zephyr/init.h>
-
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/audio/aics.h>
+#include <zephyr/bluetooth/att.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/l2cap.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
-#include <zephyr/bluetooth/audio/aics.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/device.h>
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/init.h>
+#include <zephyr/sys/__assert.h>
+#include <zephyr/sys/atomic.h>
+#include <zephyr/sys/check.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/types.h>
 
 #include "aics_internal.h"
+#include "common/bt_str.h"
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_AICS_CLIENT)
-#define LOG_MODULE_NAME bt_aics_client
-#include "common/log.h"
+LOG_MODULE_REGISTER(bt_aics_client, CONFIG_BT_AICS_CLIENT_LOG_LEVEL);
 
 static struct bt_aics aics_insts[CONFIG_BT_MAX_CONN * CONFIG_BT_AICS_CLIENT_MAX_INSTANCE_COUNT];
 
@@ -35,14 +44,14 @@ static struct bt_aics *lookup_aics_by_handle(struct bt_conn *conn, uint16_t hand
 {
 	for (int i = 0; i < ARRAY_SIZE(aics_insts); i++) {
 		if (aics_insts[i].cli.conn == conn &&
-		    aics_insts[i].cli.active &&
+		    atomic_test_bit(aics_insts[i].cli.flags, BT_AICS_CLIENT_FLAG_ACTIVE) &&
 		    aics_insts[i].cli.start_handle <= handle &&
 		    aics_insts[i].cli.end_handle >= handle) {
 			return &aics_insts[i];
 		}
 	}
 
-	BT_DBG("Could not find AICS instance with handle 0x%04x", handle);
+	LOG_DBG("Could not find AICS instance with handle 0x%04x", handle);
 
 	return NULL;
 }
@@ -52,8 +61,8 @@ uint8_t aics_client_notify_handler(struct bt_conn *conn, struct bt_gatt_subscrib
 {
 	uint16_t handle = params->value_handle;
 	struct bt_aics *inst;
-	struct bt_aics_state *state;
-	uint8_t *status;
+	const struct bt_aics_state *state;
+	const uint8_t *status;
 
 	if (conn == NULL) {
 		return BT_GATT_ITER_CONTINUE;
@@ -62,7 +71,7 @@ uint8_t aics_client_notify_handler(struct bt_conn *conn, struct bt_gatt_subscrib
 	inst = lookup_aics_by_handle(conn, handle);
 
 	if (!inst) {
-		BT_DBG("Instance not found");
+		LOG_DBG("Instance not found");
 		return BT_GATT_ITER_STOP;
 	}
 
@@ -72,10 +81,9 @@ uint8_t aics_client_notify_handler(struct bt_conn *conn, struct bt_gatt_subscrib
 
 	if (handle == inst->cli.state_handle) {
 		if (length == sizeof(*state)) {
-			state = (struct bt_aics_state *)data;
-			BT_DBG("Inst %p: Gain %d, mute %u, gain_mode %u, counter %u",
-			       inst, state->gain, state->mute, state->gain_mode,
-			       state->change_counter);
+			state = (const struct bt_aics_state *)data;
+			LOG_DBG("Inst %p: Gain %d, mute %u, gain_mode %u, counter %u", inst,
+				state->gain, state->mute, state->gain_mode, state->change_counter);
 
 			inst->cli.change_counter = state->change_counter;
 
@@ -87,8 +95,8 @@ uint8_t aics_client_notify_handler(struct bt_conn *conn, struct bt_gatt_subscrib
 		}
 	} else if (handle == inst->cli.status_handle) {
 		if (length == sizeof(*status)) {
-			status = (uint8_t *)data;
-			BT_DBG("Inst %p: Status %u", inst, *status);
+			status = (const uint8_t *)data;
+			LOG_DBG("Inst %p: Status %u", inst, *status);
 			if (inst->cli.cb && inst->cli.cb->status) {
 				inst->cli.cb->status(inst, 0, *status);
 			}
@@ -98,17 +106,19 @@ uint8_t aics_client_notify_handler(struct bt_conn *conn, struct bt_gatt_subscrib
 
 		/* Truncate if too large */
 		if (length > sizeof(desc) - 1) {
-			BT_DBG("Description truncated from %u to %zu octets",
-			       length, sizeof(desc) - 1);
+			LOG_DBG("Description truncated from %u to %zu octets", length,
+				sizeof(desc) - 1);
 		}
 		length = MIN(sizeof(desc) - 1, length);
 
 		memcpy(desc, data, length);
 		desc[length] = '\0';
-		BT_DBG("Inst %p: Input description: %s", inst, log_strdup(desc));
+		LOG_DBG("Inst %p: Input description: %s", inst, desc);
 		if (inst->cli.cb && inst->cli.cb->description) {
 			inst->cli.cb->description(inst, 0, desc);
 		}
+	} else {
+		LOG_DBG("Receive notification on unexpected handle 0x%04X", handle);
 	}
 
 	return BT_GATT_ITER_CONTINUE;
@@ -120,20 +130,20 @@ static uint8_t aics_client_read_state_cb(struct bt_conn *conn, uint8_t err,
 {
 	int cb_err = err;
 	struct bt_aics *inst = lookup_aics_by_handle(conn, params->single.handle);
-	struct bt_aics_state *state = (struct bt_aics_state *)data;
+	const struct bt_aics_state *state = (const struct bt_aics_state *)data;
 
 	memset(params, 0, sizeof(*params));
 
 	if (!inst) {
-		BT_DBG("Instance not found");
+		LOG_DBG("Instance not found");
 		return BT_GATT_ITER_STOP;
 	}
 
-	BT_DBG("Inst %p: err: 0x%02X", inst, err);
-	inst->cli.busy = false;
+	LOG_DBG("Inst %p: err: 0x%02X", inst, err);
+	atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 
 	if (cb_err) {
-		BT_DBG("State read failed: %d", err);
+		LOG_DBG("State read failed: %d", err);
 		if (inst->cli.cb && inst->cli.cb->state) {
 			inst->cli.cb->state(inst, cb_err, 0, 0, 0);
 		}
@@ -142,18 +152,16 @@ static uint8_t aics_client_read_state_cb(struct bt_conn *conn, uint8_t err,
 
 	if (data) {
 		if (length == sizeof(*state)) {
-			BT_DBG("Gain %d, mute %u, gain_mode %u, counter %u",
-			       state->gain, state->mute, state->gain_mode,
-			       state->change_counter);
+			LOG_DBG("Gain %d, mute %u, gain_mode %u, counter %u", state->gain,
+				state->mute, state->gain_mode, state->change_counter);
 
 			inst->cli.change_counter = state->change_counter;
 		} else {
-			BT_DBG("Invalid length %u (expected %zu)",
-			       length, sizeof(*state));
+			LOG_DBG("Invalid length %u (expected %zu)", length, sizeof(*state));
 			cb_err = BT_ATT_ERR_INVALID_ATTRIBUTE_LEN;
 		}
 	} else {
-		BT_DBG("Invalid state");
+		LOG_DBG("Invalid state");
 		cb_err = BT_ATT_ERR_UNLIKELY;
 	}
 
@@ -171,20 +179,21 @@ static uint8_t aics_client_read_gain_settings_cb(struct bt_conn *conn, uint8_t e
 {
 	int cb_err = err;
 	struct bt_aics *inst = lookup_aics_by_handle(conn, params->single.handle);
-	struct bt_aics_gain_settings *gain_settings = (struct bt_aics_gain_settings *)data;
+	const struct bt_aics_gain_settings *gain_settings =
+		(const struct bt_aics_gain_settings *)data;
 
 	memset(params, 0, sizeof(*params));
 
 	if (!inst) {
-		BT_DBG("Instance not found");
+		LOG_DBG("Instance not found");
 		return BT_GATT_ITER_STOP;
 	}
 
-	BT_DBG("Inst %p: err: 0x%02X", inst, err);
-	inst->cli.busy = false;
+	LOG_DBG("Inst %p: err: 0x%02X", inst, err);
+	atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 
 	if (cb_err) {
-		BT_DBG("Gain settings read failed: %d", err);
+		LOG_DBG("Gain settings read failed: %d", err);
 		if (inst->cli.cb && inst->cli.cb->gain_setting) {
 			inst->cli.cb->gain_setting(inst, cb_err, 0, 0, 0);
 		}
@@ -193,14 +202,14 @@ static uint8_t aics_client_read_gain_settings_cb(struct bt_conn *conn, uint8_t e
 
 	if (data) {
 		if (length == sizeof(*gain_settings)) {
-			BT_DBG("Units %u, Max %d, Min %d", gain_settings->units,
-			       gain_settings->maximum, gain_settings->minimum);
+			LOG_DBG("Units %u, Max %d, Min %d", gain_settings->units,
+				gain_settings->maximum, gain_settings->minimum);
 		} else {
-			BT_DBG("Invalid length %u (expected %zu)", length, sizeof(*gain_settings));
+			LOG_DBG("Invalid length %u (expected %zu)", length, sizeof(*gain_settings));
 			cb_err = BT_ATT_ERR_INVALID_ATTRIBUTE_LEN;
 		}
 	} else {
-		BT_DBG("Invalid gain settings");
+		LOG_DBG("Invalid gain settings");
 		cb_err = BT_ATT_ERR_UNLIKELY;
 	}
 
@@ -218,21 +227,21 @@ static uint8_t aics_client_read_type_cb(struct bt_conn *conn, uint8_t err,
 					const void *data, uint16_t length)
 {
 	int cb_err = err;
-	uint8_t *type = (uint8_t *)data;
+	const uint8_t *type = (const uint8_t *)data;
 	struct bt_aics *inst = lookup_aics_by_handle(conn, params->single.handle);
 
 	memset(params, 0, sizeof(*params));
 
 	if (!inst) {
-		BT_DBG("Instance not found");
+		LOG_DBG("Instance not found");
 		return BT_GATT_ITER_STOP;
 	}
 
-	BT_DBG("Inst %p: err: 0x%02X", inst, err);
-	inst->cli.busy = false;
+	LOG_DBG("Inst %p: err: 0x%02X", inst, err);
+	atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 
 	if (cb_err) {
-		BT_DBG("Type read failed: %d", err);
+		LOG_DBG("Type read failed: %d", err);
 		if (inst->cli.cb && inst->cli.cb->type) {
 			inst->cli.cb->type(inst, cb_err, 0);
 		}
@@ -241,13 +250,13 @@ static uint8_t aics_client_read_type_cb(struct bt_conn *conn, uint8_t err,
 
 	if (data) {
 		if (length == sizeof(*type)) {
-			BT_DBG("Type %u", *type);
+			LOG_DBG("Type %u", *type);
 		} else {
-			BT_DBG("Invalid length %u (expected %zu)", length, sizeof(*type));
+			LOG_DBG("Invalid length %u (expected %zu)", length, sizeof(*type));
 			cb_err = BT_ATT_ERR_INVALID_ATTRIBUTE_LEN;
 		}
 	} else {
-		BT_DBG("Invalid type");
+		LOG_DBG("Invalid type");
 		cb_err = BT_ATT_ERR_UNLIKELY;
 	}
 
@@ -263,21 +272,21 @@ static uint8_t aics_client_read_status_cb(struct bt_conn *conn, uint8_t err,
 					  const void *data, uint16_t length)
 {
 	int cb_err = err;
-	uint8_t *status = (uint8_t *)data;
+	const uint8_t *status = (const uint8_t *)data;
 	struct bt_aics *inst = lookup_aics_by_handle(conn, params->single.handle);
 
 	memset(params, 0, sizeof(*params));
 
 	if (!inst) {
-		BT_DBG("Instance not found");
+		LOG_DBG("Instance not found");
 		return BT_GATT_ITER_STOP;
 	}
 
-	BT_DBG("Inst %p: err: 0x%02X", inst, err);
-	inst->cli.busy = false;
+	LOG_DBG("Inst %p: err: 0x%02X", inst, err);
+	atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 
 	if (cb_err) {
-		BT_DBG("Status read failed: %d", err);
+		LOG_DBG("Status read failed: %d", err);
 		if (inst->cli.cb && inst->cli.cb->status) {
 			inst->cli.cb->status(inst, cb_err, 0);
 		}
@@ -286,13 +295,13 @@ static uint8_t aics_client_read_status_cb(struct bt_conn *conn, uint8_t err,
 
 	if (data) {
 		if (length == sizeof(*status)) {
-			BT_DBG("Status %u", *status);
+			LOG_DBG("Status %u", *status);
 		} else {
-			BT_DBG("Invalid length %u (expected %zu)", length, sizeof(*status));
+			LOG_DBG("Invalid length %u (expected %zu)", length, sizeof(*status));
 			cb_err = BT_ATT_ERR_INVALID_ATTRIBUTE_LEN;
 		}
 	} else {
-		BT_DBG("Invalid status");
+		LOG_DBG("Invalid status");
 		cb_err = BT_ATT_ERR_UNLIKELY;
 	}
 
@@ -336,7 +345,7 @@ static void aics_cp_notify_app(struct bt_aics *inst, uint8_t err)
 		}
 		break;
 	default:
-		BT_DBG("Unknown opcode 0x%02x", inst->cli.cp_val.cp.opcode);
+		LOG_DBG("Unknown opcode 0x%02x", inst->cli.cp_val.cp.opcode);
 		break;
 	}
 }
@@ -347,28 +356,27 @@ static uint8_t internal_read_state_cb(struct bt_conn *conn, uint8_t err,
 {
 	int cb_err = err;
 	struct bt_aics *inst = lookup_aics_by_handle(conn, params->single.handle);
-	struct bt_aics_state *state = (struct bt_aics_state *)data;
+	const struct bt_aics_state *state = (const struct bt_aics_state *)data;
 
 	memset(params, 0, sizeof(*params));
 
 	if (!inst) {
-		BT_ERR("Instance not found");
+		LOG_ERR("Instance not found");
 		return BT_GATT_ITER_STOP;
 	}
 
 	if (err) {
-		BT_WARN("State read failed: %d", err);
+		LOG_WRN("State read failed: %d", err);
 	} else if (data) {
 		if (length == sizeof(*state)) {
 			int write_err;
 
-			BT_DBG("Gain %d, mute %u, gain_mode %u, counter %u",
-			       state->gain, state->mute,
-			       state->gain_mode, state->change_counter);
+			LOG_DBG("Gain %d, mute %u, gain_mode %u, counter %u", state->gain,
+				state->mute, state->gain_mode, state->change_counter);
 			inst->cli.change_counter = state->change_counter;
 
 			/* clear busy flag to reuse function */
-			inst->cli.busy = false;
+			atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 
 			if (inst->cli.cp_val.cp.opcode == BT_AICS_OPCODE_SET_GAIN) {
 				write_err = bt_aics_client_gain_set(inst,
@@ -382,13 +390,16 @@ static uint8_t internal_read_state_cb(struct bt_conn *conn, uint8_t err,
 				cb_err = BT_ATT_ERR_UNLIKELY;
 			}
 		} else {
-			BT_DBG("Invalid length %u (expected %zu)", length, sizeof(*state));
+			LOG_DBG("Invalid length %u (expected %zu)", length, sizeof(*state));
 			cb_err = BT_ATT_ERR_UNLIKELY;
 		}
+	} else {
+		/* Since we return BT_GATT_ITER_STOP this should never happen */
+		__ASSERT(false, "Unexpected NULL data without error");
 	}
 
 	if (cb_err) {
-		inst->cli.busy = false;
+		atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 		aics_cp_notify_app(inst, cb_err);
 	}
 
@@ -405,11 +416,11 @@ static void aics_client_write_aics_cp_cb(struct bt_conn *conn, uint8_t err,
 	memset(params, 0, sizeof(*params));
 
 	if (!inst) {
-		BT_DBG("Instance not found");
+		LOG_DBG("Instance not found");
 		return;
 	}
 
-	BT_DBG("Inst %p: err: %d", inst, cb_err);
+	LOG_DBG("Inst %p: err: %d", inst, cb_err);
 
 	/* If the change counter is out of data when a write was attempted from
 	 * the application, we automatically initiate a read to get the newest
@@ -417,7 +428,8 @@ static void aics_client_write_aics_cp_cb(struct bt_conn *conn, uint8_t err,
 	 * restart the applications write request. If it fails
 	 * the second time, we return an error to the application.
 	 */
-	if (cb_err == BT_AICS_ERR_INVALID_COUNTER && inst->cli.cp_retried) {
+	if (cb_err == BT_AICS_ERR_INVALID_COUNTER &&
+	    atomic_test_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_CP_RETRIED)) {
 		cb_err = BT_ATT_ERR_UNLIKELY;
 	} else if (cb_err == BT_AICS_ERR_INVALID_COUNTER && inst->cli.state_handle) {
 		inst->cli.read_params.func = internal_read_state_cb;
@@ -425,19 +437,21 @@ static void aics_client_write_aics_cp_cb(struct bt_conn *conn, uint8_t err,
 		inst->cli.read_params.single.handle = inst->cli.state_handle;
 		inst->cli.read_params.single.offset = 0U;
 
-		cb_err = bt_gatt_read(conn, &inst->cli.read_params);
+		atomic_set_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_CP_RETRIED);
 
-		if (cb_err) {
-			BT_WARN("Could not read state: %d", cb_err);
+		cb_err = bt_gatt_read(conn, &inst->cli.read_params);
+		if (cb_err != 0) {
+			LOG_WRN("Could not read state: %d", cb_err);
 		} else {
-			inst->cli.cp_retried = true;
 			/* Wait for read callback */
 			return;
 		}
+	} else {
+		/* Write failed, fallthrough and notify application */
 	}
 
-	inst->cli.busy = false;
-	inst->cli.cp_retried = false;
+	atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_CP_RETRIED);
+	atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 
 	aics_cp_notify_app(inst, cb_err);
 }
@@ -447,24 +461,24 @@ static int aics_client_common_control(uint8_t opcode, struct bt_aics *inst)
 	int err;
 
 	CHECKIF(!inst) {
-		BT_DBG("NULL instance");
+		LOG_DBG("NULL instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(!inst->client_instance) {
-		BT_DBG("Not a client instance instance");
+		LOG_DBG("Not a client instance instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(inst->cli.conn == NULL) {
-		BT_DBG("NULL conn");
+		LOG_DBG("NULL conn");
 		return -EINVAL;
 	}
 
 	if (!inst->cli.control_handle) {
-		BT_DBG("Handle not set for opcode %u", opcode);
+		LOG_DBG("Handle not set for opcode %u", opcode);
 		return -EINVAL;
-	} else if (inst->cli.busy) {
+	} else if (atomic_test_and_set_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY)) {
 		return -EBUSY;
 	}
 
@@ -478,13 +492,12 @@ static int aics_client_common_control(uint8_t opcode, struct bt_aics *inst)
 	inst->cli.write_params.func = aics_client_write_aics_cp_cb;
 
 	err = bt_gatt_write(inst->cli.conn, &inst->cli.write_params);
-	if (!err) {
-		inst->cli.busy = true;
+	if (err != 0) {
+		atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 	}
 
 	return err;
 }
-
 
 static uint8_t aics_client_read_desc_cb(struct bt_conn *conn, uint8_t err,
 					struct bt_gatt_read_params *params,
@@ -497,14 +510,14 @@ static uint8_t aics_client_read_desc_cb(struct bt_conn *conn, uint8_t err,
 	memset(params, 0, sizeof(*params));
 
 	if (!inst) {
-		BT_DBG("Instance not found");
+		LOG_DBG("Instance not found");
 		return BT_GATT_ITER_STOP;
 	}
 
-	inst->cli.busy = false;
+	atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 
 	if (cb_err) {
-		BT_DBG("Description read failed: %d", err);
+		LOG_DBG("Description read failed: %d", err);
 		if (inst->cli.cb && inst->cli.cb->description) {
 			inst->cli.cb->description(inst, cb_err, NULL);
 		}
@@ -512,12 +525,12 @@ static uint8_t aics_client_read_desc_cb(struct bt_conn *conn, uint8_t err,
 	}
 
 	if (data) {
-		BT_HEXDUMP_DBG(data, length, "Input description read");
+		LOG_HEXDUMP_DBG(data, length, "Input description read");
 
 		/* Truncate if too large */
 		if (length > sizeof(desc) - 1) {
-			BT_DBG("Description truncated from %u to %zu octets",
-			       length, sizeof(desc) - 1);
+			LOG_DBG("Description truncated from %u to %zu octets", length,
+				sizeof(desc) - 1);
 		}
 		length = MIN(sizeof(desc) - 1, length);
 
@@ -527,7 +540,7 @@ static uint8_t aics_client_read_desc_cb(struct bt_conn *conn, uint8_t err,
 	}
 
 	desc[length] = '\0';
-	BT_DBG("Input description: %s", log_strdup(desc));
+	LOG_DBG("Input description: %s", desc);
 
 	if (inst->cli.cb && inst->cli.cb->description) {
 		inst->cli.cb->description(inst, cb_err, desc);
@@ -546,23 +559,84 @@ static bool valid_inst_discovered(struct bt_aics *inst)
 	       inst->cli.desc_handle;
 }
 
+static int store_attr_handle_and_subscribe(struct bt_aics_client *client_inst, struct bt_conn *conn,
+					   const struct bt_gatt_chrc *chrc)
+{
+	struct bt_gatt_subscribe_params *sub_params = NULL;
+
+	if (bt_uuid_cmp(chrc->uuid, BT_UUID_AICS_STATE) == 0U) {
+		LOG_DBG("Audio Input state");
+		client_inst->state_handle = chrc->value_handle;
+		sub_params = &client_inst->state_sub_params;
+	} else if (bt_uuid_cmp(chrc->uuid, BT_UUID_AICS_GAIN_SETTINGS) == 0U) {
+		LOG_DBG("Gain settings");
+		client_inst->gain_handle = chrc->value_handle;
+	} else if (bt_uuid_cmp(chrc->uuid, BT_UUID_AICS_INPUT_TYPE) == 0U) {
+		LOG_DBG("Input type");
+		client_inst->type_handle = chrc->value_handle;
+	} else if (bt_uuid_cmp(chrc->uuid, BT_UUID_AICS_INPUT_STATUS) == 0U) {
+		LOG_DBG("Input status");
+		client_inst->status_handle = chrc->value_handle;
+		sub_params = &client_inst->status_sub_params;
+	} else if (bt_uuid_cmp(chrc->uuid, BT_UUID_AICS_CONTROL) == 0U) {
+		LOG_DBG("Control point");
+		client_inst->control_handle = chrc->value_handle;
+	} else if (bt_uuid_cmp(chrc->uuid, BT_UUID_AICS_DESCRIPTION) == 0U) {
+		LOG_DBG("Description");
+		client_inst->desc_handle = chrc->value_handle;
+		if ((chrc->properties & BT_GATT_CHRC_NOTIFY) != 0U) {
+			sub_params = &client_inst->desc_sub_params;
+		}
+
+		if ((chrc->properties & BT_GATT_CHRC_WRITE_WITHOUT_RESP) != 0U) {
+			atomic_set_bit(client_inst->flags, BT_AICS_CLIENT_FLAG_DESC_WRITABLE);
+		}
+	} else {
+		__ASSERT(false, "Unexpected UUID %s discovered", bt_uuid_str(chrc->uuid));
+	}
+
+	if (sub_params != NULL) {
+		int err;
+
+		sub_params->value = BT_GATT_CCC_NOTIFY;
+		sub_params->value_handle = chrc->value_handle;
+		/*
+		 * TODO: Don't assume that CCC is at value handle + 1;
+		 * do proper discovery;
+		 */
+		sub_params->ccc_handle = chrc->value_handle + 1;
+		sub_params->notify = aics_client_notify_handler;
+		atomic_set_bit(sub_params->flags, BT_GATT_SUBSCRIBE_FLAG_VOLATILE);
+
+		err = bt_gatt_subscribe(conn, sub_params);
+		if (err != 0 && err != -EALREADY) {
+			LOG_ERR("Failed to subscribe: %d", err);
+
+			return err;
+		}
+	}
+
+	return 0;
+}
+
 static uint8_t aics_discover_func(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 				  struct bt_gatt_discover_params *params)
 {
-	struct bt_aics_client *client_inst = CONTAINER_OF(params,
-							  struct bt_aics_client,
-							  discover_params);
+	struct bt_aics_client *client_inst =
+		CONTAINER_OF(params, struct bt_aics_client, discover_params);
 	struct bt_aics *inst = CONTAINER_OF(client_inst, struct bt_aics, cli);
+	const struct bt_gatt_chrc *chrc;
+	int err;
 
 	if (!attr) {
-		BT_DBG("Discovery complete for AICS %p", inst);
+		LOG_DBG("Discovery complete for AICS %p", inst);
 
 		memset(params, 0, sizeof(*params));
 
-		inst->cli.busy = false;
+		atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 
 		if (inst->cli.cb && inst->cli.cb->discover) {
-			int err = valid_inst_discovered(inst) ? 0 : -ENOENT;
+			err = valid_inst_discovered(inst) ? 0 : -ENOENT;
 
 			inst->cli.cb->discover(inst, err);
 		}
@@ -570,58 +644,23 @@ static uint8_t aics_discover_func(struct bt_conn *conn, const struct bt_gatt_att
 		return BT_GATT_ITER_STOP;
 	}
 
-	BT_DBG("[ATTRIBUTE] handle 0x%04X", attr->handle);
+	LOG_DBG("[ATTRIBUTE] handle 0x%04X", attr->handle);
 
-	if (params->type == BT_GATT_DISCOVER_CHARACTERISTIC) {
-		struct bt_gatt_subscribe_params *sub_params = NULL;
-		struct bt_gatt_chrc *chrc;
+	__ASSERT_NO_MSG(params->type == BT_GATT_DISCOVER_CHARACTERISTIC);
 
-		chrc = (struct bt_gatt_chrc *)attr->user_data;
-		if (inst->cli.start_handle == 0) {
-			inst->cli.start_handle = chrc->value_handle;
-		}
-		inst->cli.end_handle = chrc->value_handle;
+	chrc = (const struct bt_gatt_chrc *)attr->user_data;
+	if (inst->cli.start_handle == 0U) { /* if start handle is unset */
+		inst->cli.start_handle = chrc->value_handle;
+	}
+	inst->cli.end_handle = chrc->value_handle;
 
-		if (!bt_uuid_cmp(chrc->uuid, BT_UUID_AICS_STATE)) {
-			BT_DBG("Audio Input state");
-			inst->cli.state_handle = chrc->value_handle;
-			sub_params = &inst->cli.state_sub_params;
-		} else if (!bt_uuid_cmp(chrc->uuid, BT_UUID_AICS_GAIN_SETTINGS)) {
-			BT_DBG("Gain settings");
-			inst->cli.gain_handle = chrc->value_handle;
-		} else if (!bt_uuid_cmp(chrc->uuid, BT_UUID_AICS_INPUT_TYPE)) {
-			BT_DBG("Input type");
-			inst->cli.type_handle = chrc->value_handle;
-		} else if (!bt_uuid_cmp(chrc->uuid, BT_UUID_AICS_INPUT_STATUS)) {
-			BT_DBG("Input status");
-			inst->cli.status_handle = chrc->value_handle;
-			sub_params = &inst->cli.status_sub_params;
-		} else if (!bt_uuid_cmp(chrc->uuid, BT_UUID_AICS_CONTROL)) {
-			BT_DBG("Control point");
-			inst->cli.control_handle = chrc->value_handle;
-		} else if (!bt_uuid_cmp(chrc->uuid, BT_UUID_AICS_DESCRIPTION)) {
-			BT_DBG("Description");
-			inst->cli.desc_handle = chrc->value_handle;
-			if (chrc->properties & BT_GATT_CHRC_NOTIFY) {
-				sub_params = &inst->cli.desc_sub_params;
-			}
-
-			if (chrc->properties & BT_GATT_CHRC_WRITE_WITHOUT_RESP) {
-				inst->cli.desc_writable = true;
-			}
+	err = store_attr_handle_and_subscribe(client_inst, conn, chrc);
+	if (err != 0) {
+		if (client_inst->cb && client_inst->cb->discover) {
+			client_inst->cb->discover(inst, err);
 		}
 
-		if (sub_params) {
-			sub_params->value = BT_GATT_CCC_NOTIFY;
-			sub_params->value_handle = chrc->value_handle;
-			/*
-			 * TODO: Don't assume that CCC is at handle + 2;
-			 * do proper discovery;
-			 */
-			sub_params->ccc_handle = attr->handle + 2;
-			sub_params->notify = aics_client_notify_handler;
-			bt_gatt_subscribe(conn, sub_params);
-		}
+		return BT_GATT_ITER_STOP;
 	}
 
 	return BT_GATT_ITER_CONTINUE;
@@ -629,7 +668,6 @@ static uint8_t aics_discover_func(struct bt_conn *conn, const struct bt_gatt_att
 
 static void aics_client_reset(struct bt_aics *inst)
 {
-	inst->cli.desc_writable = 0;
 	inst->cli.change_counter = 0;
 	inst->cli.gain_mode = 0;
 	inst->cli.start_handle = 0;
@@ -641,18 +679,11 @@ static void aics_client_reset(struct bt_aics *inst)
 	inst->cli.control_handle = 0;
 	inst->cli.desc_handle = 0;
 
+	atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_DESC_WRITABLE);
+	atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_CP_RETRIED);
+
 	if (inst->cli.conn != NULL) {
 		struct bt_conn *conn = inst->cli.conn;
-
-		/* It's okay if these fail. In case of disconnect, we can't
-		 * unsubscribe and they will just fail.
-		 * In case that we reset due to another call of the discover
-		 * function, we will unsubscribe (regardless of bonding state)
-		 * to accommodate the new discovery values.
-		 */
-		(void)bt_gatt_unsubscribe(conn, &inst->cli.state_sub_params);
-		(void)bt_gatt_unsubscribe(conn, &inst->cli.status_sub_params);
-		(void)bt_gatt_unsubscribe(conn, &inst->cli.desc_sub_params);
 
 		bt_conn_unref(conn);
 		inst->cli.conn = NULL;
@@ -678,24 +709,25 @@ int bt_aics_discover(struct bt_conn *conn, struct bt_aics *inst,
 	int err = 0;
 
 	CHECKIF(!inst || !conn || !param) {
-		BT_DBG("%s cannot be NULL",
-		       inst == NULL ? "inst" : conn == NULL ? "conn" : "param");
+		LOG_DBG("%s cannot be NULL", inst == NULL   ? "inst"
+					     : conn == NULL ? "conn"
+							    : "param");
 		return -EINVAL;
 	}
 
 	CHECKIF(param->end_handle <= param->start_handle) {
-		BT_DBG("start_handle (%u) shall be less than end_handle (%u)",
-		       param->start_handle, param->end_handle);
+		LOG_DBG("start_handle (%u) shall be less than end_handle (%u)", param->start_handle,
+			param->end_handle);
 		return -EINVAL;
 	}
 
-	CHECKIF(!inst->cli.active) {
-		BT_DBG("Inactive instance");
+	CHECKIF(!atomic_test_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_ACTIVE)) {
+		LOG_DBG("Inactive instance");
 		return -EINVAL;
 	}
 
-	if (inst->cli.busy) {
-		BT_DBG("Instance is busy");
+	if (atomic_test_and_set_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY)) {
+		LOG_DBG("Instance is busy");
 		return -EBUSY;
 	}
 
@@ -703,17 +735,17 @@ int bt_aics_discover(struct bt_conn *conn, struct bt_aics *inst,
 
 	(void)memset(&inst->cli.discover_params, 0, sizeof(inst->cli.discover_params));
 
-	inst->cli.conn = bt_conn_ref(conn);
 	inst->cli.discover_params.start_handle = param->start_handle;
 	inst->cli.discover_params.end_handle = param->end_handle;
 	inst->cli.discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
 	inst->cli.discover_params.func = aics_discover_func;
 
 	err = bt_gatt_discover(conn, &inst->cli.discover_params);
-	if (err) {
-		BT_DBG("Discover failed (err %d)", err);
+	if (err != 0) {
+		atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
+		LOG_DBG("Discover failed (err %d)", err);
 	} else {
-		inst->cli.busy = true;
+		inst->cli.conn = bt_conn_ref(conn);
 	}
 
 	return err;
@@ -722,9 +754,8 @@ int bt_aics_discover(struct bt_conn *conn, struct bt_aics *inst,
 struct bt_aics *bt_aics_client_free_instance_get(void)
 {
 	for (int i = 0; i < ARRAY_SIZE(aics_insts); i++) {
-		if (!aics_insts[i].cli.active) {
+		if (!atomic_test_and_set_bit(aics_insts[i].cli.flags, BT_AICS_CLIENT_FLAG_ACTIVE)) {
 			aics_insts[i].client_instance = true;
-			aics_insts[i].cli.active = true;
 			return &aics_insts[i];
 		}
 	}
@@ -735,17 +766,17 @@ struct bt_aics *bt_aics_client_free_instance_get(void)
 int bt_aics_client_conn_get(const struct bt_aics *aics, struct bt_conn **conn)
 {
 	CHECKIF(aics == NULL) {
-		BT_DBG("NULL aics pointer");
+		LOG_DBG("NULL aics pointer");
 		return -EINVAL;
 	}
 
 	if (!aics->client_instance) {
-		BT_DBG("aics pointer shall be client instance");
+		LOG_DBG("aics pointer shall be client instance");
 		return -EINVAL;
 	}
 
 	if (aics->cli.conn == NULL) {
-		BT_DBG("aics pointer not associated with a connection. "
+		LOG_DBG("aics pointer not associated with a connection. "
 		       "Do discovery first");
 		return -ENOTCONN;
 	}
@@ -759,24 +790,24 @@ int bt_aics_client_state_get(struct bt_aics *inst)
 	int err;
 
 	CHECKIF(!inst) {
-		BT_DBG("NULL instance");
+		LOG_DBG("NULL instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(!inst->client_instance) {
-		BT_DBG("Not a client instance instance");
+		LOG_DBG("Not a client instance instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(inst->cli.conn == NULL) {
-		BT_DBG("NULL conn");
+		LOG_DBG("NULL conn");
 		return -EINVAL;
 	}
 
 	if (!inst->cli.state_handle) {
-		BT_DBG("Handle not set");
+		LOG_DBG("Handle not set");
 		return -EINVAL;
-	} else if (inst->cli.busy) {
+	} else if (atomic_test_and_set_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY)) {
 		return -EBUSY;
 	}
 
@@ -785,8 +816,8 @@ int bt_aics_client_state_get(struct bt_aics *inst)
 	inst->cli.read_params.single.handle = inst->cli.state_handle;
 
 	err = bt_gatt_read(inst->cli.conn, &inst->cli.read_params);
-	if (!err) {
-		inst->cli.busy = true;
+	if (err != 0) {
+		atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 	}
 
 	return err;
@@ -797,24 +828,24 @@ int bt_aics_client_gain_setting_get(struct bt_aics *inst)
 	int err;
 
 	CHECKIF(!inst) {
-		BT_DBG("NULL instance");
+		LOG_DBG("NULL instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(!inst->client_instance) {
-		BT_DBG("Not a client instance instance");
+		LOG_DBG("Not a client instance instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(inst->cli.conn == NULL) {
-		BT_DBG("NULL conn");
+		LOG_DBG("NULL conn");
 		return -EINVAL;
 	}
 
 	if (!inst->cli.gain_handle) {
-		BT_DBG("Handle not set");
+		LOG_DBG("Handle not set");
 		return -EINVAL;
-	} else if (inst->cli.busy) {
+	} else if (atomic_test_and_set_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY)) {
 		return -EBUSY;
 	}
 
@@ -823,8 +854,8 @@ int bt_aics_client_gain_setting_get(struct bt_aics *inst)
 	inst->cli.read_params.single.handle = inst->cli.gain_handle;
 
 	err = bt_gatt_read(inst->cli.conn, &inst->cli.read_params);
-	if (!err) {
-		inst->cli.busy = true;
+	if (err != 0) {
+		atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 	}
 
 	return err;
@@ -835,24 +866,24 @@ int bt_aics_client_type_get(struct bt_aics *inst)
 	int err;
 
 	CHECKIF(!inst) {
-		BT_DBG("NULL instance");
+		LOG_DBG("NULL instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(!inst->client_instance) {
-		BT_DBG("Not a client instance instance");
+		LOG_DBG("Not a client instance instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(inst->cli.conn == NULL) {
-		BT_DBG("NULL conn");
+		LOG_DBG("NULL conn");
 		return -EINVAL;
 	}
 
 	if (!inst->cli.type_handle) {
-		BT_DBG("Handle not set");
+		LOG_DBG("Handle not set");
 		return -EINVAL;
-	} else if (inst->cli.busy) {
+	} else if (atomic_test_and_set_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY)) {
 		return -EBUSY;
 	}
 
@@ -861,8 +892,8 @@ int bt_aics_client_type_get(struct bt_aics *inst)
 	inst->cli.read_params.single.handle = inst->cli.type_handle;
 
 	err = bt_gatt_read(inst->cli.conn, &inst->cli.read_params);
-	if (!err) {
-		inst->cli.busy = true;
+	if (err != 0) {
+		atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 	}
 
 	return err;
@@ -873,24 +904,24 @@ int bt_aics_client_status_get(struct bt_aics *inst)
 	int err;
 
 	CHECKIF(!inst) {
-		BT_DBG("NULL instance");
+		LOG_DBG("NULL instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(!inst->client_instance) {
-		BT_DBG("Not a client instance instance");
+		LOG_DBG("Not a client instance instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(inst->cli.conn == NULL) {
-		BT_DBG("NULL conn");
+		LOG_DBG("NULL conn");
 		return -EINVAL;
 	}
 
 	if (!inst->cli.status_handle) {
-		BT_DBG("Handle not set");
+		LOG_DBG("Handle not set");
 		return -EINVAL;
-	} else if (inst->cli.busy) {
+	} else if (atomic_test_and_set_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY)) {
 		return -EBUSY;
 	}
 
@@ -899,8 +930,8 @@ int bt_aics_client_status_get(struct bt_aics *inst)
 	inst->cli.read_params.single.handle = inst->cli.status_handle;
 
 	err = bt_gatt_read(inst->cli.conn, &inst->cli.read_params);
-	if (!err) {
-		inst->cli.busy = true;
+	if (err != 0) {
+		atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 	}
 
 	return err;
@@ -931,24 +962,24 @@ int bt_aics_client_gain_set(struct bt_aics *inst, int8_t gain)
 	int err;
 
 	CHECKIF(!inst) {
-		BT_DBG("NULL instance");
+		LOG_DBG("NULL instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(!inst->client_instance) {
-		BT_DBG("Not a client instance instance");
+		LOG_DBG("Not a client instance instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(inst->cli.conn == NULL) {
-		BT_DBG("NULL conn");
+		LOG_DBG("NULL conn");
 		return -EINVAL;
 	}
 
 	if (!inst->cli.control_handle) {
-		BT_DBG("Handle not set");
+		LOG_DBG("Handle not set");
 		return -EINVAL;
-	} else if (inst->cli.busy) {
+	} else if (atomic_test_and_set_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY)) {
 		return -EBUSY;
 	}
 
@@ -962,8 +993,8 @@ int bt_aics_client_gain_set(struct bt_aics *inst, int8_t gain)
 	inst->cli.write_params.func = aics_client_write_aics_cp_cb;
 
 	err = bt_gatt_write(inst->cli.conn, &inst->cli.write_params);
-	if (!err) {
-		inst->cli.busy = true;
+	if (err != 0) {
+		atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 	}
 
 	return err;
@@ -974,24 +1005,24 @@ int bt_aics_client_description_get(struct bt_aics *inst)
 	int err;
 
 	CHECKIF(!inst) {
-		BT_DBG("NULL instance");
+		LOG_DBG("NULL instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(!inst->client_instance) {
-		BT_DBG("Not a client instance instance");
+		LOG_DBG("Not a client instance instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(inst->cli.conn == NULL) {
-		BT_DBG("NULL conn");
+		LOG_DBG("NULL conn");
 		return -EINVAL;
 	}
 
 	if (!inst->cli.desc_handle) {
-		BT_DBG("Handle not set");
+		LOG_DBG("Handle not set");
 		return -EINVAL;
-	} else if (inst->cli.busy) {
+	} else if (atomic_test_and_set_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY)) {
 		return -EBUSY;
 	}
 
@@ -1000,8 +1031,8 @@ int bt_aics_client_description_get(struct bt_aics *inst)
 	inst->cli.read_params.single.handle = inst->cli.desc_handle;
 
 	err = bt_gatt_read(inst->cli.conn, &inst->cli.read_params);
-	if (!err) {
-		inst->cli.busy = true;
+	if (err != 0) {
+		atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
 	}
 
 	return err;
@@ -1010,40 +1041,46 @@ int bt_aics_client_description_get(struct bt_aics *inst)
 int bt_aics_client_description_set(struct bt_aics *inst,
 				   const char *description)
 {
+	int err;
+
 	CHECKIF(!inst) {
-		BT_DBG("NULL instance");
+		LOG_DBG("NULL instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(!inst->client_instance) {
-		BT_DBG("Not a client instance instance");
+		LOG_DBG("Not a client instance instance");
 		return -EINVAL;
 	}
 
 	CHECKIF(inst->cli.conn == NULL) {
-		BT_DBG("NULL conn");
+		LOG_DBG("NULL conn");
 		return -EINVAL;
 	}
 
 	if (!inst->cli.desc_handle) {
-		BT_DBG("Handle not set");
+		LOG_DBG("Handle not set");
 		return -EINVAL;
-	} else if (inst->cli.busy) {
-		return -EBUSY;
-	} else if (!inst->cli.desc_writable) {
-		BT_DBG("Description is not writable on peer service instance");
+	} else if (!atomic_test_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_DESC_WRITABLE)) {
+		LOG_DBG("Description is not writable on peer service instance");
 		return -EPERM;
+	} else if (atomic_test_and_set_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY)) {
+		return -EBUSY;
 	}
 
-	return bt_gatt_write_without_response(inst->cli.conn, inst->cli.desc_handle,
-					      description, strlen(description),
-					      false);
+	err = bt_gatt_write_without_response(inst->cli.conn, inst->cli.desc_handle, description,
+					     strlen(description), false);
+	if (err != 0) {
+		atomic_clear_bit(inst->cli.flags, BT_AICS_CLIENT_FLAG_BUSY);
+	}
+
+	return err;
 }
 
 void bt_aics_client_cb_register(struct bt_aics *inst, struct bt_aics_cb *cb)
 {
 	CHECKIF(!inst) {
-		BT_DBG("inst cannot be NULL");
+		LOG_DBG("inst cannot be NULL");
 		return;
 	}
 

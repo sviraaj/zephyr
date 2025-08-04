@@ -10,7 +10,7 @@
 #include <stddef.h>
 #include <stdio.h>
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/debug/stack.h>
@@ -20,7 +20,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/spi.h>
 
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/l2cap.h>
 #include <zephyr/bluetooth/hci.h>
@@ -83,7 +83,7 @@ const static struct spi_buf_set tx_bufs = {
  * This is the SPI bus controller device used to exchange data with
  * the SPI-based BT controller.
  */
-static const struct device *spi_hci_dev = DEVICE_DT_GET(DT_BUS(HCI_SPI_NODE));
+static const struct device *const spi_hci_dev = DEVICE_DT_GET(DT_BUS(HCI_SPI_NODE));
 static struct spi_config spi_cfg = {
 	.operation = SPI_WORD_SET(8) | SPI_OP_MODE_SLAVE,
 };
@@ -107,20 +107,7 @@ static inline int spi_send(struct net_buf *buf)
 				    0x00, 0x00, 0x00 };
 	int ret;
 
-	LOG_DBG("buf %p type %u len %u", buf, bt_buf_get_type(buf), buf->len);
-
-	switch (bt_buf_get_type(buf)) {
-	case BT_BUF_ACL_IN:
-		net_buf_push_u8(buf, HCI_ACL);
-		break;
-	case BT_BUF_EVT:
-		net_buf_push_u8(buf, HCI_EVT);
-		break;
-	default:
-		LOG_ERR("Unknown type %u", bt_buf_get_type(buf));
-		net_buf_unref(buf);
-		return -EINVAL;
-	}
+	LOG_DBG("buf %p type %u len %u", buf, buf->data[0], buf->len);
 
 	if (buf->len > SPI_MAX_MSG_LEN) {
 		LOG_ERR("TX message too long");
@@ -245,8 +232,7 @@ static void bt_tx_thread(void *p1, void *p2, void *p3)
 			continue;
 		}
 
-		LOG_DBG("buf %p type %u len %u",
-			buf, bt_buf_get_type(buf), buf->len);
+		LOG_DBG("buf %p type %u len %u", buf, buf->data[0], buf->len);
 
 		ret = bt_send(buf);
 		if (ret) {
@@ -259,9 +245,8 @@ static void bt_tx_thread(void *p1, void *p2, void *p3)
 	}
 }
 
-static int hci_spi_init(const struct device *unused)
+static int hci_spi_init(void)
 {
-	ARG_UNUSED(unused);
 
 	LOG_DBG("");
 
@@ -270,7 +255,7 @@ static int hci_spi_init(const struct device *unused)
 		return -EINVAL;
 	}
 
-	if (!device_is_ready(irq.port)) {
+	if (!gpio_is_ready_dt(&irq)) {
 		LOG_ERR("IRQ GPIO port %s is not ready", irq.port->name);
 		return -EINVAL;
 	}
@@ -281,7 +266,7 @@ static int hci_spi_init(const struct device *unused)
 
 SYS_INIT(hci_spi_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);
 
-void main(void)
+int main(void)
 {
 	static K_FIFO_DEFINE(rx_queue);
 	struct bt_hci_evt_hdr *evt_hdr;
@@ -294,7 +279,7 @@ void main(void)
 	err = bt_enable_raw(&rx_queue);
 	if (err) {
 		LOG_ERR("bt_enable_raw: %d; aborting", err);
-		return;
+		return 0;
 	}
 
 	/* Spawn the TX thread, which feeds cmds and data to the controller */
@@ -314,14 +299,20 @@ void main(void)
 	if (err) {
 		LOG_ERR("can't send initialization event; aborting");
 		k_thread_abort(tx_id);
-		return;
+		return 0;
 	}
 
 	while (1) {
-		buf = net_buf_get(&rx_queue, K_FOREVER);
+		buf = k_fifo_get(&rx_queue, K_FOREVER);
 		err = spi_send(buf);
 		if (err) {
 			LOG_ERR("Failed to send");
 		}
+		/* Ensure that the IRQ line is de-asserted for some minimum
+		 * duration between buffers, so that the HCI controller has
+		 * time to observe the edge.
+		 */
+		k_sleep(K_TICKS(1));
 	}
+	return 0;
 }

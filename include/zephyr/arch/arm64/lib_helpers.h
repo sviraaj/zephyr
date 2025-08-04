@@ -16,16 +16,17 @@
 
 #define read_sysreg(reg)						\
 ({									\
-	uint64_t val;							\
+	uint64_t reg_val;						\
 	__asm__ volatile ("mrs %0, " STRINGIFY(reg)			\
-			  : "=r" (val) :: "memory");			\
-	val;								\
+			  : "=r" (reg_val) :: "memory");		\
+	reg_val;							\
 })
 
 #define write_sysreg(val, reg)						\
 ({									\
+	uint64_t reg_val = val;						\
 	__asm__ volatile ("msr " STRINGIFY(reg) ", %0"			\
-			  :: "r" (val) : "memory");			\
+			  :: "r" (reg_val) : "memory");			\
 })
 
 #define zero_sysreg(reg)						\
@@ -53,6 +54,8 @@
 	MAKE_REG_HELPER(reg##_el2) \
 	MAKE_REG_HELPER(reg##_el3)
 
+MAKE_REG_HELPER(ccsidr_el1);
+MAKE_REG_HELPER(clidr_el1);
 MAKE_REG_HELPER(cntfrq_el0);
 MAKE_REG_HELPER(cnthctl_el2);
 MAKE_REG_HELPER(cnthp_ctl_el2);
@@ -62,17 +65,19 @@ MAKE_REG_HELPER(cntv_cval_el0)
 MAKE_REG_HELPER(cntvct_el0);
 MAKE_REG_HELPER(cntvoff_el2);
 MAKE_REG_HELPER(currentel);
+MAKE_REG_HELPER(csselr_el1);
 MAKE_REG_HELPER(daif)
 MAKE_REG_HELPER(hcr_el2);
 MAKE_REG_HELPER(id_aa64pfr0_el1);
 MAKE_REG_HELPER(id_aa64mmfr0_el1);
-MAKE_REG_HELPER(scr_el3);
-MAKE_REG_HELPER(tpidrro_el0);
-MAKE_REG_HELPER(clidr_el1);
-MAKE_REG_HELPER(csselr_el1);
-MAKE_REG_HELPER(ccsidr_el1);
-MAKE_REG_HELPER(vmpidr_el2);
 MAKE_REG_HELPER(mpidr_el1);
+MAKE_REG_HELPER(par_el1);
+#if !defined(CONFIG_ARMV8_R)
+MAKE_REG_HELPER(scr_el3);
+#endif /* CONFIG_ARMV8_R */
+MAKE_REG_HELPER(tpidrro_el0);
+MAKE_REG_HELPER(vmpidr_el2);
+MAKE_REG_HELPER(sp_el0);
 
 MAKE_REG_HELPER_EL123(actlr)
 MAKE_REG_HELPER_EL123(cpacr)
@@ -152,15 +157,6 @@ static ALWAYS_INLINE void disable_fiq(void)
 #define wfe()	__asm__ volatile("wfe" : : : "memory")
 #define wfi()	__asm__ volatile("wfi" : : : "memory")
 
-#define dsb()	__asm__ volatile ("dsb sy" ::: "memory")
-#define dmb()	__asm__ volatile ("dmb sy" ::: "memory")
-#define isb()	__asm__ volatile ("isb" ::: "memory")
-
-/* Zephyr needs these as well */
-#define __ISB() isb()
-#define __DMB() dmb()
-#define __DSB() dsb()
-
 static inline bool is_el_implemented(unsigned int el)
 {
 	unsigned int shift;
@@ -184,8 +180,9 @@ static inline bool is_el_highest_implemented(void)
 
 	curr_el = GET_EL(read_currentel());
 
-	if (curr_el < el_highest)
+	if (curr_el < el_highest) {
 		return false;
+	}
 
 	return true;
 }

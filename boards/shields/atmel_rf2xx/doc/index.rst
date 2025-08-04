@@ -35,8 +35,7 @@ connector.  The modules from this kit are available without any transceiver
 advanced features.  For Xplained headers the `atmel_rf2xx_xplained`_ must be
 selected.  For Xplained-Pro header the `atmel_rf2xx_legacy`_ must be enabled.
 
-.. image:: ./ATAVRRZ600.jpg
-   :width: 350px
+.. image:: ATAVRRZ600.jpg
    :align: center
    :alt: AVR-RZ600
 
@@ -73,8 +72,7 @@ REB233-XPRO Module
 The REB233-XPRO development kit uses Atmel Xplained Pro header.  It is enabled
 selecting `atmel_rf2xx_xpro`_ option.
 
-.. image:: ./atreb233-xpro-top.jpg
-   :width: 300px
+.. image:: atreb233-xpro-top.jpg
    :align: center
    :alt: REB233-XPRO Top
 
@@ -181,7 +179,7 @@ Pins Assignment of the Arduino Shield Modules
 MikroBus Shields
 ================
 
-MikroBus header is available available without advanced features.  It is
+MikroBus header is available without advanced features.  It is
 enabled selecting `atmel_rf2xx_mikrobus`_ variant option.
 
 Pins Assignment of the MikroBus Shield Modules
@@ -267,15 +265,15 @@ details).
 Tested Boards
 =============
 
-+-----------------------------+------------------------------+-----------+
-| Board                       | Disabled Interface           | Variation |
-+=============================+==============================+===========+
-| ATMEL sam4s_xplained        |                              |     2     |
-+-----------------------------+------------------------------+-----------+
-| ATMEL sam4e_xpro            | Ethernet                     |   3 , 4   |
-+-----------------------------+------------------------------+-----------+
-| ATMEL sam_v71_xult          | Ethernet                     | 3 , 4 , 5 |
-+-----------------------------+------------------------------+-----------+
++------------------------------+------------------------------+-----------+
+| Board                        | Disabled Interface           | Variation |
++==============================+==============================+===========+
+| ATMEL sam4s_xplained         |                              |     2     |
++------------------------------+------------------------------+-----------+
+| ATMEL sam4e_xpro             | Ethernet                     |   3 , 4   |
++------------------------------+------------------------------+-----------+
+| ATMEL sam_v71_xult/samv71q21 | Ethernet                     | 3 , 4 , 5 |
++------------------------------+------------------------------+-----------+
 
 Sample usage
 ************
@@ -285,19 +283,19 @@ and Echo client samples, which provide out-of-the-box configuration for
 both IEEE 802.15.4 and OpenThread.  To enable IEEE 802.15.4 support in the
 samples, build them with ``overlay-802154.conf`` overlay config file.  Same
 way, to enable OpenThread support, build them with ``overlay-ot.conf`` overlay
-config file. See :ref:`sockets-echo-server-sample` and
-:ref:`sockets-echo-client-sample` for details.
+config file. See :zephyr:code-sample:`sockets-echo-server` and
+:zephyr:code-sample:`sockets-echo-client` samples for details.
 
 Build and Programming
 *********************
 
-Set ``-DSHIELD=<shield designator>`` when you invoke ``west build``.
+Set ``--shield <shield designator>`` when you invoke ``west build``.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/net/sockets/echo_server
    :host-os: unix
    :board: sam4s_xplained
-   :gen-args: -DOVERLAY_CONFIG=overlay-802154.conf
+   :gen-args: -DEXTRA_CONF_FILE=overlay-802154.conf
    :shield: atmel_rf2xx_xplained
    :goals: build flash
    :compact:
@@ -305,8 +303,8 @@ Set ``-DSHIELD=<shield designator>`` when you invoke ``west build``.
 .. zephyr-app-commands::
    :zephyr-app: samples/net/sockets/echo_server
    :host-os: unix
-   :board: [sam4e_xpro | sam_v71_xult]
-   :gen-args: -DOVERLAY_CONFIG=overlay-802154.conf
+   :board: [sam4e_xpro | sam_v71_xult/samv71q21]
+   :gen-args: -DEXTRA_CONF_FILE=overlay-802154.conf
    :shield: [atmel_rf2xx_xpro | atmel_rf2xx_legacy]
    :goals: build flash
    :compact:
@@ -314,8 +312,8 @@ Set ``-DSHIELD=<shield designator>`` when you invoke ``west build``.
 .. zephyr-app-commands::
    :zephyr-app: samples/net/sockets/echo_server
    :host-os: unix
-   :board: [sam_v71_xult | frdm_k64f | nucleo_f767zi]
-   :gen-args: -DOVERLAY_CONFIG=overlay-802154.conf
+   :board: [sam_v71_xult/samv71q21 | frdm_k64f | nucleo_f767zi]
+   :gen-args: -DEXTRA_CONF_FILE=overlay-802154.conf
    :shield: atmel_rf2xx_arduino
    :goals: build flash
    :compact:
@@ -324,7 +322,7 @@ Set ``-DSHIELD=<shield designator>`` when you invoke ``west build``.
    :zephyr-app: samples/net/sockets/echo_server
    :host-os: unix
    :board: lpcxpresso55s69_ns
-   :gen-args: -DOVERLAY_CONFIG=overlay-802154.conf
+   :gen-args: -DEXTRA_CONF_FILE=overlay-802154.conf
    :shield: atmel_rf2xx_microbus
    :goals: build flash
    :compact:

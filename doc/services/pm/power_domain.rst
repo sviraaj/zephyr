@@ -1,3 +1,5 @@
+.. _pm-power-domain:
+
 Power Domain
 ############
 
@@ -18,7 +20,7 @@ power domain to notify all devices using it through their power management
 callback called with
 :c:enumerator:`PM_DEVICE_ACTION_TURN_ON` or
 :c:enumerator:`PM_DEVICE_ACTION_TURN_OFF` respectively. This
-work flow is illustrated in the diagram bellow.
+work flow is illustrated in the diagram below.
 
 .. _pm-domain-work-flow:
 
@@ -129,13 +131,13 @@ Devices belonging to this device can be declared referring it in the
         &gpio0 {
                 compatible = "zephyr,gpio-emul";
                 gpio-controller;
-                power-domain = <&gpio_domain>;
+                power-domains = <&gpio_domain>;
         };
 
         &gpio1 {
                 compatible = "zephyr,gpio-emul";
                 gpio-controller;
-                power-domain = <&gpio_domain>;
+                power-domains = <&gpio_domain>;
         };
 
 All devices under a domain will be notified when the domain changes
@@ -176,3 +178,11 @@ They can safely be ignored though.
 
    It is responsibility of driver or the application to set the domain as
    "wakeup" source if a device depending on it is used as "wakeup" source.
+
+Examples
+********
+
+Some helpful examples showing power domain features:
+
+* :zephyr_file:`tests/subsys/pm/device_power_domains/`
+* :zephyr_file:`tests/subsys/pm/power_domain/`

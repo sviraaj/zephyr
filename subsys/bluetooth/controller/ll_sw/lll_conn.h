@@ -43,11 +43,17 @@ struct lll_conn {
 	uint8_t access_addr[4];
 	uint8_t crc_init[3];
 
+	uint16_t tifs_tx_us;
+	uint16_t tifs_rx_us;
+	uint16_t tifs_hcto_us;
+	uint16_t tifs_cis_us;
+
 	uint16_t handle;
 	uint16_t interval;
-	uint16_t latency;
 
+	uint16_t latency;
 	uint16_t latency_prepare;
+	uint16_t lazy_prepare;
 	uint16_t latency_event;
 	uint16_t event_counter;
 
@@ -69,12 +75,25 @@ struct lll_conn {
 		struct {
 			uint8_t initiated:1;
 			uint8_t cancelled:1;
+			uint8_t forced:1;
+		};
+
+		struct {
+			uint8_t initiated:1;
+			uint8_t cancelled:1;
+			uint8_t forced:1;
 		} central;
+
 #if defined(CONFIG_BT_PERIPHERAL)
 		struct {
-			uint8_t  initiated:1;
-			uint8_t  cancelled:1;
-			uint8_t  latency_enabled:1;
+			uint8_t initiated:1;
+			uint8_t cancelled:1;
+			uint8_t forced:1;
+			uint8_t latency_enabled:1;
+
+#if defined(CONFIG_BT_CTLR_PHY)
+			uint8_t phy_rx_event:3;
+#endif /* CONFIG_BT_CTLR_PHY */
 
 			uint32_t window_widening_periodic_us;
 			uint32_t window_widening_max_us;
@@ -87,27 +106,17 @@ struct lll_conn {
 	};
 
 #if defined(CONFIG_BT_CTLR_DATA_LENGTH)
-
-#ifdef CONFIG_BT_LL_SW_LLCP_LEGACY
-	uint16_t max_tx_octets;
-	uint16_t max_rx_octets;
-
-#if defined(CONFIG_BT_CTLR_PHY)
-	uint16_t max_tx_time;
-	uint16_t max_rx_time;
-#endif /* CONFIG_BT_CTLR_PHY */
-
-#else /* CONFIG_BT_LL_SW_LLCP_LEGACY */
 	struct {
 		struct data_pdu_length local;
 		struct data_pdu_length remote;
 		struct data_pdu_length eff;
+#if defined(CONFIG_BT_CTLR_PHY)
 		uint16_t default_tx_time;
+#endif
 		uint16_t default_tx_octets;
 		uint8_t update;
 	} dle;
 #endif /* CONFIG_BT_CTLR_DATA_LENGTH */
-#endif/* CONFIG_BT_LL_SW_LLCP_LEGACY */
 
 #if defined(CONFIG_BT_CTLR_PHY)
 	uint8_t phy_tx:3;
@@ -134,6 +143,13 @@ struct lll_conn {
 	struct ccm ccm_tx;
 #endif /* CONFIG_BT_CTLR_LE_ENC */
 
+#if defined(CONFIG_BT_CTLR_SLOT_RESERVATION_UPDATE)
+#if defined(CONFIG_BT_CTLR_DATA_LENGTH) || defined(CONFIG_BT_CTLR_PHY)
+	uint8_t evt_len_upd:1;
+	uint8_t evt_len_upd_delayed:1;
+#endif /* CONFIG_BT_CTLR_DATA_LENGTH || CONFIG_BT_CTLR_PHY */
+#endif /* CONFIG_BT_CTLR_SLOT_RESERVATION_UPDATE */
+
 #if defined(CONFIG_BT_CTLR_CONN_RSSI)
 	uint8_t  rssi_latest;
 #if defined(CONFIG_BT_CTLR_CONN_RSSI_EVENT)
@@ -141,14 +157,6 @@ struct lll_conn {
 	uint8_t  rssi_sample_count;
 #endif /* CONFIG_BT_CTLR_CONN_RSSI_EVENT */
 #endif /* CONFIG_BT_CTLR_CONN_RSSI */
-
-#if defined(CONFIG_BT_CTLR_RX_ENQUEUE_HOLD)
-#define RX_HOLD_MASK 3U
-#define RX_HOLD_REQ  1U
-#define RX_HOLD_ACK  2U
-	uint8_t rx_hold_req;
-	uint8_t rx_hold_ack;
-#endif /* CONFIG_BT_CTLR_RX_ENQUEUE_HOLD */
 
 #if defined(CONFIG_BT_CTLR_CONN_META)
 	struct lll_conn_meta conn_meta;
@@ -171,6 +179,10 @@ int lll_conn_reset(void);
 void lll_conn_flush(uint16_t handle, struct lll_conn *lll);
 
 void lll_conn_prepare_reset(void);
+int lll_conn_central_is_abort_cb(void *next, void *curr,
+				 lll_prepare_cb_t *resume_cb);
+int lll_conn_peripheral_is_abort_cb(void *next, void *curr,
+				    lll_prepare_cb_t *resume_cb);
 void lll_conn_abort_cb(struct lll_prepare_param *prepare_param, void *param);
 void lll_conn_isr_rx(void *param);
 void lll_conn_isr_tx(void *param);
@@ -179,6 +191,7 @@ void lll_conn_tx_pkt_set(struct lll_conn *lll, struct pdu_data *pdu_data_tx);
 void lll_conn_pdu_tx_prep(struct lll_conn *lll, struct pdu_data **pdu_data_tx);
 uint8_t lll_conn_force_md_cnt_set(uint8_t force_md_cnt);
 
+extern struct lll_conn *ull_conn_lll_get(uint16_t handle);
 extern void ull_conn_lll_tx_demux_sched(struct lll_conn *lll);
 extern void ull_conn_lll_ack_enqueue(uint16_t handle, struct node_tx *tx);
 extern uint16_t ull_conn_lll_max_tx_octets_get(struct lll_conn *lll);

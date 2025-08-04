@@ -16,6 +16,7 @@
 
 #define LOG_LEVEL CONFIG_WDT_LOG_LEVEL
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(wdt_sifive);
 
 #define WDOGCFG_SCALE_MAX     0xf
@@ -250,7 +251,7 @@ static int wdt_sifive_feed(const struct device *dev, int channel_id)
 	return 0;
 }
 
-static const struct wdt_driver_api wdt_sifive_api = {
+static DEVICE_API(wdt, wdt_sifive_api) = {
 	.setup = wdt_sifive_setup,
 	.disable = wdt_sifive_disable,
 	.install_timeout = wdt_sifive_install_timeout,

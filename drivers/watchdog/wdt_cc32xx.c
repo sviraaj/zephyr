@@ -24,6 +24,7 @@
 #define LOG_LEVEL CONFIG_WDT_LOG_LEVEL
 #include <zephyr/logging/log.h>
 #include <zephyr/logging/log_ctrl.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(wdt_cc32xx);
 
 struct wdt_cc32xx_data {
@@ -160,7 +161,7 @@ static int wdt_cc32xx_init(const struct device *dev)
 	return rv;
 }
 
-static const struct wdt_driver_api wdt_cc32xx_api = {
+static DEVICE_API(wdt, wdt_cc32xx_api) = {
 	.setup = wdt_cc32xx_setup,
 	.disable = wdt_cc32xx_disable,
 	.install_timeout = wdt_cc32xx_install_timeout,

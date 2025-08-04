@@ -8,15 +8,18 @@
 
 #include <string.h>
 
-#include <zephyr/sys/dlist.h>
 #include <zephyr/sys/byteorder.h>
+
+#include <zephyr/bluetooth/hci_types.h>
 
 #include "hal/ecb.h"
 
-#define LOG_MODULE_NAME bt_ctlr_rv32m1_ecb
-#include "common/log.h"
+#include <zephyr/logging/log.h>
+
 #include "hal/debug.h"
 #include "fsl_cau3_ble.h"
+
+LOG_MODULE_REGISTER(bt_ctlr_rv32m1_ecb, LOG_LEVEL_DBG);
 
 void ecb_encrypt_be(uint8_t const *const key_be, uint8_t const *const clear_text_be,
 		    uint8_t *const cipher_text_be)
@@ -101,9 +104,9 @@ void ecb_encrypt(uint8_t const *const key_le, uint8_t const *const clear_text_le
 	}
 }
 
-uint32_t ecb_encrypt_nonblocking(struct ecb *ecb)
+void ecb_encrypt_nonblocking(struct ecb *e)
 {
-	return 0;
+	return;
 }
 
 void isr_ecb(void *param)
@@ -120,7 +123,7 @@ void isr_ecb(void *param)
 		    &conn->llcp.encryption.skd[0], NULL,
 		    &lll->ccm_rx.key[0]);
  */
-uint32_t ecb_ut(void)
+int ecb_ut(void)
 {
 	/*
 	 * LTK = 0x4C68384139F574D836BCF34E9DFB01BF (MSO to LSO)

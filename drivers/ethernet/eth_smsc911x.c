@@ -28,6 +28,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <string.h>
 #include <zephyr/sys/sys_io.h>
 #include <zephyr/net/ethernet.h>
+#include <zephyr/irq.h>
 #include "ethernet/eth_stats.h"
 
 #ifdef CONFIG_SHARED_IRQ
@@ -415,7 +416,7 @@ static enum ethernet_hw_caps eth_smsc911x_get_capabilities(const struct device *
 {
 	ARG_UNUSED(dev);
 
-	return ETHERNET_LINK_10BASE_T | ETHERNET_LINK_100BASE_T;
+	return ETHERNET_LINK_10BASE | ETHERNET_LINK_100BASE;
 }
 
 #if defined(CONFIG_NET_STATISTICS_ETHERNET)

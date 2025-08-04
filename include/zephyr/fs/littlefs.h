@@ -17,6 +17,22 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Get the major part of the littlefs disk version
+ *
+ * @param disk_version The disk version of littlefs partition
+ * @return The major part of the littlefs disk version.
+ */
+#define FS_LITTLEFS_DISK_VERSION_MAJOR_GET(disk_version) FIELD_GET(GENMASK(31, 16), disk_version)
+
+/**
+ * @brief Get the minor part of the littlefs disk version
+ *
+ * @param disk_version The disk version of littlefs partition
+ * @return The minor part of the littlefs disk version.
+ */
+#define FS_LITTLEFS_DISK_VERSION_MINOR_GET(disk_version) FIELD_GET(GENMASK(15, 0), disk_version)
+
 /** @brief Filesystem info structure for LittleFS mount */
 struct fs_littlefs {
 	/* Defaulted in driver, customizable before mount. */
@@ -45,14 +61,13 @@ struct fs_littlefs {
  * This defines static arrays required for caches, and initializes the
  * littlefs configuration structure to use the provided values instead
  * of the global Kconfig defaults.  A pointer to the named object must
- * be stored in the ``.fs_data`` field of a :c:type:`struct fs_mount`
- * object.
+ * be stored in the @ref fs_mount_t.fs_data field of a @ref fs_mount_t object.
  *
  * To define an instance for the Kconfig defaults, use
- * :c:macro:`FS_LITTLEFS_DECLARE_DEFAULT_CONFIG`.
+ * @ref FS_LITTLEFS_DECLARE_DEFAULT_CONFIG.
  *
  * To completely control file system configuration the application can
- * directly define and initialize a :c:type:`struct fs_littlefs`
+ * directly define and initialize a @ref fs_littlefs
  * object.  The application is responsible for ensuring the configured
  * values are consistent with littlefs requirements.
  *
@@ -62,15 +77,17 @@ struct fs_littlefs {
  *
  * @param name the name for the structure.  The defined object has
  * file scope.
+ * @param alignment needed alignment for read/prog buffer for specific device
  * @param read_sz see @kconfig{CONFIG_FS_LITTLEFS_READ_SIZE}
  * @param prog_sz see @kconfig{CONFIG_FS_LITTLEFS_PROG_SIZE}
  * @param cache_sz see @kconfig{CONFIG_FS_LITTLEFS_CACHE_SIZE}
  * @param lookahead_sz see @kconfig{CONFIG_FS_LITTLEFS_LOOKAHEAD_SIZE}
  */
-#define FS_LITTLEFS_DECLARE_CUSTOM_CONFIG(name, read_sz, prog_sz, cache_sz, lookahead_sz) \
-	static uint8_t __aligned(4) name ## _read_buffer[cache_sz];			  \
-	static uint8_t __aligned(4) name ## _prog_buffer[cache_sz];			  \
-	static uint32_t name ## _lookahead_buffer[(lookahead_sz) / sizeof(uint32_t)];		  \
+#define FS_LITTLEFS_DECLARE_CUSTOM_CONFIG(name, alignment, read_sz, prog_sz, cache_sz,	  \
+					  lookahead_sz)					  \
+	static uint8_t __aligned(alignment) name ## _read_buffer[cache_sz];		  \
+	static uint8_t __aligned(alignment) name ## _prog_buffer[cache_sz];		  \
+	static uint32_t name ## _lookahead_buffer[(lookahead_sz) / sizeof(uint32_t)];	  \
 	static struct fs_littlefs name = {						  \
 		.cfg = {								  \
 			.read_size = (read_sz),						  \
@@ -94,6 +111,7 @@ struct fs_littlefs {
  */
 #define FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(name)			 \
 	FS_LITTLEFS_DECLARE_CUSTOM_CONFIG(name,				 \
+					  4,				 \
 					  CONFIG_FS_LITTLEFS_READ_SIZE,	 \
 					  CONFIG_FS_LITTLEFS_PROG_SIZE,	 \
 					  CONFIG_FS_LITTLEFS_CACHE_SIZE, \

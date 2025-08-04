@@ -35,7 +35,7 @@
 #define ILI9341_GAMSET_LEN 1U
 #define ILI9341_IFMODE_LEN 1U
 #define ILI9341_FRMCTR1_LEN 2U
-#define ILI9341_DISCTRL_LEN 3U
+#define ILI9341_DISCTRL_LEN 4U
 #define ILI9341_PWCTRL1_LEN 1U
 #define ILI9341_PWCTRL2_LEN 1U
 #define ILI9341_VMCTRL1_LEN 2U
@@ -121,7 +121,7 @@ struct ili9341_regs {
 		     "ili9341: Error length frame rate control (IFCTL) register");                 \
 	BUILD_ASSERT(DT_PROP_LEN(DT_INST(n, ilitek_ili9341), etmod) == ILI9341_ETMOD_LEN,          \
 		     "ili9341: Error length entry Mode Set (ETMOD) register");                     \
-	static const struct ili9341_regs ili9xxx_regs_##n = {                                      \
+	static const struct ili9341_regs ili9341_regs_##n = {                                      \
 		.gamset = DT_PROP(DT_INST(n, ilitek_ili9341), gamset),                             \
 		.ifmode = DT_PROP(DT_INST(n, ilitek_ili9341), ifmode),                             \
 		.frmctr1 = DT_PROP(DT_INST(n, ilitek_ili9341), frmctr1),                           \

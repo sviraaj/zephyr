@@ -1,22 +1,32 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-	SECTION_DATA_PROLOGUE(log_strings_sections,,)
-	{
-		__log_strings_start = .;
-		KEEP(*(SORT(.log_strings*)));
-		__log_strings_end = .;
-	} GROUP_ROM_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
+#include <zephyr/linker/iterable_sections.h>
 
-	SECTION_DATA_PROLOGUE(log_const_sections,,)
+#if defined(CONFIG_LOG_FMT_SECTION_STRIP) && defined(DEVNULL_REGION)
+	SECTION_PROLOGUE(log_strings,(COPY),SUBALIGN(Z_LINK_ITERABLE_SUBALIGN))
 	{
-		__log_const_start = .;
-		KEEP(*(SORT(.log_const_*)));
-		__log_const_end = .;
-	} GROUP_ROM_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
+		Z_LINK_ITERABLE(log_strings);
+	} GROUP_ROM_LINK_IN(DEVNULL_REGION, DEVNULL_REGION)
 
-	SECTION_DATA_PROLOGUE(log_backends_sections,,)
+	SECTION_PROLOGUE(log_stmesp_ptr,(COPY),SUBALIGN(Z_LINK_ITERABLE_SUBALIGN))
 	{
-		__log_backends_start = .;
-		KEEP(*("._log_backend.*"));
-		__log_backends_end = .;
-	} GROUP_ROM_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
+		Z_LINK_ITERABLE(log_stmesp_ptr);
+	} GROUP_ROM_LINK_IN(DEVNULL_REGION, DEVNULL_REGION)
+
+	SECTION_PROLOGUE(log_stmesp_str,(COPY),SUBALIGN(Z_LINK_ITERABLE_SUBALIGN))
+	{
+		Z_LINK_ITERABLE(log_stmesp_str);
+	} GROUP_ROM_LINK_IN(DEVNULL_REGION, DEVNULL_REGION)
+#else
+	ITERABLE_SECTION_ROM(log_strings, Z_LINK_ITERABLE_SUBALIGN)
+
+	ITERABLE_SECTION_ROM(log_stmesp_ptr, Z_LINK_ITERABLE_SUBALIGN)
+
+	ITERABLE_SECTION_ROM(log_stmesp_str, Z_LINK_ITERABLE_SUBALIGN)
+#endif
+
+	ITERABLE_SECTION_ROM(log_const, Z_LINK_ITERABLE_SUBALIGN)
+
+	ITERABLE_SECTION_ROM(log_backend, Z_LINK_ITERABLE_SUBALIGN)
+
+	ITERABLE_SECTION_ROM(log_link, Z_LINK_ITERABLE_SUBALIGN)

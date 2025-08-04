@@ -2,15 +2,6 @@
  * Copyright (c) 2020 Intel Corporation.
  *
  * SPDX-License-Identifier: Apache-2.0
- *
- * Definitions and helper macros for managing driver memory-mapped
- * input/output (MMIO) regions appropriately in either RAM or ROM.
- *
- * In most cases drivers will just want to include device.h, but
- * including this separately may be needed for arch-level driver code
- * which uses the DEVICE_MMIO_TOPLEVEL variants and including the
- * main device.h would introduce header dependency loops due to that
- * header's reliance on kernel.h.
  */
 #ifndef ZEPHYR_INCLUDE_SYS_DEVICE_MMIO_H
 #define ZEPHYR_INCLUDE_SYS_DEVICE_MMIO_H
@@ -20,7 +11,17 @@
 
 /**
  * @defgroup device-mmio Device memory-mapped IO management
- * @ingroup device-model
+ * @ingroup device_model
+ *
+ * Definitions and helper macros for managing driver memory-mapped
+ * input/output (MMIO) regions appropriately in either RAM or ROM.
+ *
+ * In most cases drivers will just want to include device.h, but
+ * including this separately may be needed for arch-level driver code
+ * which uses the DEVICE_MMIO_TOPLEVEL variants and including the
+ * main device.h would introduce header dependency loops due to that
+ * header's reliance on kernel.h.
+ *
  * @{
  */
 
@@ -33,14 +34,18 @@
  * If we have PCIE enabled, this does mean that non-PCIE drivers may waste
  * a bit of RAM, but systems with PCI express are not RAM constrained.
  */
-#if defined(CONFIG_MMU) || defined(CONFIG_PCIE)
+#if defined(CONFIG_MMU) || defined(CONFIG_PCIE) || defined(CONFIG_EXTERNAL_ADDRESS_TRANSLATION)
 #define DEVICE_MMIO_IS_IN_RAM
+#endif
+
+#if defined(CONFIG_EXTERNAL_ADDRESS_TRANSLATION)
+#include <zephyr/drivers/mm/system_mm.h>
 #endif
 
 #ifndef _ASMLANGUAGE
 #include <stdint.h>
 #include <stddef.h>
-#include <zephyr/sys/mem_manage.h>
+#include <zephyr/kernel/mm.h>
 #include <zephyr/sys/sys_io.h>
 
 #ifdef DEVICE_MMIO_IS_IN_RAM
@@ -62,6 +67,12 @@ struct z_device_mmio_rom {
 		.size = DT_REG_SIZE(node_id) \
 	}
 
+#define Z_DEVICE_MMIO_NAMED_ROM_INITIALIZER(name, node_id) \
+	{ \
+		.phys_addr = DT_REG_ADDR_BY_NAME(node_id, name), \
+		.size = DT_REG_SIZE_BY_NAME(node_id, name) \
+	}
+
 /**
  * Set linear address for device MMIO access
  *
@@ -75,12 +86,12 @@ struct z_device_mmio_rom {
  *
  * @see k_map()
  *
- * @param virt_addr [out] Output linear address storage location, most
- *		users will want some DEVICE_MMIO_RAM_PTR() value
- * @param phys_addr Physical address base of the MMIO region
- * @param size Size of the MMIO region
- * @param flags Caching mode and access flags, see K_MEM_CACHE_* and
- *              K_MEM_PERM_* macros
+ * @param[out] virt_addr Output linear address storage location, most
+ *		         users will want some DEVICE_MMIO_RAM_PTR() value
+ * @param[in] phys_addr Physical address base of the MMIO region
+ * @param[in] size Size of the MMIO region
+ * @param[in] flags Caching mode and access flags, see K_MEM_CACHE_* and
+ *                  K_MEM_PERM_* macros
  */
 __boot_func
 static inline void device_map(mm_reg_t *virt_addr, uintptr_t phys_addr,
@@ -90,13 +101,16 @@ static inline void device_map(mm_reg_t *virt_addr, uintptr_t phys_addr,
 	/* Pass along flags and add that we want supervisor mode
 	 * read-write access.
 	 */
-	z_phys_map((uint8_t **)virt_addr, phys_addr, size,
-		   flags | K_MEM_PERM_RW);
+	k_mem_map_phys_bare((uint8_t **)virt_addr, phys_addr, size,
+			    flags | K_MEM_PERM_RW);
 #else
 	ARG_UNUSED(size);
 	ARG_UNUSED(flags);
-
+#ifdef CONFIG_EXTERNAL_ADDRESS_TRANSLATION
+	sys_mm_drv_page_phys_get((void *) phys_addr, virt_addr);
+#else
 	*virt_addr = phys_addr;
+#endif /* CONFIG_EXTERNAL_ADDRESS_TRANSLATION */
 #endif /* CONFIG_MMU */
 }
 #else
@@ -110,8 +124,14 @@ struct z_device_mmio_rom {
 
 #define Z_DEVICE_MMIO_ROM_INITIALIZER(node_id) \
 	{ \
-		.addr = DT_REG_ADDR(node_id) \
+		.addr = (mm_reg_t)DT_REG_ADDR_U64(node_id) \
 	}
+
+#define Z_DEVICE_MMIO_NAMED_ROM_INITIALIZER(name, node_id) \
+	{ \
+		.addr = (mm_reg_t)DT_REG_ADDR_BY_NAME_U64(node_id, name) \
+	}
+
 #endif /* DEVICE_MMIO_IS_IN_RAM */
 #endif /* !_ASMLANGUAGE */
 /** @} */
@@ -142,11 +162,15 @@ struct z_device_mmio_rom {
  *
  * Example for a driver named "foo":
  *
+ * @code{.c}
+ *
  * struct foo_driver_data {
  *	DEVICE_MMIO_RAM;
  *	int wibble;
  *	...
  * }
+ *
+ * @endcode
  *
  * No build-time initialization of this memory is necessary; it
  * will be set up in the init function by DEVICE_MMIO_MAP().
@@ -161,8 +185,6 @@ struct z_device_mmio_rom {
 
 #ifdef DEVICE_MMIO_IS_IN_RAM
 /**
- * @def DEVICE_MMIO_RAM_PTR(device)
- *
  * Return a pointer to the RAM-based storage area for a device's MMIO
  * address.
  *
@@ -176,8 +198,6 @@ struct z_device_mmio_rom {
 #endif /* DEVICE_MMIO_IS_IN_RAM */
 
 /**
- * @def DEVICE_MMIO_ROM
- *
  * @brief Declare storage for MMIO data within a device's config struct
  *
  * This gets accessed by DEVICE_MMIO_MAP() and DEVICE_MMIO_GET() macros.
@@ -195,19 +215,21 @@ struct z_device_mmio_rom {
  *
  * Example for a driver named "foo":
  *
+ * @code{.c}
+ *
  * struct foo_config {
  *	DEVICE_MMIO_ROM;
  *	int baz;
  *	...
  * }
  *
+ * @endcode
+ *
  * @see DEVICE_MMIO_ROM_INIT()
  */
 #define DEVICE_MMIO_ROM		struct z_device_mmio_rom _mmio
 
 /**
- * @def DEVICE_MMIO_ROM_PTR(dev)
- *
  * Return a pointer to the ROM-based storage area for a device's MMIO
  * information. This macro will not work properly if the ROM storage
  * was omitted from the config struct declaration, and should not
@@ -220,8 +242,6 @@ struct z_device_mmio_rom {
 	((struct z_device_mmio_rom *)((dev)->config))
 
 /**
- * @def DEVICE_MMIO_ROM_INIT(node_id)
- *
  * @brief Initialize a DEVICE_MMIO_ROM member
  *
  * Initialize MMIO-related information within a specific instance of
@@ -229,11 +249,15 @@ struct z_device_mmio_rom {
  *
  * Example for a driver belonging to the "foo" subsystem:
  *
+ * @code{.c}
+ *
  * struct foo_config my_config = {
  *	DEVICE_MMIO_ROM_INIT(DT_DRV_INST(...)),
  *	.baz = 2;
  *	...
  * }
+ *
+ * @endcode
  *
  * @see DEVICE_MMIO_ROM()
  *
@@ -265,7 +289,7 @@ struct z_device_mmio_rom {
 		   DEVICE_MMIO_ROM_PTR(dev)->size, \
 		   (flags))
 #else
-#define DEVICE_MMIO_MAP(dev, flags) do { } while (0)
+#define DEVICE_MMIO_MAP(dev, flags) do { } while (false)
 #endif
 
 /**
@@ -321,6 +345,8 @@ struct z_device_mmio_rom {
  *
  * Example for a driver named "foo":
  *
+ * @code{.c}
+ *
  * struct foo_driver_data {
  *      int blarg;
  *      DEVICE_MMIO_NAMED_RAM(corge);
@@ -328,6 +354,8 @@ struct z_device_mmio_rom {
  *      int wibble;
  *      ...
  * }
+ *
+ * @endcode
  *
  * No build-time initialization of this memory is necessary; it
  * will be set up in the init function by DEVICE_MMIO_NAMED_MAP().
@@ -342,8 +370,6 @@ struct z_device_mmio_rom {
 
 #ifdef DEVICE_MMIO_IS_IN_RAM
 /**
- * @def DEVICE_MMIO_NAMED_RAM_PTR(dev, name)
- *
  * @brief Return a pointer to the RAM storage for a device's named MMIO address
  *
  * This macro requires that the macro DEV_DATA is locally defined and returns
@@ -358,8 +384,6 @@ struct z_device_mmio_rom {
 #endif /* DEVICE_MMIO_IS_IN_RAM */
 
 /**
- * @def DEVICE_MMIO_NAMED_ROM(name)
- *
  * @brief Declare storage for MMIO data within a device's config struct.
  *
  * This gets accessed by DEVICE_MMIO_NAMED_MAP() and
@@ -378,6 +402,8 @@ struct z_device_mmio_rom {
  *
  * Example for a driver named "foo":
  *
+ * @code{.c}
+ *
  * struct foo_config {
  *      int bar;
  *      DEVICE_MMIO_NAMED_ROM(corge);
@@ -386,6 +412,8 @@ struct z_device_mmio_rom {
  *      ...
  * }
  *
+ * @endcode
+ *
  * @see DEVICE_MMIO_NAMED_ROM_INIT()
  *
  * @param name Member name to store within config
@@ -393,8 +421,6 @@ struct z_device_mmio_rom {
 #define DEVICE_MMIO_NAMED_ROM(name) struct z_device_mmio_rom name
 
 /**
- * @def DEVICE_MMIO_NAMED_ROM_PTR(dev, name)
- *
  * Return a pointer to the ROM-based storage area for a device's MMIO
  * information.
  *
@@ -409,8 +435,6 @@ struct z_device_mmio_rom {
 #define DEVICE_MMIO_NAMED_ROM_PTR(dev, name) (&(DEV_CFG(dev)->name))
 
 /**
- * @def DEVICE_MMIO_NAMED_ROM_INIT(name, node_id)
- *
  * @brief Initialize a named DEVICE_MMIO_NAMED_ROM member
  *
  * Initialize MMIO-related information within a specific instance of
@@ -419,6 +443,8 @@ struct z_device_mmio_rom {
  * Example for an instance of a driver belonging to the "foo" subsystem
  * that will have two regions named 'corge' and 'grault':
  *
+ * @code{.c}
+ *
  * struct foo_config my_config = {
  *	bar = 7;
  *	DEVICE_MMIO_NAMED_ROM_INIT(corge, DT_DRV_INST(...));
@@ -426,6 +452,8 @@ struct z_device_mmio_rom {
  *	baz = 2;
  *	...
  * }
+ *
+ * @endcode
  *
  * @see DEVICE_MMIO_NAMED_ROM()
  *
@@ -436,8 +464,47 @@ struct z_device_mmio_rom {
 	.name = Z_DEVICE_MMIO_ROM_INITIALIZER(node_id)
 
 /**
- * @def DEVICE_MMIO_NAMED_MAP(dev, name, flags)
+ * @brief Initialize a named DEVICE_MMIO_NAMED_ROM member using a named DT
+ *        reg property.
  *
+ * Same as @ref DEVICE_MMIO_NAMED_ROM_INIT but the size and address are taken
+ * from a named DT reg property.
+ *
+ * Example for an instance of a driver belonging to the "foo" subsystem
+ * that will have two DT-defined regions named 'chip' and 'dale':
+ *
+ * @code{.dts}
+ *
+ *    foo@E5000000 {
+ *         reg = <0xE5000000 0x1000>, <0xE6000000 0x1000>;
+ *         reg-names = "chip", "dale";
+ *         ...
+ *    };
+ *
+ * @endcode
+ *
+ * @code{.c}
+ *
+ * struct foo_config my_config = {
+ *	bar = 7;
+ *	DEVICE_MMIO_NAMED_ROM_INIT_BY_NAME(chip, DT_DRV_INST(...));
+ *	DEVICE_MMIO_NAMED_ROM_INIT_BY_NAME(dale, DT_DRV_INST(...));
+ *	baz = 2;
+ *	...
+ * }
+ *
+ * @endcode
+ *
+ * @see DEVICE_MMIO_NAMED_ROM_INIT()
+ *
+ * @param name Member name within config for the MMIO region and name of the
+ *             reg property in the DT
+ * @param node_id DTS node identifier
+ */
+#define DEVICE_MMIO_NAMED_ROM_INIT_BY_NAME(name, node_id) \
+	.name = Z_DEVICE_MMIO_NAMED_ROM_INITIALIZER(name, node_id)
+
+/**
  * @brief Set up memory for a named MMIO region
  *
  * This performs the necessary PCI probing and/or MMU virtual memory mapping
@@ -470,7 +537,7 @@ struct z_device_mmio_rom {
 		   (DEVICE_MMIO_NAMED_ROM_PTR((dev), name)->size), \
 		   (flags))
 #else
-#define DEVICE_MMIO_NAMED_MAP(dev, name, flags) do { } while (0)
+#define DEVICE_MMIO_NAMED_MAP(dev, name, flags) do { } while (false)
 #endif
 
 /**
@@ -606,8 +673,6 @@ struct z_device_mmio_rom {
 
 #ifdef DEVICE_MMIO_IS_IN_RAM
 /**
- * @def DEVICE_MMIO_TOPLEVEL_RAM_PTR(name)
- *
  * @brief Return a pointer to the RAM storage for a device's toplevel MMIO
  * address.
  *
@@ -618,8 +683,6 @@ struct z_device_mmio_rom {
 #endif /* DEVICE_MMIO_IS_IN_RAM */
 
 /**
- * @def DEVICE_MMIO_TOPLEVEL_ROM_PTR(name)
- *
  * Return a pointer to the ROM-based storage area for a toplevel MMIO region.
  *
  * @param name MMIO region name
@@ -652,9 +715,9 @@ struct z_device_mmio_rom {
 #define DEVICE_MMIO_TOPLEVEL_MAP(name, flags) \
 	device_map(&Z_TOPLEVEL_RAM_NAME(name), \
 		   Z_TOPLEVEL_ROM_NAME(name).phys_addr, \
-		   Z_TOPLEVEL_ROM_NAME(name).size, flags)
+		   Z_TOPLEVEL_ROM_NAME(name).size, (flags))
 #else
-#define DEVICE_MMIO_TOPLEVEL_MAP(name, flags) do { } while (0)
+#define DEVICE_MMIO_TOPLEVEL_MAP(name, flags) do { } while (false)
 #endif
 
 /**

@@ -181,7 +181,7 @@ Deprecated in this release
   :c:func:`can_set_bitrate` and :c:func:`can_set_mode`.
 * :c:func:`can_attach_workq` is deprecated in favor of utilizing
   :c:func:`can_add_rx_filter_msgq` and :c:func:`k_work_poll_submit`.
-* :c:func:`can_attach_isr` is is deprecated and replaced by
+* :c:func:`can_attach_isr` is deprecated and replaced by
   :c:func:`can_add_rx_filter`.
 * :c:macro:`CAN_DEFINE_MSGQ` is deprecated and replaced by
   :c:macro:`CAN_MSGQ_DEFINE`.
@@ -380,7 +380,7 @@ Bluetooth
   * Updated the supported Bluetooth HCI version to 5.3
   * Added support for Periodic Advertiser List
   * Added support for Periodic Advertising Synchronization Receive Enable
-  * Added support for filter access list filtering for exended scanning
+  * Added support for filter access list filtering for extended scanning
   * Added support for Advertising Extensions dynamic TX power control
   * Added handling of direct address type in extended adv reports
   * Implemented auxiliary PDU device address matching
@@ -466,13 +466,13 @@ Drivers and Sensors
 * CAN
 
   * Renamed ``zephyr,can-primary`` chosen property to ``zephyr,canbus``.
-  * Added :c:macro:`CAN_ERROR_WARNING` CAN controller state.
+  * Added :c:macro:`CAN_STATE_ERROR_WARNING` CAN controller state.
   * Added Atmel SAM Bosch M_CAN CAN-FD driver.
   * Added NXP LPCXpresso Bosch M_CAN CAN-FD driver.
   * Added ST STM32H7 Bosch M_CAN CAN-FD driver.
   * Rework transmission error handling the NXP FlexCAN driver to automatically
     retry transmission in case or arbitration lost or missing acknowledge and
-    to fail early in :c:func:`can_send` if in :c:macro:`CAN_BUS_OFF` state.
+    to fail early in :c:func:`can_send` if in :c:macro:`CAN_STATE_BUS_OFF`.
   * Added support for disabling automatic retransmissions ("one-shot" mode") to
     the ST STM32 bxCAN driver.
   * Converted the emulated CAN loopback driver to be configured through
@@ -660,7 +660,7 @@ Networking
   * Added support for multiple LwM2M Firmware Update object instances.
   * Improved error handling in LwM2M content writers.
   * Added unit tests for LwM2M content writers.
-  * Implmented LwM2M Security, Server, Connection Monitor objects in version 1.1.
+  * Implemented LwM2M Security, Server, Connection Monitor objects in version 1.1.
   * Multiple minor bugfixes in the LwM2M stack.
   * Added support for the following objects:
 
@@ -678,7 +678,7 @@ Networking
     unaliged access warnings from gcc.
   * Added automatic loopback addresses registration to loopback interface.
   * Fixed source address selection for ARP.
-  * Allow to implment a custom IEEE802154 L2 on top of existing drivers.
+  * Allow to implement a custom IEEE802154 L2 on top of existing drivers.
   * Introduced a network packet filtering framework.
 
 * MQTT:

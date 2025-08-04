@@ -8,6 +8,7 @@
 #include <zephyr/spinlock.h>
 #include <zephyr/sys/slist.h>
 #include <zephyr/tracing/tracking.h>
+#include <zephyr/sys/iterable_sections.h>
 
 struct k_timer *_track_list_k_timer;
 struct k_spinlock _track_list_k_timer_lock;
@@ -35,6 +36,11 @@ struct k_spinlock _track_list_k_pipe_lock;
 
 struct k_queue *_track_list_k_queue;
 struct k_spinlock _track_list_k_queue_lock;
+
+#ifdef CONFIG_EVENTS
+struct k_event *_track_list_k_event;
+struct k_spinlock _track_list_k_event_lock;
+#endif
 
 #define SYS_TRACK_LIST_PREPEND(list, obj) \
 	do { \
@@ -95,8 +101,11 @@ void sys_track_k_mbox_init(struct k_mbox *mbox)
 			SYS_TRACK_LIST_PREPEND(_track_list_k_mbox, mbox));
 }
 
-void sys_track_k_pipe_init(struct k_pipe *pipe)
+void sys_track_k_pipe_init(struct k_pipe *pipe, void *buffer, size_t size)
 {
+	ARG_UNUSED(buffer);
+	ARG_UNUSED(size);
+
 	SYS_PORT_TRACING_TYPE_MASK(k_pipe,
 			SYS_TRACK_LIST_PREPEND(_track_list_k_pipe, pipe));
 }
@@ -107,9 +116,26 @@ void sys_track_k_queue_init(struct k_queue *queue)
 			SYS_TRACK_LIST_PREPEND(_track_list_k_queue, queue));
 }
 
-static int sys_track_static_init(const struct device *arg)
+#ifdef CONFIG_EVENTS
+void sys_track_k_event_init(struct k_event *event)
 {
-	ARG_UNUSED(arg);
+	SYS_PORT_TRACING_TYPE_MASK(k_event,
+			SYS_TRACK_LIST_PREPEND(_track_list_k_event, event));
+}
+#endif
+
+#ifdef CONFIG_NETWORKING
+void sys_track_socket_init(int sock, int family, int type, int proto)
+{
+	ARG_UNUSED(sock);
+	ARG_UNUSED(family);
+	ARG_UNUSED(type);
+	ARG_UNUSED(proto);
+}
+#endif
+
+static int sys_track_static_init(void)
+{
 
 	SYS_PORT_TRACING_TYPE_MASK(k_timer,
 			SYS_TRACK_STATIC_INIT(k_timer));
@@ -133,10 +159,15 @@ static int sys_track_static_init(const struct device *arg)
 			SYS_TRACK_STATIC_INIT(k_mbox));
 
 	SYS_PORT_TRACING_TYPE_MASK(k_pipe,
-			SYS_TRACK_STATIC_INIT(k_pipe));
+			SYS_TRACK_STATIC_INIT(k_pipe, NULL, 0));
 
 	SYS_PORT_TRACING_TYPE_MASK(k_queue,
 			SYS_TRACK_STATIC_INIT(k_queue));
+
+#ifdef CONFIG_EVENTS
+	SYS_PORT_TRACING_TYPE_MASK(k_event,
+			SYS_TRACK_STATIC_INIT(k_event));
+#endif
 
 	return 0;
 }

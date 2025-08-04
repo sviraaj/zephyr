@@ -7,6 +7,7 @@
 struct lll_adv_iso_stream {
 	/* Associated BIG Handle */
 	uint8_t big_handle;
+	struct ll_iso_datapath *dp;
 
 	/* Transmission queue */
 	MEMQ_DECLARE(tx);
@@ -17,6 +18,17 @@ struct lll_adv_iso_stream {
 	uint16_t pkt_seq_num;
 };
 
+struct lll_adv_iso_data_chan {
+	uint16_t prn_s;
+	uint16_t remap_idx;
+};
+
+struct lll_adv_iso_data_chan_interleaved {
+	uint16_t prn_s;
+	uint16_t remap_idx;
+	uint16_t id;
+};
+
 struct lll_adv_iso {
 	struct lll_hdr hdr;
 	struct lll_adv *adv;
@@ -25,14 +37,22 @@ struct lll_adv_iso {
 	uint8_t base_crc_init[2];
 	uint16_t latency_prepare;
 	uint16_t latency_event;
-	uint16_t data_chan_prn_s;
-	uint16_t data_chan_remap_idx;
+	union {
+		struct lll_adv_iso_data_chan data_chan;
+
+#if defined(CONFIG_BT_CTLR_ADV_ISO_INTERLEAVED)
+		struct lll_adv_iso_data_chan_interleaved
+			interleaved_data_chan[BT_CTLR_ADV_ISO_STREAM_MAX];
+#endif /* CONFIG_BT_CTLR_ADV_ISO_INTERLEAVED */
+	};
+	uint8_t  next_chan_use;
 
 	uint64_t payload_count:39;
 	uint64_t enc:1;
 	uint64_t framing:1;
 	uint64_t handle:8;
 	uint64_t cssn:3;
+	uint32_t iso_interval:12;
 
 	uint8_t data_chan_map[PDU_CHANNEL_MAP_SIZE];
 	uint8_t data_chan_count:6;
@@ -71,11 +91,24 @@ struct lll_adv_iso {
 	uint8_t term_ack:1;
 	uint8_t term_reason;
 
-	uint8_t  ctrl_chan_use;
 	uint8_t  ctrl_expire;
 	uint16_t ctrl_instant;
 
+	/* Encryption */
+	uint8_t giv[8];
+	struct ccm ccm_tx;
+
+#if defined(CONFIG_BT_TICKER_EXT_EXPIRE_INFO)
+	/* contains the offset in ticks from the adv_sync pointing to this ISO */
+	uint32_t ticks_sync_pdu_offset;
+	uint16_t iso_lazy;
+#endif /* CONFIG_BT_TICKER_EXT_EXPIRE_INFO */
+
 	uint16_t stream_handle[BT_CTLR_ADV_ISO_STREAM_MAX];
+
+#if defined(HAL_RADIO_GPIO_HAVE_PA_PIN)
+	uint16_t pa_iss_us;
+#endif /* HAL_RADIO_GPIO_HAVE_PA_PIN */
 };
 
 struct lll_adv_sync {
@@ -98,13 +131,22 @@ struct lll_adv_sync {
 	uint8_t  chm_last;
 	uint16_t chm_instant;
 
-	uint32_t ticks_offset;
-
 	struct lll_adv_pdu data;
 
 #if defined(CONFIG_BT_CTLR_ADV_PDU_LINK)
+	/* Implementation defined radio event counter to calculate chain
+	 * PDU channel index.
+	 */
+	uint16_t data_chan_counter;
+
 	struct pdu_adv *last_pdu;
 #endif /* CONFIG_BT_CTLR_ADV_PDU_LINK */
+
+#if defined(CONFIG_BT_TICKER_EXT_EXPIRE_INFO)
+	/* contains the offset in us from adv_aux pointing to this sync */
+	uint32_t us_adv_sync_pdu_offset;
+	uint16_t sync_lazy;
+#endif /* CONFIG_BT_TICKER_EXT_EXPIRE_INFO */
 
 #if defined(CONFIG_BT_CTLR_ADV_ISO)
 	struct lll_adv_iso *iso;
@@ -129,10 +171,11 @@ struct lll_adv_aux {
 	 */
 	uint16_t data_chan_counter;
 
-	/* Temporary stored use by primary channel PDU event to fill the
+	/* Store used by primary channel PDU event to fill the
 	 * auxiliary offset to this auxiliary PDU event.
 	 */
-	uint32_t ticks_offset;
+	uint32_t ticks_pri_pdu_offset;
+	uint32_t us_pri_pdu_offset;
 
 	struct lll_adv_pdu data;
 #if defined(CONFIG_BT_CTLR_ADV_PDU_LINK)
@@ -178,7 +221,7 @@ struct lll_adv {
 	struct lll_adv_pdu scan_rsp;
 
 #if defined(CONFIG_BT_CTLR_ADV_EXT)
-	struct node_rx_hdr *node_rx_adv_term;
+	struct node_rx_pdu *node_rx_adv_term;
 	struct lll_adv_aux *aux;
 
 #if defined(CONFIG_BT_CTLR_ADV_PERIODIC)

@@ -9,14 +9,4 @@
 #include <zephyr/linker/linker-defs.h>
 #include <zephyr/linker/linker-tool.h>
 
-MEMORY
-{
-    LINKER_DT_RESERVED_MEM_REGIONS()
-}
-
-SECTIONS
-{
-    LINKER_DT_RESERVED_MEM_SECTIONS()
-}
-
 #include <zephyr/arch/arm64/scripts/linker.ld>

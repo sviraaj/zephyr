@@ -5,41 +5,22 @@
  */
 
 #include <zephyr/drivers/led.h>
-#include <zephyr/drivers/kscan.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
 
-#define LED_NODE DT_INST(0, holtek_ht16k33)
-#define KEY_NODE DT_INST(0, holtek_ht16k33_keyscan)
+#define LED_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(holtek_ht16k33)
 
-static void keyscan_callback(const struct device *dev, uint32_t row,
-			     uint32_t column, bool pressed)
+int main(void)
 {
-	LOG_INF("Row %d, column %d %s", row, column,
-		pressed ? "pressed" : "released");
-}
-
-void main(void)
-{
-	const struct device *led = DEVICE_DT_GET(LED_NODE);
-	const struct device *key = DEVICE_DT_GET(KEY_NODE);
-	int err;
+	const struct device *const led = DEVICE_DT_GET(LED_NODE);
 	int i;
 
 	if (!device_is_ready(led)) {
 		LOG_ERR("LED device not ready");
-		return;
-	}
-
-	if (!device_is_ready(key)) {
-		LOG_ERR("Keyscan device not ready");
-		return;
-	}
-
-	err = kscan_config(key, keyscan_callback);
-	if (err) {
-		LOG_ERR("Failed to add keyscan callback (err %d)", err);
+		return 0;
 	}
 
 	while (1) {
@@ -69,4 +50,5 @@ void main(void)
 		}
 		led_set_brightness(led, 0, 100);
 	}
+	return 0;
 }

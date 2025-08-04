@@ -11,7 +11,7 @@ enable_language(ASM)
 set(rp2_common_dir ${ZEPHYR_HAL_RPI_PICO_MODULE_DIR}/src/rp2_common)
 set(rp2040_dir ${ZEPHYR_HAL_RPI_PICO_MODULE_DIR}/src/rp2040)
 set(common_dir ${ZEPHYR_HAL_RPI_PICO_MODULE_DIR}/src/common)
-set(boot_stage_dir ${rp2_common_dir}/boot_stage2)
+set(boot_stage_dir ${rp2040_dir}/boot_stage2)
 
 add_executable(boot_stage2)
 
@@ -34,15 +34,14 @@ target_sources(boot_stage2 PRIVATE ${boot_stage_dir}/${flash_type_file})
 target_include_directories(boot_stage2 PUBLIC
   ..
   ${boot_stage_dir}/asminclude
-  ${rp2_common_dir}/pico_platform/include
+  ${rp2040_dir}/pico_platform/include
   ${rp2040_dir}/hardware_regs/include
-  ${common_dir}/pico_base/include
+  ${common_dir}/pico_base_headers/include
+  ${rp2_common_dir}/pico_platform_compiler/include
+  ${rp2_common_dir}/pico_platform_sections/include
+  ${rp2_common_dir}/pico_platform_panic/include
   ${ZEPHYR_BASE}/include
   )
-
-if(CONFIG_LEGACY_INCLUDE_PATH)
-  target_include_directories(boot_stage2 PUBLIC ${ZEPHYR_BASE}/include/zephyr)
-endif()
 
 target_link_options(boot_stage2 PRIVATE
   "-nostartfiles"
@@ -64,7 +63,7 @@ add_custom_command(TARGET boot_stage2
 # Checksums the binary, pads it, and generates an assembly file
 add_custom_command(TARGET boot_stage2
   POST_BUILD
-  BYPRODUCTS boot_stage2.S
+  BYPRODUCTS ${RP2_BOOTLOADER_BYPRODUCT}
   COMMAND ${PYTHON_EXECUTABLE} ${boot_stage_dir}/pad_checksum
-  -s 0xffffffff boot_stage2.bin boot_stage2.S
+  -s 0xffffffff boot_stage2.bin ${RP2_BOOTLOADER_BYPRODUCT}
   )

@@ -8,11 +8,12 @@
 #include <string.h>
 #include <errno.h>
 #include <zephyr/sys/printk.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/hci.h>
 
 #include <zephyr/bluetooth/services/ots.h>
 
@@ -43,12 +44,14 @@ struct object_creation_data {
 	uint32_t props;
 };
 
+#define OTS_OBJ_ID_TO_OBJ_IDX(id) (((id) - BT_OTS_OBJ_ID_MIN) % ARRAY_SIZE(objects))
+
 static struct object_creation_data *object_being_created;
 
 static void connected(struct bt_conn *conn, uint8_t err)
 {
 	if (err) {
-		printk("Connection failed (err %u)\n", err);
+		printk("Connection failed, err %u %s\n", err, bt_hci_err_to_str(err));
 		return;
 	}
 
@@ -57,7 +60,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
-	printk("Disconnected (reason %u)\n", reason);
+	printk("Disconnected, reason %u %s\n", reason, bt_hci_err_to_str(reason));
 }
 
 BT_CONN_CB_DEFINE(conn_callbacks) = {
@@ -133,11 +136,11 @@ static void ots_obj_selected(struct bt_ots *ots, struct bt_conn *conn,
 }
 
 static ssize_t ots_obj_read(struct bt_ots *ots, struct bt_conn *conn,
-			   uint64_t id, void **data, size_t len,
-			   off_t offset)
+			    uint64_t id, void **data, size_t len,
+			    off_t offset)
 {
 	char id_str[BT_OTS_OBJ_ID_STR_LEN];
-	uint32_t obj_index = (id % ARRAY_SIZE(objects));
+	uint32_t obj_index = OTS_OBJ_ID_TO_OBJ_IDX(id);
 
 	bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
 
@@ -169,7 +172,7 @@ static ssize_t ots_obj_write(struct bt_ots *ots, struct bt_conn *conn,
 			     off_t offset, size_t rem)
 {
 	char id_str[BT_OTS_OBJ_ID_STR_LEN];
-	uint32_t obj_index = (id % ARRAY_SIZE(objects));
+	uint32_t obj_index = OTS_OBJ_ID_TO_OBJ_IDX(id);
 
 	bt_ots_obj_id_to_str(id, id_str, sizeof(id_str));
 
@@ -193,6 +196,19 @@ static void ots_obj_name_written(struct bt_ots *ots, struct bt_conn *conn,
 		id_str, cur_name, new_name);
 }
 
+static int ots_obj_cal_checksum(struct bt_ots *ots, struct bt_conn *conn, uint64_t id,
+				off_t offset, size_t len, void **data)
+{
+	uint32_t obj_index = OTS_OBJ_ID_TO_OBJ_IDX(id);
+
+	if (obj_index >= OBJ_POOL_SIZE) {
+		return -ENOENT;
+	}
+
+	*data = &objects[obj_index].data[offset];
+	return 0;
+}
+
 static struct bt_ots_cb ots_callbacks = {
 	.obj_created = ots_obj_created,
 	.obj_deleted = ots_obj_deleted,
@@ -200,6 +216,7 @@ static struct bt_ots_cb ots_callbacks = {
 	.obj_read = ots_obj_read,
 	.obj_write = ots_obj_write,
 	.obj_name_written = ots_obj_name_written,
+	.obj_cal_checksum = ots_obj_cal_checksum,
 };
 
 static int ots_init(void)
@@ -207,7 +224,7 @@ static int ots_init(void)
 	int err;
 	struct bt_ots *ots;
 	struct object_creation_data obj_data;
-	struct bt_ots_init ots_init;
+	struct bt_ots_init_param ots_init;
 	struct bt_ots_obj_add_param param;
 	const char * const first_object_name = "first_object.txt";
 	const char * const second_object_name = "second_object.gif";
@@ -298,7 +315,7 @@ static int ots_init(void)
 	return 0;
 }
 
-void main(void)
+int main(void)
 {
 	int err;
 
@@ -307,7 +324,7 @@ void main(void)
 	err = bt_enable(NULL);
 	if (err) {
 		printk("Bluetooth init failed (err %d)\n", err);
-		return;
+		return 0;
 	}
 
 	printk("Bluetooth initialized\n");
@@ -315,15 +332,15 @@ void main(void)
 	err = ots_init();
 	if (err) {
 		printk("Failed to init OTS (err:%d)\n", err);
-		return;
+		return 0;
 	}
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad),
-			      sd, ARRAY_SIZE(sd));
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
 	if (err) {
 		printk("Advertising failed to start (err %d)\n", err);
-		return;
+		return 0;
 	}
 
 	printk("Advertising successfully started\n");
+	return 0;
 }

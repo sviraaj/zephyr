@@ -6,6 +6,7 @@
 #define DT_DRV_COMPAT ite_it8xxx2_watchdog
 
 #include <zephyr/drivers/watchdog.h>
+#include <zephyr/irq.h>
 #include <errno.h>
 #include <soc.h>
 
@@ -235,7 +236,7 @@ static void wdt_it8xxx2_isr(const struct device *dev)
 	LOG_DBG("WDT ISR");
 }
 
-static const struct wdt_driver_api wdt_it8xxx2_api = {
+static DEVICE_API(wdt, wdt_it8xxx2_api) = {
 	.setup = wdt_it8xxx2_setup,
 	.disable = wdt_it8xxx2_disable,
 	.install_timeout = wdt_it8xxx2_install_timeout,

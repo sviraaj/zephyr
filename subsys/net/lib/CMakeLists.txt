@@ -6,12 +6,23 @@ add_subdirectory_ifdef(CONFIG_LWM2M lwm2m)
 add_subdirectory_ifdef(CONFIG_SOCKS socks)
 add_subdirectory_ifdef(CONFIG_SNTP sntp)
 add_subdirectory_ifdef(CONFIG_MQTT_LIB               mqtt)
+add_subdirectory_ifdef(CONFIG_MQTT_SN_LIB            mqtt_sn)
+add_subdirectory_ifdef(CONFIG_PTP                    ptp)
 add_subdirectory_ifdef(CONFIG_TFTP_LIB               tftp)
 add_subdirectory_ifdef(CONFIG_NET_CONFIG_SETTINGS    config)
 add_subdirectory_ifdef(CONFIG_NET_SOCKETS            sockets)
 add_subdirectory_ifdef(CONFIG_TLS_CREDENTIALS        tls_credentials)
-add_subdirectory_ifdef(CONFIG_NET_CONNECTION_MANAGER conn_mgr)
 add_subdirectory_ifdef(CONFIG_NET_CAPTURE            capture)
+add_subdirectory_ifdef(CONFIG_NET_ZPERF              zperf)
+add_subdirectory_ifdef(CONFIG_NET_SHELL              shell)
+add_subdirectory_ifdef(CONFIG_NET_TRICKLE            trickle)
+add_subdirectory_ifdef(CONFIG_NET_DHCPV6             dhcpv6)
+add_subdirectory_ifdef(CONFIG_PROMETHEUS             prometheus)
+add_subdirectory_ifdef(CONFIG_WIFI_CREDENTIALS       wifi_credentials)
+
+if (CONFIG_NET_DHCPV4 OR CONFIG_NET_DHCPV4_SERVER)
+  add_subdirectory(dhcpv4)
+endif()
 
 if (CONFIG_DNS_RESOLVER
     OR CONFIG_MDNS_RESPONDER
@@ -19,9 +30,8 @@ if (CONFIG_DNS_RESOLVER
   add_subdirectory(dns)
 endif()
 
-if(CONFIG_HTTP_PARSER_URL OR CONFIG_HTTP_PARSER OR CONFIG_HTTP_CLIENT)
+if(CONFIG_HTTP)
   add_subdirectory(http)
 endif()
 
 add_subdirectory_ifdef(CONFIG_WEBSOCKET_CLIENT websocket)
-add_subdirectory_ifdef(CONFIG_NET_L2_OPENTHREAD openthread)

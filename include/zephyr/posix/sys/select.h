@@ -6,24 +6,29 @@
 #ifndef ZEPHYR_INCLUDE_POSIX_SYS_SELECT_H_
 #define ZEPHYR_INCLUDE_POSIX_SYS_SELECT_H_
 
-#include <zephyr/net/socket_select.h>
-#include <sys/_timeval.h>
+#include <zephyr/posix/posix_types.h>
+#include <zephyr/sys/fdtable.h>
 
-#define fd_set zsock_fd_set
-#define FD_SETSIZE ZSOCK_FD_SETSIZE
-#define FD_ZERO ZSOCK_FD_ZERO
-#define FD_SET ZSOCK_FD_SET
-#define FD_CLR ZSOCK_FD_CLR
-#define FD_ISSET ZSOCK_FD_ISSET
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define FD_SETSIZE ZVFS_FD_SETSIZE
+
+typedef struct zvfs_fd_set fd_set;
 
 struct timeval;
 
-static inline int select(int nfds, fd_set *readfds,
-			 fd_set *writefds, fd_set *exceptfds,
-			 struct timeval *timeout)
-{
-	return zsock_select(nfds, readfds, writefds, exceptfds,
-			    (struct zsock_timeval *)timeout);
+int pselect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+	    const struct timespec *timeout, const void *sigmask);
+int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, struct timeval *timeout);
+void FD_CLR(int fd, fd_set *fdset);
+int FD_ISSET(int fd, fd_set *fdset);
+void FD_SET(int fd, fd_set *fdset);
+void FD_ZERO(fd_set *fdset);
+
+#ifdef __cplusplus
 }
+#endif
 
 #endif /* ZEPHYR_INCLUDE_POSIX_SYS_SELECT_H_ */

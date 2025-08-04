@@ -15,6 +15,7 @@
 extern "C" {
 #endif
 
+#if defined(CONFIG_MULTI_LEVEL_INTERRUPTS) || defined(__DOXYGEN__)
 /**
  * @cond INTERNAL_HIDDEN
  *
@@ -111,8 +112,9 @@ static inline void irq_set_priority_next_level(const struct device *dev,
 	const struct irq_next_level_api *api =
 		(const struct irq_next_level_api *)dev->api;
 
-	if (api->intr_set_priority)
+	if (api->intr_set_priority) {
 		api->intr_set_priority(dev, irq, prio, flags);
+	}
 }
 
 /**
@@ -134,6 +136,7 @@ static inline unsigned int irq_line_is_enabled_next_level(const struct device *d
 	return api->intr_get_line_state(dev, irq);
 }
 
+#endif /* CONFIG_MULTI_LEVEL_INTERRUPTS */
 #ifdef __cplusplus
 }
 #endif

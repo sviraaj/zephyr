@@ -4,12 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
 #include <zephyr/kernel.h>
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <zephyr/pm/pm.h>
 
-BUILD_ASSERT(CONFIG_MP_NUM_CPUS == 2, "Invalid number of cpus");
+BUILD_ASSERT(CONFIG_MP_MAX_NUM_CPUS == 2, "Invalid number of cpus");
 
 #define NUM_OF_ITERATIONS (5)
 
@@ -35,21 +34,18 @@ void pm_state_set(enum pm_state state, uint8_t substate_id)
 	ARG_UNUSED(substate_id);
 
 	switch (state_testing[_current_cpu->id]) {
-	case PM_STATE_ACTIVE:
-		zassert_equal(PM_STATE_ACTIVE, state, NULL);
-		break;
 	case  PM_STATE_RUNTIME_IDLE:
-		zassert_equal(PM_STATE_RUNTIME_IDLE, state, NULL);
+		zassert_equal(PM_STATE_RUNTIME_IDLE, state);
 		break;
 	case  PM_STATE_SUSPEND_TO_IDLE:
-		zassert_equal(PM_STATE_SUSPEND_TO_IDLE, state, NULL);
+		zassert_equal(PM_STATE_SUSPEND_TO_IDLE, state);
 		break;
 	case  PM_STATE_STANDBY:
-		zassert_equal(_current_cpu->id, 1U, NULL);
-		zassert_equal(PM_STATE_STANDBY, state, NULL);
+		zassert_equal(_current_cpu->id, 1U);
+		zassert_equal(PM_STATE_STANDBY, state);
 		break;
 	default:
-		zassert_unreachable(NULL);
+		zassert_unreachable();
 		break;
 	}
 }
@@ -67,26 +63,40 @@ void pm_state_exit_post_ops(enum pm_state state, uint8_t substate_id)
 
 const struct pm_state_info *pm_policy_next_state(uint8_t cpu, int ticks)
 {
-	static struct pm_state_info info = {};
+	static const struct pm_state_info states[] = {
+		{
+			.state = PM_STATE_ACTIVE
+		},
+		{
+			.state = PM_STATE_RUNTIME_IDLE
+		},
+		{
+			.state = PM_STATE_SUSPEND_TO_IDLE
+		},
+		{
+			.state = PM_STATE_STANDBY
+		},
+	};
+	static const struct pm_state_info *info;
 	int32_t msecs = k_ticks_to_ms_floor64(ticks);
 
 	if (msecs < ACTIVE_MSEC) {
-		info.state = PM_STATE_ACTIVE;
+		info = NULL;
 	} else if (msecs <= IDLE_MSEC) {
-		info.state = PM_STATE_RUNTIME_IDLE;
+		info = &states[1];
 	} else if (msecs <= SUSPEND_TO_IDLE_MSEC) {
-		info.state = PM_STATE_SUSPEND_TO_IDLE;
+		info = &states[2];
 	} else {
 		if (cpu == 0U) {
-			info.state = PM_STATE_SUSPEND_TO_IDLE;
+			info = &states[2];
 		} else {
-			info.state = PM_STATE_STANDBY;
+			info = &states[3];
 		}
 	}
 
-	state_testing[cpu] = info.state;
+	state_testing[cpu] = info ? info->state : PM_STATE_ACTIVE;
 
-	return &info;
+	return info;
 }
 
 /*
@@ -103,7 +113,7 @@ const struct pm_state_info *pm_policy_next_state(uint8_t cpu, int ticks)
  *
  * @ingroup power_tests
  */
-void test_power_idle(void)
+ZTEST(pm_multicore, test_power_idle)
 {
 
 	for (uint8_t i = 0U; i < NUM_OF_ITERATIONS; i++) {
@@ -117,9 +127,4 @@ void test_power_idle(void)
 	}
 }
 
-void test_main(void)
-{
-	ztest_test_suite(pm_multicore_test,
-			 ztest_unit_test(test_power_idle));
-	ztest_run_test_suite(pm_multicore_test);
-}
+ZTEST_SUITE(pm_multicore, NULL, NULL, NULL, NULL, NULL);

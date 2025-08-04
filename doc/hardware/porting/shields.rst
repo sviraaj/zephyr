@@ -8,20 +8,47 @@ to extend its features and services for easier and modularized prototyping.
 In Zephyr, the shield feature provides Zephyr-formatted shield
 descriptions for easier compatibility with applications.
 
+.. _shield_porting_guide:
+
 Shield porting and configuration
 ********************************
 
 Shield configuration files are available in the board directory
-under :zephyr_file:`/boards/shields`:
+under :zephyr_file:`boards/shields`:
 
 .. code-block:: none
 
    boards/shields/<shield>
+   ├── shield.yml
    ├── <shield>.overlay
    ├── Kconfig.shield
-   └── Kconfig.defconfig
+   ├── Kconfig.defconfig
+   └── pre_dt_shield.cmake
 
 These files provides shield configuration as follows:
+
+* **shield.yml**: This file provides metadata about the shield in YAML format.
+  It must contain the following fields:
+
+  * ``name``: Name of the shield used in Kconfig and build system (required)
+  * ``full_name``: Full commercial name of the shield (required)
+  * ``vendor``: Manufacturer/vendor of the shield (required)
+  * ``supported_features``: List of hardware features the shield supports (optional). In order to
+    help users identify the features a shield supports without having to dig into its overlay file,
+    the ``supported_features`` field can be used to list the types of features the shield supports.
+    The values should be the same as the ones defined in the
+    :zephyr_file:`dts/bindings/binding-types.txt` file.
+
+  Example:
+
+  .. code-block:: yaml
+
+     name: foo_shield
+     full_name: Foo Shield for Arduino
+     vendor: acme
+     supported_features:
+       - display
+       - input
 
 * **<shield>.overlay**: This file provides a shield description in devicetree
   format that is merged with the board's :ref:`devicetree <dt-guide>`
@@ -37,6 +64,38 @@ These files provides shield configuration as follows:
   shield configuration should be done by keeping in mind that features
   activation is application responsibility.
 
+* **pre_dt_shield.cmake**: This optional file can be used to pass additional
+  arguments to the devicetree compiler ``dtc``.
+
+Besides, in order to avoid name conflicts with devices that may be defined at
+board level, it is advised, specifically for shields devicetree descriptions,
+to provide a device nodelabel is the form <device>_<shield>, for instance:
+
+.. code-block:: devicetree
+
+        sdhc_myshield: sdhc@1 {
+                reg = <1>;
+                ...
+        };
+
+Adding Source Code
+******************
+
+It is possible to add source code to shields, as a way to meet configuration
+requirements that are specific to the shield (e.g: initialization routines,
+timing constraints, etc), in order to enable it for proper operation with the
+different Zephyr components.
+
+.. note::
+
+   Source code in shields shall not be used for purposes other than the
+   one described above. Generic functionalities that could be reused among
+   shields (and/or targets) shall not be captured here.
+
+To effectively incorporate source code: add a :file:`CMakeLists.txt` file, as
+well as the corresponding source files (referenced in CMake similar to other
+areas of Zephyr, e.g: boards).
+
 Board compatibility
 *******************
 
@@ -50,23 +109,12 @@ This should be done at two different level:
 * Pinmux: Connector pins should be correctly configured to match shield pins
 
 * Devicetree: A board :ref:`devicetree <dt-guide>` file,
-  :file:`BOARD.dts` should define a node alias for each connector interface.
+  :file:`BOARD.dts` should define an alternate nodelabel for each connector interface.
   For example, for Arduino I2C:
 
 .. code-block:: devicetree
 
-        #define arduino_i2c i2c1
-
-        aliases {
-                arduino,i2c = &i2c1;
-        };
-
-Note: With support of dtc v1.4.2, above will be replaced with the recently
-introduced overriding node element:
-
-.. code-block:: devicetree
-
-        arduino_i2c:i2c1{};
+        arduino_i2c: &i2c1 {};
 
 Board specific shield configuration
 -----------------------------------
@@ -89,18 +137,18 @@ board or board revision overriding files to a shield, as follows:
 Shield activation
 *****************
 
-Activate support for one or more shields by adding the matching -DSHIELD arg to
-CMake command
+Activate support for one or more shields by adding the matching ``--shield`` arguments
+to the west command:
 
   .. zephyr-app-commands::
-     :zephyr-app: your_app
-     :shield: "x_nucleo_idb05a1 x_nucleo_iks01a1"
+     :app: your_app
+     :shield: x_nucleo_idb05a1,x_nucleo_iks01a1
      :goals: build
 
 
 Alternatively, it could be set by default in a project's CMakeLists.txt:
 
-.. code-block:: none
+.. code-block:: cmake
 
 	set(SHIELD x_nucleo_iks01a1)
 
@@ -121,7 +169,7 @@ possible to provide multiple version of the shields description:
 In this case, a shield-particular revision name can be used:
 
   .. zephyr-app-commands::
-     :zephyr-app: your_app
+     :app: your_app
      :shield: shield_v2
      :goals: build
 
@@ -152,7 +200,7 @@ node`_ that looks like the following into the board devicetree file:
 .. _nexus node:
     https://github.com/devicetree-org/devicetree-specification/blob/4b1dac80eaca45b4babf5299452a951008a5d864/source/devicetree-basics.rst#nexus-nodes-and-specifier-mapping
 
-.. code-block:: none
+.. code-block:: devicetree
 
     arduino_header: connector {
             compatible = "arduino-header-r3";
@@ -192,7 +240,7 @@ bits of the flags correspond to features that can be configured in
 devicetree.  In some cases it's necessary to use a non-zero flag value
 to tell the driver how a particular pin behaves, as with:
 
-.. code-block:: none
+.. code-block:: devicetree
 
     drdy-gpios = <&arduino_header 11 GPIO_ACTIVE_LOW>;
 

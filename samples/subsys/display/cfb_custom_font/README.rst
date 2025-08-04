@@ -1,7 +1,8 @@
-.. _cfb_custom_fonts:
+.. zephyr:code-sample:: cfb-custom-fonts
+   :name: Custom fonts
+   :relevant-api: monochrome_character_framebuffer
 
-Custom Fonts
-############
+   Generate and use a custom font.
 
 Overview
 ********
@@ -13,7 +14,7 @@ a PNG image, and then uses the generated header (``cfb_font_dice.h``)
 to show the font elements on the display of a supported board.
 
 The source code for this sample application can be found at:
-:zephyr_file:`samples/display/cfb_custom_font`.
+:zephyr_file:`samples/subsys/display/cfb_custom_font`.
 
 Building and Running
 ********************

@@ -1,7 +1,8 @@
-.. _grove-lcd-sample:
+.. zephyr:code-sample:: grove-lcd
+   :name: Grove LCD
+   :relevant-api: grove_display
 
-Grove LCD
-#########
+   Display an incrementing counter and change the backlight color.
 
 Overview
 ********
@@ -41,10 +42,10 @@ shield interface. For example, it can be run on the FRDM K64F board as
 described below:
 
 .. zephyr-app-commands::
-   :zephyr-app: samples/subsys/display/grove_display
+   :zephyr-app: samples/drivers/misc/grove_display
    :board: frdm_k64f
    :goals: flash
    :compact:
 
-.. _Grove Base Shield: http://wiki.seeedstudio.com/wiki/Grove_-_Base_Shield
+.. _Grove Base Shield: https://wiki.seeedstudio.com/Base_Shield_V2/
 .. _Grove LCD module: http://wiki.seeed.cc/Grove-LCD_RGB_Backlight/

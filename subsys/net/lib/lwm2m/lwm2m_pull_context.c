@@ -15,17 +15,14 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <stdio.h>
 #include <string.h>
 
-#include <zephyr/net/http_parser.h>
+#include <zephyr/net/http/parser.h>
 #include <zephyr/net/socket.h>
 
 #include "lwm2m_pull_context.h"
 #include "lwm2m_engine.h"
+#include "lwm2m_util.h"
 
 static K_SEM_DEFINE(lwm2m_pull_sem, 1, 1);
-
-#define NETWORK_INIT_TIMEOUT K_SECONDS(10)
-#define NETWORK_CONNECT_TIMEOUT K_SECONDS(10)
-#define PACKET_TRANSFER_RETRY_MAX 3
 
 #if defined(CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_COAP_PROXY_SUPPORT)
 #define COAP2COAP_PROXY_URI_PATH "coap2coap"
@@ -33,6 +30,8 @@ static K_SEM_DEFINE(lwm2m_pull_sem, 1, 1);
 
 static char proxy_uri[LWM2M_PACKAGE_URI_LEN];
 #endif
+
+static void do_transmit_timeout_cb(struct lwm2m_message *msg);
 
 static struct firmware_pull_context {
 	uint8_t obj_inst_id;
@@ -45,18 +44,51 @@ static struct firmware_pull_context {
 	struct coap_block_context block_ctx;
 } context;
 
-static int n_retry;
+static enum service_state {
+	NOT_STARTED,
+	IDLE,
+	STOPPING,
+} pull_service_state;
 
-static void do_transmit_timeout_cb(struct lwm2m_message *msg);
+static void pull_service(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	switch (pull_service_state) {
+	case NOT_STARTED:
+		pull_service_state = IDLE;
+		/* Set a long 5s time for a service that does not do anything*/
+		/* Will be set to smaller, when there is time to clena up */
+		lwm2m_engine_update_service_period(pull_service, 5000);
+		break;
+	case IDLE:
+		/* Nothing to do */
+		break;
+	case STOPPING:
+		/* Clean up the current socket context */
+		lwm2m_engine_stop(&context.firmware_ctx);
+		lwm2m_engine_update_service_period(pull_service, 5000);
+		pull_service_state = IDLE;
+		k_sem_give(&lwm2m_pull_sem);
+		break;
+	}
+}
+
+static int start_service(void)
+{
+	if (pull_service_state != NOT_STARTED) {
+		return 0;
+	}
+
+	return lwm2m_engine_add_service(pull_service, 1);
+}
 
 /**
  * Close all open connections and release the context semaphore
  */
 static void cleanup_context(void)
 {
-	lwm2m_engine_context_close(&context.firmware_ctx);
-
-	k_sem_give(&lwm2m_pull_sem);
+	pull_service_state = STOPPING;
+	lwm2m_engine_update_service_period(pull_service, 1);
 }
 
 static int transfer_request(struct coap_block_context *ctx, uint8_t *token, uint8_t tkl,
@@ -105,14 +137,14 @@ static int transfer_request(struct coap_block_context *ctx, uint8_t *token, uint
 
 	ret = coap_packet_append_option(&msg->cpkt, COAP_OPTION_URI_PATH, cursor, strlen(cursor));
 	if (ret < 0) {
-		LOG_ERR("Error adding URI_PATH '%s'", log_strdup(cursor));
+		LOG_ERR("Error adding URI_PATH '%s'", cursor);
 		goto cleanup;
 	}
 #else
 	http_parser_url_init(&parser);
 	ret = http_parser_parse_url(context.uri, strlen(context.uri), 0, &parser);
 	if (ret < 0) {
-		LOG_ERR("Invalid firmware url: %s", log_strdup(context.uri));
+		LOG_ERR("Invalid firmware url: %s", context.uri);
 		ret = -ENOTSUP;
 		goto cleanup;
 	}
@@ -158,7 +190,7 @@ static int transfer_request(struct coap_block_context *ctx, uint8_t *token, uint
 	ret = coap_packet_append_option(&msg->cpkt, COAP_OPTION_PROXY_URI, context.uri,
 					strlen(context.uri));
 	if (ret < 0) {
-		LOG_ERR("Error adding PROXY_URI '%s'", log_strdup(context.uri));
+		LOG_ERR("Error adding PROXY_URI '%s'", context.uri);
 		goto cleanup;
 	}
 #else
@@ -256,8 +288,15 @@ static int do_firmware_transfer_reply_cb(const struct coap_packet *response,
 		LOG_DBG("total: %zd, current: %zd", context.block_ctx.total_size,
 			context.block_ctx.current);
 
+		struct lwm2m_obj_path path;
+
+		ret = lwm2m_string_to_path("5/0/0", &path, '/');
+		if (ret < 0) {
+			goto error;
+		}
+
 		/* look up firmware package resource */
-		ret = lwm2m_engine_get_resource("5/0/0", &res);
+		ret = lwm2m_get_resource(&path, &res);
 		if (ret < 0) {
 			goto error;
 		}
@@ -272,6 +311,8 @@ static int do_firmware_transfer_reply_cb(const struct coap_packet *response,
 		}
 
 		if (context.write_cb) {
+			size_t offset = received_block_ctx.current;
+
 			/* flush incoming data to write_cb */
 			while (payload_len > 0) {
 				len = (payload_len > write_buflen) ? write_buflen : payload_len;
@@ -286,7 +327,8 @@ static int do_firmware_transfer_reply_cb(const struct coap_packet *response,
 
 				ret = context.write_cb(context.obj_inst_id, 0, 0, write_buf, len,
 						       last_block && (payload_len == 0U),
-						       context.block_ctx.total_size);
+						       context.block_ctx.total_size, offset);
+				offset += len;
 				if (ret < 0) {
 					goto error;
 				}
@@ -317,29 +359,10 @@ error:
 
 static void do_transmit_timeout_cb(struct lwm2m_message *msg)
 {
-	int ret;
-
-	if (n_retry < PACKET_TRANSFER_RETRY_MAX) {
-		/* retry block */
-		LOG_WRN("TIMEOUT - Sending a retry packet!");
-
-		ret = transfer_request(&context.block_ctx, msg->token, msg->tkl,
-				       do_firmware_transfer_reply_cb);
-		if (ret < 0) {
-			/* abort retries / transfer */
-			n_retry = PACKET_TRANSFER_RETRY_MAX;
-			context.result_cb(context.obj_inst_id, ret);
-			cleanup_context();
-			return;
-		}
-
-		n_retry++;
-	} else {
-		LOG_ERR("TIMEOUT - Too many retry packet attempts! "
-			"Aborting firmware download.");
-		context.result_cb(context.obj_inst_id, -ENOMSG);
-		cleanup_context();
-	}
+	LOG_ERR("TIMEOUT - Too many retry packet attempts! "
+		"Aborting firmware download.");
+	context.result_cb(context.obj_inst_id, -ENOMSG);
+	cleanup_context();
 }
 
 static void firmware_transfer(void)
@@ -347,12 +370,12 @@ static void firmware_transfer(void)
 	int ret;
 	char *server_addr;
 
-	ret = k_sem_take(&lwm2m_pull_sem, K_NO_WAIT);
+	ret = k_sem_take(&lwm2m_pull_sem, K_FOREVER);
 
 #if defined(CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_COAP_PROXY_SUPPORT)
 	server_addr = CONFIG_LWM2M_FIRMWARE_UPDATE_PULL_COAP_PROXY_ADDR;
 	if (strlen(server_addr) >= LWM2M_PACKAGE_URI_LEN) {
-		LOG_ERR("Invalid Proxy URI: %s", log_strdup(server_addr));
+		LOG_ERR("Invalid Proxy URI: %s", server_addr);
 		ret = -ENOTSUP;
 		goto error;
 	}
@@ -377,7 +400,7 @@ static void firmware_transfer(void)
 		goto error;
 	}
 
-	LOG_INF("Connecting to server %s", log_strdup(context.uri));
+	LOG_INF("Connecting to server %s", context.uri);
 
 	/* reset block transfer context */
 	coap_block_transfer_init(&context.block_ctx, lwm2m_default_block_size(), 0);
@@ -403,6 +426,12 @@ int lwm2m_pull_context_start_transfer(char *uri, struct requesting_object req, k
 		return -EINVAL;
 	}
 
+	ret = start_service();
+	if (ret) {
+		LOG_ERR("Failed to start the pull-service");
+		return ret;
+	}
+
 	/* Check if we are not in the middle of downloading */
 	ret = k_sem_take(&lwm2m_pull_sem, K_NO_WAIT);
 	if (ret) {
@@ -417,12 +446,15 @@ int lwm2m_pull_context_start_transfer(char *uri, struct requesting_object req, k
 	context.result_cb = req.result_cb;
 	context.write_cb = req.write_cb;
 
-	(void)memset(&context.firmware_ctx, 0, sizeof(struct lwm2m_ctx));
 	(void)memset(&context.block_ctx, 0, sizeof(struct coap_block_context));
 	context.firmware_ctx.sock_fd = -1;
 
-	n_retry = 0;
 	firmware_transfer();
 
 	return 0;
+}
+
+void lwm2m_pull_context_set_sockopt_callback(lwm2m_set_sockopt_cb_t set_sockopt_cb)
+{
+	context.firmware_ctx.set_socketoptions = set_sockopt_cb;
 }

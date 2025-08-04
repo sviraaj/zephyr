@@ -3,6 +3,7 @@
 cmake_minimum_required(VERSION 3.20.0)
 project(Zephyr-Kernel-Doc LANGUAGES)
 
+set(MIN_WEST_VERSION 1.0.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE} .. COMPONENTS doc)
 
 file(TO_CMAKE_PATH "${ZEPHYR_BASE}" ZEPHYR_BASE)
@@ -11,13 +12,17 @@ message(STATUS "Zephyr base: ${ZEPHYR_BASE}")
 #-------------------------------------------------------------------------------
 # Options
 
-set(SPHINXOPTS "-j auto" CACHE STRING "Default Sphinx Options")
+set(SPHINXOPTS "-j auto -W --keep-going -T" CACHE STRING "Default Sphinx Options")
+set(SPHINXOPTS_EXTRA "" CACHE STRING "Extra Sphinx Options (added to defaults)")
 set(LATEXMKOPTS "-halt-on-error -no-shell-escape" CACHE STRING "Default latexmk options")
 set(DT_TURBO_MODE OFF CACHE BOOL "Enable DT turbo mode")
+set(HW_FEATURES_TURBO_MODE OFF CACHE BOOL "Enable HW features turbo mode")
+set(HW_FEATURES_VENDOR_FILTER "" CACHE STRING "Vendor filter for HW features")
 set(DOC_TAG "development" CACHE STRING "Documentation tag")
 set(DTS_ROOTS "${ZEPHYR_BASE}" CACHE STRING "DT bindings root folders")
 
 separate_arguments(SPHINXOPTS)
+separate_arguments(SPHINXOPTS_EXTRA)
 separate_arguments(LATEXMKOPTS)
 
 #-------------------------------------------------------------------------------
@@ -29,6 +34,7 @@ find_program(SPHINXBUILD sphinx-build)
 if(NOT SPHINXBUILD)
   message(FATAL_ERROR "The 'sphinx-build' command was not found")
 endif()
+find_program(SPHINXAUTOBUILD sphinx-autobuild)
 
 find_package(LATEX COMPONENTS PDFLATEX)
 find_program(LATEXMK latexmk)
@@ -42,13 +48,25 @@ endif()
 set(SPHINX_ENV
   DOXYGEN_EXECUTABLE=${DOXYGEN_EXECUTABLE}
   DOT_EXECUTABLE=${DOXYGEN_DOT_EXECUTABLE}
+  DOCS_HTML_DIR=${CMAKE_CURRENT_BINARY_DIR}/html
 )
+
+if(DEFINED ENV{ZEPHYR_DOXYGEN_OVERLAY})
+  if(EXISTS $ENV{ZEPHYR_DOXYGEN_OVERLAY})
+    set(INCLUDE_CUSTOM_FILE "@INCLUDE = $ENV{ZEPHYR_DOXYGEN_OVERLAY}")
+  else()
+    message(FATAL_ERROR "Zephyr Doxygen overlay $ENV{ZEPHYR_DOXYGEN_OVERLAY} does not exist!")
+  endif()
+else()
+  set(INCLUDE_CUSTOM_FILE "")
+endif()
 
 set(DOCS_CFG_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(DOCS_DOCTREE_DIR ${CMAKE_CURRENT_BINARY_DIR}/doctrees)
 set(DOCS_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(DOCS_SRC_DIR ${CMAKE_CURRENT_BINARY_DIR}/src)
 set(DOCS_HTML_DIR ${CMAKE_CURRENT_BINARY_DIR}/html)
+set(DOCS_LINKCHECK_DIR ${CMAKE_CURRENT_BINARY_DIR}/linkcheck)
 set(DOCS_LATEX_DIR ${CMAKE_CURRENT_BINARY_DIR}/latex)
 
 if(WIN32)
@@ -133,16 +151,32 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${GEN_DEVICETREE_
 #-------------------------------------------------------------------------------
 # html
 
+set(SPHINX_TAGS "${DOC_TAG}")
+if(HW_FEATURES_TURBO_MODE)
+  list(APPEND SPHINX_TAGS "hw_features_turbo")
+endif()
+
+set(SPHINX_TAGS_ARGS "")
+foreach(tag ${SPHINX_TAGS})
+  list(APPEND SPHINX_TAGS_ARGS "-t" "${tag}")
+endforeach()
+
+if(HW_FEATURES_VENDOR_FILTER)
+  list(JOIN HW_FEATURES_VENDOR_FILTER "," vendor_filter)
+  list(APPEND SPHINXOPTS "-D" "zephyr_hw_features_vendor_filter=${vendor_filter}")
+endif()
+
 add_doc_target(
   html
-  COMMAND ${CMAKE_COMMAND} -E env ${SPHINX_ENV}
+  COMMAND ${CMAKE_COMMAND} -E env ${SPHINX_ENV} OUTPUT_DIR=${DOCS_HTML_DIR}
   ${SPHINXBUILD}
     -b html
     -c ${DOCS_CFG_DIR}
     -d ${DOCS_DOCTREE_DIR}
     -w ${DOCS_BUILD_DIR}/html.log
-    -t ${DOC_TAG}
+    ${SPHINX_TAGS_ARGS}
     ${SPHINXOPTS}
+    ${SPHINXOPTS_EXTRA}
     ${DOCS_SRC_DIR}
     ${DOCS_HTML_DIR}
   USES_TERMINAL
@@ -158,19 +192,49 @@ set_target_properties(
 add_dependencies(html devicetree)
 
 #-------------------------------------------------------------------------------
+# html-live
+
+add_doc_target(
+  html-live
+  COMMAND ${CMAKE_COMMAND} -E env ${SPHINX_ENV} OUTPUT_DIR=${DOCS_HTML_DIR}
+  ${SPHINXAUTOBUILD}
+    --watch ${DOCS_CFG_DIR}
+    --ignore ${DOCS_BUILD_DIR}
+    -b html
+    -c ${DOCS_CFG_DIR}
+    -d ${DOCS_DOCTREE_DIR}
+    -w ${DOCS_BUILD_DIR}/html.log
+    ${SPHINX_TAGS_ARGS}
+    ${SPHINXOPTS}
+    ${SPHINXOPTS_EXTRA}
+    ${DOCS_SRC_DIR}
+    ${DOCS_HTML_DIR}
+  USES_TERMINAL
+  COMMENT "Running Sphinx HTML autobuild..."
+)
+
+set_target_properties(
+  html-live html-live-nodeps
+  PROPERTIES
+    ADDITIONAL_CLEAN_FILES "${DOCS_SRC_DIR};${DOCS_HTML_DIR};${DOCS_DOCTREE_DIR}"
+)
+
+add_dependencies(html-live devicetree)
+#-------------------------------------------------------------------------------
 # pdf
 
 add_doc_target(
   latex
-  COMMAND ${CMAKE_COMMAND} -E env ${SPHINX_ENV}
+  COMMAND ${CMAKE_COMMAND} -E env ${SPHINX_ENV} OUTPUT_DIR=${DOCS_LATEX_DIR}
   ${SPHINXBUILD}
     -b latex
     -c ${DOCS_CFG_DIR}
     -d ${DOCS_DOCTREE_DIR}
     -w ${DOCS_BUILD_DIR}/latex.log
-    -t ${DOC_TAG}
-    -t svgconvert
+    ${SPHINX_TAGS_ARGS}
+    -t convertimages
     ${SPHINXOPTS}
+    ${SPHINXOPTS_EXTRA}
     ${DOCS_SRC_DIR}
     ${DOCS_LATEX_DIR}
   USES_TERMINAL
@@ -207,6 +271,34 @@ if(LATEX_PDFLATEX_FOUND AND LATEXMK)
 
   add_dependencies(pdf latex)
 endif()
+
+#-------------------------------------------------------------------------------
+# linkcheck
+
+add_doc_target(
+  linkcheck
+  COMMAND ${CMAKE_COMMAND} -E env ${SPHINX_ENV} OUTPUT_DIR=${DOCS_LINKCHECK_DIR}
+  ${SPHINXBUILD}
+    -b linkcheck
+    -c ${DOCS_CFG_DIR}
+    -d ${DOCS_DOCTREE_DIR}
+    -w ${DOCS_BUILD_DIR}/linkcheck.log
+    ${SPHINX_TAGS_ARGS}
+    ${SPHINXOPTS}
+    ${SPHINXOPTS_EXTRA}
+    ${DOCS_SRC_DIR}
+    ${DOCS_LINKCHECK_DIR}
+  USES_TERMINAL
+  COMMENT "Running Sphinx link check..."
+)
+
+set_target_properties(
+  linkcheck linkcheck-nodeps
+  PROPERTIES
+    ADDITIONAL_CLEAN_FILES "${DOCS_SRC_DIR};${DOCS_LINKCHECK_DIR};${DOCS_DOCTREE_DIR}"
+)
+
+add_dependencies(linkcheck devicetree)
 
 #-------------------------------------------------------------------------------
 # others

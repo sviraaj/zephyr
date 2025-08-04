@@ -6,6 +6,9 @@
 
 /**
  * @file
+ * @defgroup doubly-linked-list_apis Doubly-linked list
+ * @ingroup datastructure_apis
+ *
  * @brief Doubly-linked list implementation
  *
  * Doubly-linked list implementation using inline macros/functions.
@@ -15,6 +18,8 @@
  * The lists are expected to be initialized such that both the head and tail
  * pointers point to the list itself.  Initializing the lists in such a fashion
  * simplifies the adding and removing of nodes to/from the list.
+ *
+ * @{
  */
 
 #ifndef ZEPHYR_INCLUDE_SYS_DLIST_H_
@@ -22,17 +27,11 @@
 
 #include <stddef.h>
 #include <stdbool.h>
-#include <zephyr/toolchain.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/**
- * @defgroup doubly-linked-list_apis Doubly-linked list
- * @ingroup datastructure_apis
- * @{
- */
 
 struct _dnode {
 	union {
@@ -45,7 +44,13 @@ struct _dnode {
 	};
 };
 
+/**
+ * @brief Doubly-linked list structure.
+ */
 typedef struct _dnode sys_dlist_t;
+/**
+ * @brief Doubly-linked list node structure.
+ */
 typedef struct _dnode sys_dnode_t;
 
 
@@ -111,12 +116,12 @@ typedef struct _dnode sys_dnode_t;
  * @param __dns A sys_dnode_t pointer for the loop to run safely
  */
 #define SYS_DLIST_FOR_EACH_NODE_SAFE(__dl, __dn, __dns)			\
-	for (__dn = sys_dlist_peek_head(__dl),				\
-		     __dns = sys_dlist_peek_next(__dl, __dn);		\
-	     __dn != NULL; __dn = __dns,				\
-		     __dns = sys_dlist_peek_next(__dl, __dn))
+	for ((__dn) = sys_dlist_peek_head(__dl),			\
+		     (__dns) = sys_dlist_peek_next((__dl), (__dn));	\
+	     (__dn) != NULL; (__dn) = (__dns),				\
+		     (__dns) = sys_dlist_peek_next(__dl, __dn))
 
-/*
+/**
  * @brief Provide the primitive to resolve the container of a list node
  * Note: it is safe to use with NULL pointer nodes
  *
@@ -125,8 +130,8 @@ typedef struct _dnode sys_dnode_t;
  * @param __n The field name of sys_dnode_t within the container struct
  */
 #define SYS_DLIST_CONTAINER(__dn, __cn, __n) \
-	((__dn != NULL) ? CONTAINER_OF(__dn, __typeof__(*__cn), __n) : NULL)
-/*
+	(((__dn) != NULL) ? CONTAINER_OF(__dn, __typeof__(*(__cn)), __n) : NULL)
+/**
  * @brief Provide the primitive to peek container of the list head
  *
  * @param __dl A pointer on a sys_dlist_t to peek
@@ -136,7 +141,7 @@ typedef struct _dnode sys_dnode_t;
 #define SYS_DLIST_PEEK_HEAD_CONTAINER(__dl, __cn, __n) \
 	SYS_DLIST_CONTAINER(sys_dlist_peek_head(__dl), __cn, __n)
 
-/*
+/**
  * @brief Provide the primitive to peek the next container
  *
  * @param __dl A pointer on a sys_dlist_t to peek
@@ -144,8 +149,8 @@ typedef struct _dnode sys_dnode_t;
  * @param __n The field name of sys_dnode_t within the container struct
  */
 #define SYS_DLIST_PEEK_NEXT_CONTAINER(__dl, __cn, __n) \
-	((__cn != NULL) ? \
-	 SYS_DLIST_CONTAINER(sys_dlist_peek_next(__dl, &(__cn->__n)),	\
+	(((__cn) != NULL) ? \
+	 SYS_DLIST_CONTAINER(sys_dlist_peek_next((__dl), &((__cn)->__n)),	\
 				      __cn, __n) : NULL)
 
 /**
@@ -159,13 +164,13 @@ typedef struct _dnode sys_dnode_t;
  *     }
  *
  * @param __dl A pointer on a sys_dlist_t to iterate on
- * @param __cn A pointer to peek each entry of the list
+ * @param __cn A container struct type pointer to peek each entry of the list
  * @param __n The field name of sys_dnode_t within the container struct
  */
 #define SYS_DLIST_FOR_EACH_CONTAINER(__dl, __cn, __n)			\
-	for (__cn = SYS_DLIST_PEEK_HEAD_CONTAINER(__dl, __cn, __n);     \
-	     __cn != NULL;                                              \
-	     __cn = SYS_DLIST_PEEK_NEXT_CONTAINER(__dl, __cn, __n))
+	for ((__cn) = SYS_DLIST_PEEK_HEAD_CONTAINER(__dl, __cn, __n);     \
+	     (__cn) != NULL;                                              \
+	     (__cn) = SYS_DLIST_PEEK_NEXT_CONTAINER(__dl, __cn, __n))
 
 /**
  * @brief Provide the primitive to safely iterate on a list under a container
@@ -178,15 +183,15 @@ typedef struct _dnode sys_dnode_t;
  *     }
  *
  * @param __dl A pointer on a sys_dlist_t to iterate on
- * @param __cn A pointer to peek each entry of the list
- * @param __cns A pointer for the loop to run safely
+ * @param __cn A container struct type pointer to peek each entry of the list
+ * @param __cns A container struct type pointer for the loop to run safely
  * @param __n The field name of sys_dnode_t within the container struct
  */
 #define SYS_DLIST_FOR_EACH_CONTAINER_SAFE(__dl, __cn, __cns, __n)	\
-	for (__cn = SYS_DLIST_PEEK_HEAD_CONTAINER(__dl, __cn, __n),	\
-	     __cns = SYS_DLIST_PEEK_NEXT_CONTAINER(__dl, __cn, __n);    \
-	     __cn != NULL; __cn = __cns,				\
-	     __cns = SYS_DLIST_PEEK_NEXT_CONTAINER(__dl, __cn, __n))
+	for ((__cn) = SYS_DLIST_PEEK_HEAD_CONTAINER(__dl, __cn, __n),	\
+	     (__cns) = SYS_DLIST_PEEK_NEXT_CONTAINER(__dl, __cn, __n);    \
+	     (__cn) != NULL; (__cn) = (__cns),				\
+	     (__cns) = SYS_DLIST_PEEK_NEXT_CONTAINER(__dl, __cn, __n))
 
 /**
  * @brief initialize list to its empty state
@@ -200,6 +205,9 @@ static inline void sys_dlist_init(sys_dlist_t *list)
 	list->tail = (sys_dnode_t *)list;
 }
 
+/**
+ * @brief Static initializer for a doubly-linked list
+ */
 #define SYS_DLIST_STATIC_INIT(ptr_to_list) { {(ptr_to_list)}, {(ptr_to_list)} }
 
 /**
@@ -236,7 +244,7 @@ static inline bool sys_dnode_is_linked(const sys_dnode_t *node)
  * @return true if node is the head, false otherwise
  */
 
-static inline bool sys_dlist_is_head(sys_dlist_t *list, sys_dnode_t *node)
+static inline bool sys_dlist_is_head(const sys_dlist_t *list, const sys_dnode_t *node)
 {
 	return list->head == node;
 }
@@ -250,7 +258,7 @@ static inline bool sys_dlist_is_head(sys_dlist_t *list, sys_dnode_t *node)
  * @return true if node is the tail, false otherwise
  */
 
-static inline bool sys_dlist_is_tail(sys_dlist_t *list, sys_dnode_t *node)
+static inline bool sys_dlist_is_tail(const sys_dlist_t *list, const sys_dnode_t *node)
 {
 	return list->tail == node;
 }
@@ -263,7 +271,7 @@ static inline bool sys_dlist_is_tail(sys_dlist_t *list, sys_dnode_t *node)
  * @return true if empty, false otherwise
  */
 
-static inline bool sys_dlist_is_empty(sys_dlist_t *list)
+static inline bool sys_dlist_is_empty(const sys_dlist_t *list)
 {
 	return list->head == list;
 }
@@ -278,7 +286,7 @@ static inline bool sys_dlist_is_empty(sys_dlist_t *list)
  * @return true if multiple nodes, false otherwise
  */
 
-static inline bool sys_dlist_has_multiple_nodes(sys_dlist_t *list)
+static inline bool sys_dlist_has_multiple_nodes(const sys_dlist_t *list)
 {
 	return list->head != list->tail;
 }
@@ -291,7 +299,7 @@ static inline bool sys_dlist_has_multiple_nodes(sys_dlist_t *list)
  * @return a pointer to the head element, NULL if list is empty
  */
 
-static inline sys_dnode_t *sys_dlist_peek_head(sys_dlist_t *list)
+static inline sys_dnode_t *sys_dlist_peek_head(const sys_dlist_t *list)
 {
 	return sys_dlist_is_empty(list) ? NULL : list->head;
 }
@@ -306,7 +314,7 @@ static inline sys_dnode_t *sys_dlist_peek_head(sys_dlist_t *list)
  * @return a pointer to the head element
  */
 
-static inline sys_dnode_t *sys_dlist_peek_head_not_empty(sys_dlist_t *list)
+static inline sys_dnode_t *sys_dlist_peek_head_not_empty(const sys_dlist_t *list)
 {
 	return list->head;
 }
@@ -322,8 +330,8 @@ static inline sys_dnode_t *sys_dlist_peek_head_not_empty(sys_dlist_t *list)
  * @return a pointer to the next element from a node, NULL if node is the tail
  */
 
-static inline sys_dnode_t *sys_dlist_peek_next_no_check(sys_dlist_t *list,
-							sys_dnode_t *node)
+static inline sys_dnode_t *sys_dlist_peek_next_no_check(const sys_dlist_t *list,
+							const sys_dnode_t *node)
 {
 	return (node == list->tail) ? NULL : node->next;
 }
@@ -338,8 +346,8 @@ static inline sys_dnode_t *sys_dlist_peek_next_no_check(sys_dlist_t *list,
  * or NULL (when node comes from reading the head of an empty list).
  */
 
-static inline sys_dnode_t *sys_dlist_peek_next(sys_dlist_t *list,
-					       sys_dnode_t *node)
+static inline sys_dnode_t *sys_dlist_peek_next(const sys_dlist_t *list,
+					       const sys_dnode_t *node)
 {
 	return (node != NULL) ? sys_dlist_peek_next_no_check(list, node) : NULL;
 }
@@ -356,8 +364,8 @@ static inline sys_dnode_t *sys_dlist_peek_next(sys_dlist_t *list,
  *	   tail
  */
 
-static inline sys_dnode_t *sys_dlist_peek_prev_no_check(sys_dlist_t *list,
-							sys_dnode_t *node)
+static inline sys_dnode_t *sys_dlist_peek_prev_no_check(const sys_dlist_t *list,
+							const sys_dnode_t *node)
 {
 	return (node == list->head) ? NULL : node->prev;
 }
@@ -373,8 +381,8 @@ static inline sys_dnode_t *sys_dlist_peek_prev_no_check(sys_dlist_t *list,
  * 	   list).
  */
 
-static inline sys_dnode_t *sys_dlist_peek_prev(sys_dlist_t *list,
-					       sys_dnode_t *node)
+static inline sys_dnode_t *sys_dlist_peek_prev(const sys_dlist_t *list,
+					       const sys_dnode_t *node)
 {
 	return (node != NULL) ? sys_dlist_peek_prev_no_check(list, node) : NULL;
 }
@@ -387,7 +395,7 @@ static inline sys_dnode_t *sys_dlist_peek_prev(sys_dlist_t *list,
  * @return a pointer to the tail element, NULL if list is empty
  */
 
-static inline sys_dnode_t *sys_dlist_peek_tail(sys_dlist_t *list)
+static inline sys_dnode_t *sys_dlist_peek_tail(const sys_dlist_t *list)
 {
 	return sys_dlist_is_empty(list) ? NULL : list->tail;
 }
@@ -487,6 +495,29 @@ static inline void sys_dlist_insert_at(sys_dlist_t *list, sys_dnode_t *node,
 /**
  * @brief remove a specific node from a list
  *
+ * Like :c:func:`sys_dlist_remove()`, this routine removes a specific node
+ * from a list. However, unlike :c:func:`sys_dlist_remove()`, this routine
+ * does not re-initialize the removed node. One significant implication of
+ * this difference is that the function :c:func`sys_dnode_is_linked()` will
+ * not work on a dequeued node.
+ *
+ * The list is implicit from the node. The node must be part of a list.
+ * This and other sys_dlist_*() functions are not thread safe.
+ *
+ * @param node the node to dequeue
+ */
+static inline void sys_dlist_dequeue(sys_dnode_t *node)
+{
+	sys_dnode_t *const prev = node->prev;
+	sys_dnode_t *const next = node->next;
+
+	prev->next = next;
+	next->prev = prev;
+}
+
+/**
+ * @brief remove a specific node from a list
+ *
  * The list is implicit from the node. The node must be part of a list.
  * This and other sys_dlist_*() functions are not thread safe.
  *
@@ -523,6 +554,24 @@ static inline sys_dnode_t *sys_dlist_get(sys_dlist_t *list)
 	}
 
 	return node;
+}
+
+/**
+ * @brief Compute the size of the given list in O(n) time
+ *
+ * @param list A pointer on the list
+ *
+ * @return an integer equal to the size of the list, or 0 if empty
+ */
+static inline size_t sys_dlist_len(const sys_dlist_t *list)
+{
+	size_t len = 0;
+	sys_dnode_t *node = NULL;
+
+	SYS_DLIST_FOR_EACH_NODE(list, node) {
+		len++;
+	}
+	return len;
 }
 
 /** @} */

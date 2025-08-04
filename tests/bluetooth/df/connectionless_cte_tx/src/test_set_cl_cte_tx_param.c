@@ -4,15 +4,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <stddef.h>
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/sys/byteorder.h>
 #include <host/hci_core.h>
 
+#include <bt_common.h>
 #include "common.h"
 
 /* Macros delivering common values for unit tests */
@@ -53,8 +54,7 @@ int send_set_cl_cte_tx_params(uint8_t adv_handle, uint8_t cte_len,
 	struct bt_hci_cp_le_set_cl_cte_tx_params *cp;
 	struct net_buf *buf;
 
-	buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_CL_CTE_TX_PARAMS,
-				sizeof(*cp) + switch_pattern_len);
+	buf = bt_hci_cmd_alloc(K_FOREVER);
 	zassert_not_null(buf, "Failed to create HCI cmd object");
 
 	cp = net_buf_add(buf, sizeof(*cp));
@@ -74,7 +74,7 @@ int send_set_cl_cte_tx_params(uint8_t adv_handle, uint8_t cte_len,
 				    buf, NULL);
 }
 
-void test_set_cl_cte_tx_params_with_correct_aod_2us(void)
+ZTEST(test_set_cl_cte_tx_param, test_set_cl_cte_tx_params_with_correct_aod_2us)
 {
 	int err;
 
@@ -87,7 +87,7 @@ void test_set_cl_cte_tx_params_with_correct_aod_2us(void)
 	zassert_equal(err, 0, "Set AoD 2us CTE parameters failed");
 }
 
-void test_set_cl_cte_tx_params_with_correct_aod_1us(void)
+ZTEST(test_set_cl_cte_tx_param, test_set_cl_cte_tx_params_with_correct_aod_1us)
 {
 	int err;
 
@@ -100,7 +100,7 @@ void test_set_cl_cte_tx_params_with_correct_aod_1us(void)
 	zassert_equal(err, 0, "Set AoD 1us CTE parameters failed");
 }
 
-void test_set_ct_cte_tx_params_correct_aoa(void)
+ZTEST(test_set_cl_cte_tx_param, test_set_ct_cte_tx_params_correct_aoa)
 {
 	int err;
 
@@ -113,7 +113,7 @@ void test_set_ct_cte_tx_params_correct_aoa(void)
 	zassert_equal(err, -EIO, "Set AoA CTE parameters failed");
 }
 
-void test_set_ct_cte_tx_params_correct_aoa_without_ant_pattern(void)
+ZTEST(test_set_cl_cte_tx_param, test_set_ct_cte_tx_params_correct_aoa_without_ant_pattern)
 {
 	int err;
 
@@ -126,7 +126,7 @@ void test_set_ct_cte_tx_params_correct_aoa_without_ant_pattern(void)
 	zassert_equal(err, -EIO, "Set AoA CTE parameters failed");
 }
 
-void test_set_ct_cte_tx_params_wrong_adv_handle(void)
+ZTEST(test_set_cl_cte_tx_param, test_set_ct_cte_tx_params_wrong_adv_handle)
 {
 	int err;
 
@@ -140,7 +140,7 @@ void test_set_ct_cte_tx_params_wrong_adv_handle(void)
 		      "Unexpected error value for invalid adv handle");
 }
 
-void test_set_ct_cte_tx_params_invalid_cte_len(void)
+ZTEST(test_set_cl_cte_tx_param, test_set_ct_cte_tx_params_invalid_cte_len)
 {
 	int err;
 
@@ -154,7 +154,7 @@ void test_set_ct_cte_tx_params_invalid_cte_len(void)
 		      "Unexpected error value for invalid CTE length");
 }
 
-void test_set_ct_cte_tx_params_invalid_cte_type(void)
+ZTEST(test_set_cl_cte_tx_param, test_set_ct_cte_tx_params_invalid_cte_type)
 {
 	int err;
 
@@ -168,7 +168,7 @@ void test_set_ct_cte_tx_params_invalid_cte_type(void)
 		      "Unexpected error value for invalid CTE type");
 }
 
-void test_set_ct_cte_tx_params_invalid_cte_count(void)
+ZTEST(test_set_cl_cte_tx_param, test_set_ct_cte_tx_params_invalid_cte_count)
 {
 	int err;
 
@@ -182,7 +182,7 @@ void test_set_ct_cte_tx_params_invalid_cte_count(void)
 		      "Unexpected error value for invalid CTE count");
 }
 
-void test_set_ct_cte_tx_params_aod_2us_invalid_pattern_len(void)
+ZTEST(test_set_cl_cte_tx_param, test_set_ct_cte_tx_params_aod_2us_invalid_pattern_len)
 {
 	int err;
 
@@ -196,7 +196,7 @@ void test_set_ct_cte_tx_params_aod_2us_invalid_pattern_len(void)
 		      "Unexpected error value for invalid switch pattern len");
 }
 
-void test_set_ct_cte_tx_params_aod_1us_invalid_pattern_len(void)
+ZTEST(test_set_cl_cte_tx_param, test_set_ct_cte_tx_params_aod_1us_invalid_pattern_len)
 {
 	int err;
 
@@ -210,7 +210,7 @@ void test_set_ct_cte_tx_params_aod_1us_invalid_pattern_len(void)
 		      "Unexpected error value for invalid switch pattern len");
 }
 
-void test_set_ct_cte_tx_params_aoa_invalid_pattern_len(void)
+ZTEST(test_set_cl_cte_tx_param, test_set_ct_cte_tx_params_aoa_invalid_pattern_len)
 {
 	int err;
 
@@ -223,23 +223,21 @@ void test_set_ct_cte_tx_params_aoa_invalid_pattern_len(void)
 	zassert_equal(err, 0, "Unexpected error value for AoA");
 }
 
-static bool enabled_set_cl_cte_tx_para(const void *state)
+static void *common_adv_set_setup(void)
 {
-	const struct bt_test_state *s = state;
+	ut_bt_setup();
 
-	return s->is_setup && s->is_adv_set_created;
+	common_create_adv_set();
+
+	return NULL;
 }
 
-ztest_register_test_suite(
-	test_set_cl_cte_tx_param, enabled_set_cl_cte_tx_para,
-	ztest_unit_test(test_set_cl_cte_tx_params_with_correct_aod_2us),
-	ztest_unit_test(test_set_cl_cte_tx_params_with_correct_aod_1us),
-	ztest_unit_test(test_set_ct_cte_tx_params_correct_aoa),
-	ztest_unit_test(test_set_ct_cte_tx_params_correct_aoa_without_ant_pattern),
-	ztest_unit_test(test_set_ct_cte_tx_params_wrong_adv_handle),
-	ztest_unit_test(test_set_ct_cte_tx_params_invalid_cte_len),
-	ztest_unit_test(test_set_ct_cte_tx_params_invalid_cte_type),
-	ztest_unit_test(test_set_ct_cte_tx_params_invalid_cte_count),
-	ztest_unit_test(test_set_ct_cte_tx_params_aod_2us_invalid_pattern_len),
-	ztest_unit_test(test_set_ct_cte_tx_params_aod_1us_invalid_pattern_len),
-	ztest_unit_test(test_set_ct_cte_tx_params_aoa_invalid_pattern_len));
+static void common_adv_set_teardown(void *data)
+{
+	common_delete_adv_set();
+
+	ut_bt_teardown(data);
+}
+
+ZTEST_SUITE(test_set_cl_cte_tx_param, NULL, common_adv_set_setup, NULL, NULL,
+	    common_adv_set_teardown);

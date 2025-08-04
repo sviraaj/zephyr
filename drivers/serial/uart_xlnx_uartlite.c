@@ -11,6 +11,8 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/irq.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/sys_io.h>
 
 /* AXI UART Lite v2 registers offsets (See Xilinx PG142 for details) */
@@ -212,6 +214,9 @@ static int xlnx_uartlite_fifo_read(const struct device *dev, uint8_t *rx_data,
 			rx_data[count++] = xlnx_uartlite_read_rx_fifo(dev);
 		}
 		k_spin_unlock(&data->rx_lock, key);
+		if (!(status & STAT_REG_RX_FIFO_VALID_DATA)) {
+			break;
+		}
 	}
 
 	return count;
@@ -349,7 +354,7 @@ static int xlnx_uartlite_init(const struct device *dev)
 	return 0;
 }
 
-static const struct uart_driver_api xlnx_uartlite_driver_api = {
+static DEVICE_API(uart, xlnx_uartlite_driver_api) = {
 	.poll_in = xlnx_uartlite_poll_in,
 	.poll_out = xlnx_uartlite_poll_out,
 	.err_check = xlnx_uartlite_err_check,
@@ -370,15 +375,17 @@ static const struct uart_driver_api xlnx_uartlite_driver_api = {
 };
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
-#define XLNX_UARTLITE_IRQ_INIT(n, i)					\
-	do {								\
-		IRQ_CONNECT(DT_INST_IRQ_BY_IDX(n, i, irq),		\
-			    DT_INST_IRQ_BY_IDX(n, i, priority),		\
-			    xlnx_uartlite_isr,				\
-			    DEVICE_DT_INST_GET(n), 0);			\
-									\
-		irq_enable(DT_INST_IRQ_BY_IDX(n, i, irq));		\
-	} while (0)
+#define XLNX_UARTLITE_IRQ_INIT(n, i)						\
+	do {									\
+		IRQ_CONNECT(DT_INST_IRQN_BY_IDX(n, i),				\
+			DT_INST_IRQ_BY_IDX(n, i, priority),			\
+			xlnx_uartlite_isr, DEVICE_DT_INST_GET(n),		\
+			COND_CODE_1(DT_INST_IRQ_HAS_CELL_AT_IDX(n, i, flags),	\
+				(DT_INST_IRQ_BY_IDX(n, i, flags)),		\
+				(0)));						\
+										\
+		irq_enable(DT_INST_IRQN_BY_IDX(n, i));				\
+	} while (false)
 #define XLNX_UARTLITE_CONFIG_FUNC(n)					\
 	static void xlnx_uartlite_config_func_##n(const struct device *dev) \
 	{								\

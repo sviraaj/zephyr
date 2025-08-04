@@ -13,6 +13,7 @@
 #include <zephyr/drivers/pinctrl.h>
 #include <fsl_lpsci.h>
 #include <soc.h>
+#include <zephyr/irq.h>
 
 struct mcux_lpsci_config {
 	UART0_Type *base;
@@ -88,7 +89,7 @@ static int mcux_lpsci_fifo_fill(const struct device *dev,
 				int len)
 {
 	const struct mcux_lpsci_config *config = dev->config;
-	uint8_t num_tx = 0U;
+	int num_tx = 0U;
 
 	while ((len - num_tx > 0) &&
 	       (LPSCI_GetStatusFlags(config->base)
@@ -104,7 +105,7 @@ static int mcux_lpsci_fifo_read(const struct device *dev, uint8_t *rx_data,
 				const int len)
 {
 	const struct mcux_lpsci_config *config = dev->config;
-	uint8_t num_rx = 0U;
+	int num_rx = 0U;
 
 	while ((len - num_rx > 0) &&
 	       (LPSCI_GetStatusFlags(config->base)
@@ -241,6 +242,10 @@ static int mcux_lpsci_init(const struct device *dev)
 	uint32_t clock_freq;
 	int err;
 
+	if (!device_is_ready(config->clock_dev)) {
+		return -ENODEV;
+	}
+
 	if (clock_control_get_rate(config->clock_dev, config->clock_subsys,
 				   &clock_freq)) {
 		return -EINVAL;
@@ -265,7 +270,7 @@ static int mcux_lpsci_init(const struct device *dev)
 	return 0;
 }
 
-static const struct uart_driver_api mcux_lpsci_driver_api = {
+static DEVICE_API(uart, mcux_lpsci_driver_api) = {
 	.poll_in = mcux_lpsci_poll_in,
 	.poll_out = mcux_lpsci_poll_out,
 	.err_check = mcux_lpsci_err_check,
@@ -326,7 +331,7 @@ static const struct mcux_lpsci_config mcux_lpsci_##n##_config = {	\
 	static const struct mcux_lpsci_config mcux_lpsci_##n##_config;	\
 									\
 	DEVICE_DT_INST_DEFINE(n,					\
-			    &mcux_lpsci_init,				\
+			    mcux_lpsci_init,				\
 			    NULL,					\
 			    &mcux_lpsci_##n##_data,			\
 			    &mcux_lpsci_##n##_config,			\

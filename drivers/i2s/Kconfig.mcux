@@ -1,12 +1,14 @@
 # MCUX I2S driver configuration options
 
-# Copyright (c) 2021, NXP
+# Copyright 2021,2024 NXP
 # SPDX-License-Identifier: Apache-2.0
 
 menuconfig I2S_MCUX_SAI
 	bool "NXP MCUX I2S controller driver"
-	depends on HAS_MCUX_I2S
+	default y
+	depends on DT_HAS_NXP_MCUX_I2S_ENABLED
 	select DMA
+	select PINCTRL
 	help
 	  Enable I2S support on the I.MX family of processors.
 
@@ -25,5 +27,9 @@ config I2S_EDMA_BURST_SIZE
 	default 2
 	help
 	  I2S EDMA burst size in bytes.
+
+config I2S_HAS_PLL_SETTING
+	bool "I2S will setting pll in driver"
+	default y
 
 endif # I2S_MCUX_SAI

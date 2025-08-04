@@ -7,6 +7,7 @@
 
 #include <zephyr/drivers/counter.h>
 #include <zephyr/device.h>
+#include <zephyr/irq.h>
 #include "clock_freq.h"
 #include "epit.h"
 
@@ -134,7 +135,7 @@ static uint32_t imx_epit_get_top_value(const struct device *dev)
 	return EPIT_GetCounterLoadValue(base);
 }
 
-static const struct counter_driver_api imx_epit_driver_api = {
+static DEVICE_API(counter, imx_epit_driver_api) = {
 	.start = imx_epit_start,
 	.stop = imx_epit_stop,
 	.get_value = imx_epit_get_value,

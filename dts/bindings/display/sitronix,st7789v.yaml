@@ -2,114 +2,111 @@
 # Copyright (c) 2019, PHYTEC Messtechnik GmbH
 # SPDX-License-Identifier: Apache-2.0
 
-description: ST7789V 320x240 display controller
+title: Sitronix ST7789V display controller
+
+description: |
+    The Sitronix ST7789V is a 262K colors TFT-LCD controller
+    with a maximum 240RGBx320 resolution.
 
 compatible: "sitronix,st7789v"
 
-include: [spi-device.yaml, display-controller.yaml]
+include: [mipi-dbi-spi-device.yaml, display-controller.yaml]
 
 properties:
-    reset-gpios:
-      type: phandle-array
-      required: false
-      description: |
-        RESET pin.
+  x-offset:
+    type: int
+    required: true
+    description: The column offset in pixels of the LCD to the controller memory
 
-        The RESET pin of ST7789V is active low.
-        If connected directly the MCU pin should be configured
-        as active low.
+  y-offset:
+    type: int
+    required: true
+    description: The row offset in pixels of the LCD to the controller memory
 
-    cmd-data-gpios:
-      type: phandle-array
-      required: true
-      description: |
-        D/CX pin.
+  vcom:
+    type: int
+    required: true
+    description: VCOM Setting
 
-        The D/CX pin of ST7789V is active low (transmission command byte).
-        If connected directly the MCU pin should be configured
-        as active low.
+  gctrl:
+    type: int
+    required: true
+    description: Gate Control
 
-    x-offset:
-      type: int
-      required: true
-      description: The column offset in pixels of the LCD to the controller memory
+  vrhs:
+    type: int
+    description: VRH Setting
 
-    y-offset:
-      type: int
-      required: true
-      description: The row offset in pixels of the LCD to the controller memory
+  vdvs:
+    type: int
+    description: VDV Setting
 
-    vcom:
-      type: int
-      required: true
-      description: VCOM Setting
+  mdac:
+    type: int
+    required: true
+    description: Memory Data Access Control
 
-    gctrl:
-      type: int
-      required: true
-      description: Gate Control
+  lcm:
+    type: int
+    required: true
+    description: LCM Setting
 
-    vrhs:
-      type: int
-      required: false
-      description: VRH Setting
+  colmod:
+    type: int
+    required: true
+    description: Interface Pixel Format
 
-    vdvs:
-      type: int
-      required: false
-      description: VDV Setting
+  gamma:
+    type: int
+    required: true
+    description: Gamma Setting
 
-    mdac:
-      type: int
-      required: true
-      description: Memory Data Access Control
+  inversion-off:
+    type: boolean
+    description: Inversion Off
 
-    lcm:
-      type: int
-      required: true
-      description: LCM Setting
+  porch-param:
+    type: uint8-array
+    required: true
+    description: Porch Setting
 
-    colmod:
-      type: int
-      required: true
-      description: Interface Pixel Format
+  cmd2en-param:
+    type: uint8-array
+    required: true
+    description: Command 2 Enable Parameter
 
-    gamma:
-      type: int
-      required: true
-      description: Gamma Setting
+  pwctrl1-param:
+    type: uint8-array
+    required: true
+    description: Power Control 1 Parameter
 
-    porch-param:
-      type: uint8-array
-      required: true
-      description: Porch Setting
+  pvgam-param:
+    type: uint8-array
+    required: true
+    description: Positive Voltage Gamma Control Parameter
 
-    cmd2en-param:
-      type: uint8-array
-      required: true
-      description: Command 2 Enable Parameter
+  nvgam-param:
+    type: uint8-array
+    required: true
+    description: Negative Voltage Gamma Control Parameter
 
-    pwctrl1-param:
-      type: uint8-array
-      required: true
-      description: Power Control 1 Parameter
+  ram-param:
+    type: uint8-array
+    required: true
+    description: RAM Control Parameter
 
-    pvgam-param:
-      type: uint8-array
-      required: true
-      description: Positive Voltage Gamma Control Parameter
+  rgb-param:
+    type: uint8-array
+    required: true
+    description: RGB Interface Control Parameter
 
-    nvgam-param:
-      type: uint8-array
-      required: true
-      description: Negative Voltage Gamma Control Parameter
+  ready-time-ms:
+    type: int
+    default: 40
+    description: |
+      Time it takes for the device from power up to become responsive and
+      accepting commands. Defaults to 40ms (found by trial and error) if not
+      provided.
 
-    ram-param:
-      type: uint8-array
-      required: true
-      description: RAM Control Parameter
-
-    rgb-param:
-      type: uint8-array
-      required: true
-      description: RGB Interface Control Parameter
+  mipi-mode:
+    required: true

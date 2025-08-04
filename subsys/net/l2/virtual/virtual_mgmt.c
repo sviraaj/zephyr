@@ -13,7 +13,7 @@ LOG_MODULE_REGISTER(net_virtual_mgmt, CONFIG_NET_L2_VIRTUAL_LOG_LEVEL);
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/virtual_mgmt.h>
 
-static int virtual_interface_set_config(uint32_t mgmt_request,
+static int virtual_interface_set_config(uint64_t mgmt_request,
 					struct net_if *iface,
 					void *data, size_t len)
 {
@@ -54,6 +54,22 @@ static int virtual_interface_set_config(uint32_t mgmt_request,
 		config.family = params->family;
 		config.mtu = params->mtu;
 		type = VIRTUAL_INTERFACE_CONFIG_TYPE_MTU;
+
+	} else if (mgmt_request == NET_REQUEST_VIRTUAL_INTERFACE_SET_LINK_TYPE) {
+		/* We can update the link types even if the interface is up */
+		config.family = params->family;
+		memcpy(&config.link_types, &params->link_types,
+		       sizeof(config.link_types));
+		type = VIRTUAL_INTERFACE_CONFIG_TYPE_LINK_TYPE;
+
+	} else if (mgmt_request == NET_REQUEST_VIRTUAL_INTERFACE_SET_PRIVATE_KEY) {
+		if (net_if_is_up(iface)) {
+			return -EACCES;
+		}
+
+		config.private_key.len = params->private_key.len;
+		config.private_key.data = params->private_key.data;
+		type = VIRTUAL_INTERFACE_CONFIG_TYPE_PRIVATE_KEY;
 	} else {
 		return -EINVAL;
 	}
@@ -67,7 +83,13 @@ NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_VIRTUAL_INTERFACE_SET_PEER_ADDRESS
 NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_VIRTUAL_INTERFACE_SET_MTU,
 				  virtual_interface_set_config);
 
-static int virtual_interface_get_config(uint32_t mgmt_request,
+NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_VIRTUAL_INTERFACE_SET_LINK_TYPE,
+				  virtual_interface_set_config);
+
+NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_VIRTUAL_INTERFACE_SET_PRIVATE_KEY,
+				  virtual_interface_set_config);
+
+static int virtual_interface_get_config(uint64_t mgmt_request,
 					struct net_if *iface,
 					void *data, size_t len)
 {
@@ -112,6 +134,30 @@ static int virtual_interface_get_config(uint32_t mgmt_request,
 		}
 
 		params->mtu = config.mtu;
+
+	} else if (mgmt_request == NET_REQUEST_VIRTUAL_INTERFACE_GET_LINK_TYPE) {
+		type = VIRTUAL_INTERFACE_CONFIG_TYPE_LINK_TYPE;
+
+		ret = api->get_config(iface, type, &config);
+		if (ret) {
+			return ret;
+		}
+
+		memcpy(&params->link_types, &config.link_types,
+		       sizeof(params->link_types));
+
+	} else if (mgmt_request == NET_REQUEST_VIRTUAL_INTERFACE_GET_PUBLIC_KEY) {
+		type = VIRTUAL_INTERFACE_CONFIG_TYPE_PUBLIC_KEY;
+
+		ret = api->get_config(iface, type, &config);
+		if (ret) {
+			return ret;
+		}
+
+		params->public_key.len = config.public_key.len;
+		memcpy(&params->public_key.data, &config.public_key.data,
+		       MIN(sizeof(params->public_key.data),
+			   params->public_key.len));
 	} else {
 		return -EINVAL;
 	}
@@ -123,4 +169,10 @@ NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_VIRTUAL_INTERFACE_GET_PEER_ADDRESS
 				  virtual_interface_get_config);
 
 NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_VIRTUAL_INTERFACE_GET_MTU,
+				  virtual_interface_get_config);
+
+NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_VIRTUAL_INTERFACE_GET_LINK_TYPE,
+				  virtual_interface_get_config);
+
+NET_MGMT_REGISTER_REQUEST_HANDLER(NET_REQUEST_VIRTUAL_INTERFACE_GET_PUBLIC_KEY,
 				  virtual_interface_get_config);

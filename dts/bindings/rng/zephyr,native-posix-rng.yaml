@@ -7,6 +7,4 @@ compatible: "zephyr,native-posix-rng"
 
 include: base.yaml
 
-properties:
-    label:
-      required: true
+# This binding is deprecated in favor of zephyr,native-sim-rng

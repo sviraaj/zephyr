@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/gpio.h>
@@ -15,7 +15,7 @@
  * Get button configuration from the devicetree sw0 alias. This is mandatory.
  */
 #define SW0_NODE        DT_ALIAS(sw0)
-#if !DT_NODE_HAS_STATUS(SW0_NODE, okay)
+#if !DT_NODE_HAS_STATUS_OKAY(SW0_NODE)
 #error "Unsupported board: sw0 devicetree alias is not defined"
 #endif
 
@@ -29,10 +29,10 @@ typedef void (*fsm_state)(void);
 
 static int64_t last_mode_change;
 
-static const struct device *sensors[] = {
-	DEVICE_DT_GET(DT_NODELABEL(vl53l0x_l)),
-	DEVICE_DT_GET(DT_NODELABEL(vl53l0x_c)),
-	DEVICE_DT_GET(DT_NODELABEL(vl53l0x_r)),
+static const struct device *const sensors[] = {
+	DEVICE_DT_GET(DT_NODELABEL(vl53l0x_l_x_nucleo_53l0a1)),
+	DEVICE_DT_GET(DT_NODELABEL(vl53l0x_c_x_nucleo_53l0a1)),
+	DEVICE_DT_GET(DT_NODELABEL(vl53l0x_r_x_nucleo_53l0a1)),
 };
 
 static void mode_show_distance(void)
@@ -114,7 +114,7 @@ static void change_mode(const struct device *dev, struct gpio_callback *cb, uint
 }
 
 
-void main(void)
+int main(void)
 {
 	struct gpio_callback button_cb_data;
 	const uint8_t Hello[4] = { CHAR_H, CHAR_E, CHAR_PIPE | CHAR_1, CHAR_0 };
@@ -123,10 +123,10 @@ void main(void)
 	display_chars(Hello);
 	k_sleep(K_MSEC(1000));
 
-	if (!device_is_ready(button.port)) {
+	if (!gpio_is_ready_dt(&button)) {
 		printk("Error: button device %s is not ready\n",
 		       button.port->name);
-		return;
+		return 0;
 	}
 
 	gpio_pin_configure_dt(&button, GPIO_INPUT);
@@ -137,4 +137,5 @@ void main(void)
 	while (1) {
 		modes[current_mode]();
 	}
+	return 0;
 }

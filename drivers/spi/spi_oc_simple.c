@@ -12,6 +12,7 @@ LOG_MODULE_REGISTER(spi_oc_simple);
 
 #include <zephyr/sys/sys_io.h>
 #include <zephyr/drivers/spi.h>
+#include <zephyr/drivers/spi/rtio.h>
 
 #include "spi_context.h"
 #include "spi_oc_simple.h"
@@ -71,11 +72,12 @@ static int spi_oc_simple_configure(const struct spi_oc_simple_cfg *info,
 	}
 
 	/* Set clock divider */
-	for (i = 0; i < 12; i++)
+	for (i = 0; i < 12; i++) {
 		if ((config->frequency << (i + 1)) >
 		    CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC) {
 			break;
 		}
+	}
 
 	sys_write8((DIVIDERS[i] >> 4) & 0x3, SPI_OC_SIMPLE_SPER(info));
 	spcr |= (DIVIDERS[i] & 0x3);
@@ -103,12 +105,12 @@ int spi_oc_simple_transceive(const struct device *dev,
 	int rc;
 
 	/* Lock the SPI Context */
-	spi_context_lock(ctx, false, NULL, config);
+	spi_context_lock(ctx, false, NULL, NULL, config);
 
 	spi_oc_simple_configure(info, spi, config);
 
 	/* Set chip select */
-	if (config->cs) {
+	if (spi_cs_is_gpio(config)) {
 		spi_context_cs_control(&spi->ctx, true);
 	} else {
 		sys_write8(1 << config->slave, SPI_OC_SIMPLE_SPSS(info));
@@ -146,13 +148,13 @@ int spi_oc_simple_transceive(const struct device *dev,
 	}
 
 	/* Clear chip-select */
-	if (config->cs) {
+	if (spi_cs_is_gpio(config)) {
 		spi_context_cs_control(&spi->ctx, false);
 	} else {
 		sys_write8(0 << config->slave, SPI_OC_SIMPLE_SPSS(info));
 	}
 
-	spi_context_complete(ctx, 0);
+	spi_context_complete(ctx, dev, 0);
 	rc = spi_context_wait_for_completion(ctx);
 
 	spi_context_release(ctx, rc);
@@ -178,12 +180,16 @@ int spi_oc_simple_release(const struct device *dev,
 	return 0;
 }
 
-static struct spi_driver_api spi_oc_simple_api = {
+static DEVICE_API(spi, spi_oc_simple_api) = {
 	.transceive = spi_oc_simple_transceive,
 	.release = spi_oc_simple_release,
 #ifdef CONFIG_SPI_ASYNC
 	.transceive_async = spi_oc_simple_transceive_async,
 #endif /* CONFIG_SPI_ASYNC */
+#ifdef CONFIG_SPI_RTIO
+	.iodev_submit = spi_rtio_iodev_default_submit,
+#endif
+
 };
 
 int spi_oc_simple_init(const struct device *dev)
@@ -225,7 +231,7 @@ int spi_oc_simple_init(const struct device *dev)
 		SPI_CONTEXT_CS_GPIOS_INITIALIZE(DT_DRV_INST(inst), ctx) \
 	};								\
 									\
-	DEVICE_DT_INST_DEFINE(inst,					\
+	SPI_DEVICE_DT_INST_DEFINE(inst,					\
 			    spi_oc_simple_init,				\
 			    NULL,					\
 			    &spi_oc_simple_data_##inst,			\

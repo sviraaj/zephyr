@@ -19,6 +19,7 @@
 LOG_MODULE_REGISTER(spi_telink);
 
 #include <zephyr/drivers/spi.h>
+#include <zephyr/drivers/spi/rtio.h>
 #include "spi_context.h"
 #include <zephyr/drivers/pinctrl.h>
 
@@ -74,7 +75,7 @@ static bool spi_b91_config_cs(const struct device *dev,
 	const struct spi_b91_cfg *b91_config = SPI_CFG(dev);
 
 	/* software flow control */
-	if (config->cs) {
+	if (spi_cs_is_gpio(config)) {
 		/* disable all hardware CS pins */
 		spi_b91_hw_cs_disable(b91_config);
 		return true;
@@ -228,12 +229,12 @@ static void spi_b91_txrx(const struct device *dev, uint32_t len)
 		BM_SET(reg_spi_fifo_state(cfg->peripheral_id), FLD_SPI_RXF_CLR);
 	}
 
-	/* wait fot SPI is ready */
+	/* wait for SPI is ready */
 	while (spi_is_busy(cfg->peripheral_id)) {
 	};
 
 	/* context complete */
-	spi_context_complete(ctx, 0);
+	spi_context_complete(ctx, dev, 0);
 }
 
 /* Check for supported configuration */
@@ -393,11 +394,11 @@ static int spi_b91_transceive(const struct device *dev,
 	}
 
 	/* context setup */
-	spi_context_lock(&data->ctx, false, NULL, config);
+	spi_context_lock(&data->ctx, false, NULL, NULL, config);
 	spi_context_buffers_setup(&data->ctx, tx_bufs, rx_bufs, 1);
 
 	/* if cs is defined: software cs control, set active true */
-	if (config->cs) {
+	if (spi_cs_is_gpio(config)) {
 		spi_context_cs_control(&data->ctx, true);
 	}
 
@@ -405,7 +406,7 @@ static int spi_b91_transceive(const struct device *dev,
 	spi_b91_txrx(dev, txrx_len);
 
 	/* if cs is defined: software cs control, set active false */
-	if (config->cs) {
+	if (spi_cs_is_gpio(config)) {
 		spi_context_cs_control(&data->ctx, false);
 	}
 
@@ -422,13 +423,15 @@ static int spi_b91_transceive_async(const struct device *dev,
 				    const struct spi_config *config,
 				    const struct spi_buf_set *tx_bufs,
 				    const struct spi_buf_set *rx_bufs,
-				    struct k_poll_signal *async)
+				    spi_callback_t cb,
+				    void *userdata)
 {
 	ARG_UNUSED(dev);
 	ARG_UNUSED(config);
 	ARG_UNUSED(tx_bufs);
 	ARG_UNUSED(rx_bufs);
-	ARG_UNUSED(async);
+	ARG_UNUSED(cb);
+	ARG_UNUSED(userdata);
 
 	return -ENOTSUP;
 }
@@ -450,12 +453,15 @@ static int spi_b91_release(const struct device *dev,
 }
 
 /* SPI driver APIs structure */
-static struct spi_driver_api spi_b91_api = {
+static DEVICE_API(spi, spi_b91_api) = {
 	.transceive = spi_b91_transceive,
 	.release = spi_b91_release,
 #ifdef CONFIG_SPI_ASYNC
 	.transceive_async = spi_b91_transceive_async,
 #endif /* CONFIG_SPI_ASYNC */
+#ifdef CONFIG_SPI_RTIO
+	.iodev_submit = spi_rtio_iodev_default_submit,
+#endif
 };
 
 /* SPI driver registration */
@@ -477,7 +483,7 @@ static struct spi_driver_api spi_b91_api = {
 		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),		  \
 	};								  \
 									  \
-	DEVICE_DT_INST_DEFINE(inst, spi_b91_init,			  \
+	SPI_DEVICE_DT_INST_DEFINE(inst, spi_b91_init,			  \
 			      NULL,					  \
 			      &spi_b91_data_##inst,			  \
 			      &spi_b91_cfg_##inst,			  \

@@ -7,6 +7,9 @@
 #define LOG_MODULE_NAME net_lwm2m_cbor
 #define LOG_LEVEL CONFIG_LWM2M_LOG_LEVEL
 
+#undef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L /* Required for gmtime_r */
+
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
 #include <stdio.h>
@@ -31,7 +34,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #define ICTX_CBOR_R_SZ(pos, ictx) ((size_t)pos - (size_t)(ictx)->in_cpkt->data - (ictx)->offset)
 
-static int put_time(struct lwm2m_output_context *out, struct lwm2m_obj_path *path, int64_t value)
+static int put_time(struct lwm2m_output_context *out, struct lwm2m_obj_path *path, time_t value)
 {
 	/* CBOR time output format is unspecified but SenML CBOR uses string format.
 	 * Let's stick into the same format with plain CBOR
@@ -43,7 +46,7 @@ static int put_time(struct lwm2m_output_context *out, struct lwm2m_obj_path *pat
 	int tag_sz;
 	bool ret;
 
-	if (gmtime_r((time_t *)&value, &dt) != &dt) {
+	if (gmtime_r(&value, &dt) != &dt) {
 		LOG_ERR("unable to convert from secs since Epoch to a date/time construct");
 		return -EINVAL;
 	}
@@ -66,7 +69,7 @@ static int put_time(struct lwm2m_output_context *out, struct lwm2m_obj_path *pat
 	ZCBOR_STATE_E(states, 0, CPKT_BUF_W_PTR(out->out_cpkt), CPKT_BUF_W_SIZE(out->out_cpkt),  1);
 
 	/* Are tags required? V1.1 leaves this unspecified but some servers require tags */
-	ret = zcbor_tag_encode(states, ZCBOR_TAG_TIME_TSTR);
+	ret = zcbor_tag_put(states, ZCBOR_TAG_TIME_TSTR);
 
 	if (!ret) {
 		LOG_ERR("unable to encode date/time string tag");
@@ -77,7 +80,7 @@ static int put_time(struct lwm2m_output_context *out, struct lwm2m_obj_path *pat
 
 	out->out_cpkt->offset += tag_sz;
 
-	ret = zcbor_tstr_put_term(states, time_str);
+	ret = zcbor_tstr_put_term(states, time_str, sizeof(time_str));
 	if (!ret) {
 		LOG_ERR("unable to encode date/time string");
 		return -ENOMEM;
@@ -232,7 +235,9 @@ static int put_objlnk(struct lwm2m_output_context *out, struct lwm2m_obj_path *p
 
 static int get_s64(struct lwm2m_input_context *in, int64_t *value)
 {
-	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1);
+	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1, 0);
+
+	states->constant_state->enforce_canonical = false;
 
 	if (!zcbor_int64_decode(states, value)) {
 		LOG_WRN("unable to decode a 64-bit integer value");
@@ -248,7 +253,9 @@ static int get_s64(struct lwm2m_input_context *in, int64_t *value)
 
 static int get_s32(struct lwm2m_input_context *in, int32_t *value)
 {
-	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1);
+	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1, 0);
+
+	states->constant_state->enforce_canonical = false;
 
 	if (!zcbor_int32_decode(states, value)) {
 		LOG_WRN("unable to decode a 32-bit integer value, err: %d",
@@ -265,7 +272,9 @@ static int get_s32(struct lwm2m_input_context *in, int32_t *value)
 
 static int get_float(struct lwm2m_input_context *in, double *value)
 {
-	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1);
+	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1, 0);
+
+	states->constant_state->enforce_canonical = false;
 
 	if (!zcbor_float_decode(states, value)) {
 		LOG_ERR("unable to decode a floating-point value");
@@ -284,7 +293,9 @@ static int get_string(struct lwm2m_input_context *in, uint8_t *value, size_t buf
 	struct zcbor_string hndl;
 	int len;
 
-	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1);
+	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1, 0);
+
+	states->constant_state->enforce_canonical = false;
 
 	if (!zcbor_tstr_decode(states, &hndl)) {
 		LOG_WRN("unable to decode a string");
@@ -313,7 +324,9 @@ static int get_time_string(struct lwm2m_input_context *in, int64_t *value)
 	char time_str[sizeof("4294967295")] = { 0 };
 	struct zcbor_string hndl = { .value = time_str, .len = sizeof(time_str) - 1 };
 
-	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1);
+	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1, 0);
+
+	states->constant_state->enforce_canonical = false;
 
 	if (!zcbor_tstr_decode(states, &hndl)) {
 		return -EBADMSG;
@@ -331,7 +344,9 @@ static int get_time_string(struct lwm2m_input_context *in, int64_t *value)
  */
 static int get_time_numerical(struct lwm2m_input_context *in, int64_t *value)
 {
-	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1);
+	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1, 0);
+
+	states->constant_state->enforce_canonical = false;
 
 	if (!zcbor_int64_decode(states, value)) {
 		LOG_WRN("unable to decode seconds since Epoch");
@@ -341,15 +356,18 @@ static int get_time_numerical(struct lwm2m_input_context *in, int64_t *value)
 	return 0;
 }
 
-static int get_time(struct lwm2m_input_context *in, int64_t *value)
+static int get_time(struct lwm2m_input_context *in, time_t *value)
 {
 	uint32_t tag;
 	int tag_sz = 0;
 	int data_len;
 	int ret;
 	bool success;
+	int64_t temp64;
 
-	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1);
+	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1, 0);
+
+	states->constant_state->enforce_canonical = false;
 
 	success = zcbor_tag_decode(states, &tag);
 
@@ -359,13 +377,13 @@ static int get_time(struct lwm2m_input_context *in, int64_t *value)
 
 		switch (tag) {
 		case ZCBOR_TAG_TIME_NUM:
-			ret = get_time_numerical(in, value);
+			ret = get_time_numerical(in, &temp64);
 			if (ret < 0) {
 				goto error;
 			}
 			break;
 		case ZCBOR_TAG_TIME_TSTR:
-			ret = get_time_string(in, value);
+			ret = get_time_string(in, &temp64);
 			if (ret < 0) {
 				goto error;
 			}
@@ -377,9 +395,9 @@ static int get_time(struct lwm2m_input_context *in, int64_t *value)
 	} else { /* Assumption is that tags are optional */
 
 		/* Let's assume numeric string but in case that fails falls go back to numerical */
-		ret = get_time_string(in, value);
+		ret = get_time_string(in, &temp64);
 		if (ret == -EBADMSG) {
-			ret = get_time_numerical(in, value);
+			ret = get_time_numerical(in, &temp64);
 		}
 
 		if (ret < 0) {
@@ -389,6 +407,7 @@ static int get_time(struct lwm2m_input_context *in, int64_t *value)
 
 	data_len = ICTX_CBOR_R_SZ(states[0].payload, in);
 	in->offset += data_len;
+	*value = (time_t)temp64;
 
 	return tag_sz + data_len;
 
@@ -398,7 +417,9 @@ error:
 
 static int get_bool(struct lwm2m_input_context *in, bool *value)
 {
-	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1);
+	ZCBOR_STATE_D(states, 0, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1, 0);
+
+	states->constant_state->enforce_canonical = false;
 
 	if (!zcbor_bool_decode(states, value)) {
 		LOG_WRN("unable to decode a boolean value");
@@ -418,10 +439,12 @@ static int get_opaque(struct lwm2m_input_context *in, uint8_t *value, size_t buf
 	struct zcbor_string_fragment hndl = { 0 };
 	int ret;
 
-	ZCBOR_STATE_D(states, 1, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1);
+	ZCBOR_STATE_D(states, 1, ICTX_BUF_R_PTR(in), ICTX_BUF_R_LEFT_SZ(in),  1, 0);
+
+	states->constant_state->enforce_canonical = false;
 
 	/* Get the CBOR header only on first read. */
-	if (opaque->remaining == 0) {
+	if (opaque->offset == 0) {
 		ret = zcbor_bstr_start_decode_fragment(states, &hndl);
 
 		if (!ret) {
@@ -430,7 +453,6 @@ static int get_opaque(struct lwm2m_input_context *in, uint8_t *value, size_t buf
 		}
 
 		opaque->len = hndl.total_len;
-		opaque->remaining = hndl.total_len;
 
 		int len = ICTX_CBOR_R_SZ(states[0].payload, in);
 
@@ -449,7 +471,7 @@ static int get_objlnk(struct lwm2m_input_context *in, struct lwm2m_objlnk *value
 	value->obj_id = LWM2M_OBJLNK_MAX_ID;
 	value->obj_inst = LWM2M_OBJLNK_MAX_ID;
 
-	int len = get_string(in, objlnk, sizeof(objlnk) - 1);
+	int len = get_string(in, objlnk, sizeof(objlnk));
 
 
 	for (int idx = 0; idx < 2; idx++) {
@@ -457,7 +479,7 @@ static int get_objlnk(struct lwm2m_input_context *in, struct lwm2m_objlnk *value
 
 		unsigned long id = strtoul(idp, &end, 10);
 
-		idp = end;
+		idp = end + 1;
 
 		if ((!id && errno == ERANGE) || id > LWM2M_OBJLNK_MAX_ID) {
 			LOG_WRN("decoded id %lu out of range[0..65535]", id);

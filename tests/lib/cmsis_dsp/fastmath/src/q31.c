@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/ztest.h>
+#include <zephyr/kernel.h>
 #include <stdlib.h>
 #include <arm_math.h>
 #include "../../common/test_common.h"
@@ -90,10 +90,10 @@ ZTEST(fastmath_q31, test_arm_sqrt_q31)
 		status = arm_sqrt_q31(in_sqrt[index], &output[index]);
 
 		/* Validate operation status */
-		if (in_sqrt[index] <= 0) {
+		if (in_sqrt[index] < 0) {
 			zassert_equal(status, ARM_MATH_ARGUMENT_ERROR,
 				"square root did fail with an input value "
-				"of '0'");
+				"of less than '0'");
 		} else {
 			zassert_equal(status, ARM_MATH_SUCCESS,
 				"square root operation did not succeed");

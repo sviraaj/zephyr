@@ -10,6 +10,9 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/dt-bindings/clock/mcux_lpc_syscon_clock.h>
+#include <zephyr/irq.h>
+#include <zephyr/pm/device.h>
+
 LOG_MODULE_REGISTER(mcux_ctimer, CONFIG_COUNTER_LOG_LEVEL);
 
 #ifdef CONFIG_COUNTER_MCUX_CTIMER_RESERVE_CHANNEL_FOR_SETTOP
@@ -246,12 +249,16 @@ static void mcux_lpc_ctimer_isr(const struct device *dev)
 #endif
 }
 
-static int mcux_lpc_ctimer_init(const struct device *dev)
+static int mcux_lpc_ctimer_init_common(const struct device *dev)
 {
 	const struct mcux_lpc_ctimer_config *config = dev->config;
 	struct mcux_lpc_ctimer_data *data = dev->data;
-
 	ctimer_config_t ctimer_config;
+
+	if (!device_is_ready(config->clock_dev)) {
+		LOG_ERR("clock control device not ready");
+		return -ENODEV;
+	}
 
 	for (uint8_t chan = 0; chan < NUM_CHANNELS; chan++) {
 		data->channels[chan].alarm_callback = NULL;
@@ -271,7 +278,33 @@ static int mcux_lpc_ctimer_init(const struct device *dev)
 	return 0;
 }
 
-static const struct counter_driver_api mcux_ctimer_driver_api = {
+static int mcux_lpc_ctimer_pm_action(const struct device *dev, enum pm_device_action action)
+{
+	switch (action) {
+	case PM_DEVICE_ACTION_RESUME:
+		break;
+	case PM_DEVICE_ACTION_SUSPEND:
+		break;
+	case PM_DEVICE_ACTION_TURN_OFF:
+		break;
+	case PM_DEVICE_ACTION_TURN_ON:
+		mcux_lpc_ctimer_init_common(dev);
+		break;
+	default:
+		return -ENOTSUP;
+	}
+	return 0;
+}
+
+static int mcux_lpc_ctimer_init(const struct device *dev)
+{
+	/* Rest of the init is done from the PM_DEVICE_TURN_ON action
+	 * which is invoked by pm_device_driver_init().
+	 */
+	return pm_device_driver_init(dev, mcux_lpc_ctimer_pm_action);
+}
+
+static DEVICE_API(counter, mcux_ctimer_driver_api) = {
 	.start = mcux_lpc_ctimer_start,
 	.stop = mcux_lpc_ctimer_stop,
 	.get_value = mcux_lpc_ctimer_get_value,
@@ -294,14 +327,16 @@ static const struct counter_driver_api mcux_ctimer_driver_api = {
 		.base = (CTIMER_Type *)DT_INST_REG_ADDR(id),		\
 		.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(id)),	\
 		.clock_subsys =				\
-		(clock_control_subsys_t)(DT_INST_CLOCKS_CELL(id, name) + MCUX_CTIMER_CLK_OFFSET),\
+		(clock_control_subsys_t)(DT_INST_CLOCKS_CELL(id, name)),\
 		.mode = DT_INST_PROP(id, mode),						\
 		.input = DT_INST_PROP(id, input),					\
 		.prescale = DT_INST_PROP(id, prescale),				\
 		.irq_config_func = mcux_lpc_ctimer_irq_config_##id,	\
 	};                     \
+	PM_DEVICE_DT_INST_DEFINE(id, mcux_lpc_ctimer_pm_action);                                   \
 	static struct mcux_lpc_ctimer_data mcux_lpc_ctimer_data_##id;                              \
-	DEVICE_DT_INST_DEFINE(id, &mcux_lpc_ctimer_init, NULL, &mcux_lpc_ctimer_data_##id,         \
+	DEVICE_DT_INST_DEFINE(id, &mcux_lpc_ctimer_init, PM_DEVICE_DT_INST_GET(id),                \
+			      &mcux_lpc_ctimer_data_##id,                                          \
 			      &mcux_lpc_ctimer_config_##id, POST_KERNEL,                           \
 			      CONFIG_COUNTER_INIT_PRIORITY, &mcux_ctimer_driver_api);              \
 	static void mcux_lpc_ctimer_irq_config_##id(const struct device *dev)                      \

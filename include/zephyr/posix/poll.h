@@ -12,18 +12,18 @@
 extern "C" {
 #endif
 
+typedef	unsigned int nfds_t;
+
 #define pollfd zsock_pollfd
 
 #define POLLIN ZSOCK_POLLIN
+#define POLLPRI ZSOCK_POLLPRI
 #define POLLOUT ZSOCK_POLLOUT
 #define POLLERR ZSOCK_POLLERR
 #define POLLHUP ZSOCK_POLLHUP
 #define POLLNVAL ZSOCK_POLLNVAL
 
-static inline int poll(struct pollfd *fds, int nfds, int timeout)
-{
-	return zsock_poll(fds, nfds, timeout);
-}
+int poll(struct pollfd *fds, int nfds, int timeout);
 
 #ifdef __cplusplus
 }

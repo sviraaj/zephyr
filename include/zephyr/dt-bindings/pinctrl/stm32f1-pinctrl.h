@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_STM32_PINCTRLF1_H_
-#define ZEPHYR_STM32_PINCTRLF1_H_
+#ifndef ZEPHYR_INCLUDE_DT_BINDINGS_PINCTRL_STM32F1_PINCTRL_H_
+#define ZEPHYR_INCLUDE_DT_BINDINGS_PINCTRL_STM32F1_PINCTRL_H_
 
 #include <zephyr/dt-bindings/pinctrl/stm32-pinctrl-common.h>
 #include <zephyr/dt-bindings/pinctrl/stm32f1-afio.h>
@@ -16,6 +16,15 @@
  * @brief Macro to generate pinmux int using port, pin number and mode arguments
  * This is adapted from Linux equivalent st,stm32f429-pinctrl binding
  */
+
+#define STM32_MODE_SHIFT  0U
+#define STM32_MODE_MASK   0x3U
+#define STM32_LINE_SHIFT  2U
+#define STM32_LINE_MASK   0xFU
+#define STM32_PORT_SHIFT  6U
+#define STM32_PORT_MASK   0xFU
+#define STM32_REMAP_SHIFT 10U
+#define STM32_REMAP_MASK  0x3FFU
 
 /**
  * @brief Pin configuration configuration bit field.
@@ -32,16 +41,6 @@
  * @param mode Pin mode (ANALOG, GPIO_IN, ALTERNATE).
  * @param remap Pin remapping configuration (NO_REMAP, REMAP_1, ...)
  */
-
-#define STM32_MODE_SHIFT  0U
-#define STM32_MODE_MASK   0x3U
-#define STM32_LINE_SHIFT  2U
-#define STM32_LINE_MASK   0xFU
-#define STM32_PORT_SHIFT  6U
-#define STM32_PORT_MASK   0xFU
-#define STM32_REMAP_SHIFT 10U
-#define STM32_REMAP_MASK  0x3FFU
-
 #define STM32F1_PINMUX(port, line, mode, remap)				       \
 		(((((port) - 'A') & STM32_PORT_MASK) << STM32_PORT_SHIFT) |    \
 		(((line) & STM32_LINE_MASK) << STM32_LINE_SHIFT) |	       \
@@ -116,4 +115,4 @@
 #define STM32_ODR_MASK			0x1
 #define STM32_ODR_SHIFT			9
 
-#endif	/* ZEPHYR_STM32_PINCTRLF1_H_ */
+#endif	/* ZEPHYR_INCLUDE_DT_BINDINGS_PINCTRL_STM32F1_PINCTRL_H_ */

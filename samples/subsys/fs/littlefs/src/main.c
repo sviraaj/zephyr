@@ -9,7 +9,7 @@
 
 #include <stdio.h>
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/fs/fs.h>
 #include <zephyr/fs/littlefs.h>
@@ -74,27 +74,27 @@ static int littlefs_increase_infile_value(char *fname)
 	fs_file_t_init(&file);
 	rc = fs_open(&file, fname, FS_O_CREATE | FS_O_RDWR);
 	if (rc < 0) {
-		LOG_ERR("FAIL: open %s: %d", log_strdup(fname), rc);
+		LOG_ERR("FAIL: open %s: %d", fname, rc);
 		return rc;
 	}
 
 	rc = fs_read(&file, &boot_count, sizeof(boot_count));
 	if (rc < 0) {
-		LOG_ERR("FAIL: read %s: [rd:%d]", log_strdup(fname), rc);
+		LOG_ERR("FAIL: read %s: [rd:%d]", fname, rc);
 		goto out;
 	}
 	LOG_PRINTK("%s read count:%u (bytes: %d)\n", fname, boot_count, rc);
 
 	rc = fs_seek(&file, 0, FS_SEEK_SET);
 	if (rc < 0) {
-		LOG_ERR("FAIL: seek %s: %d", log_strdup(fname), rc);
+		LOG_ERR("FAIL: seek %s: %d", fname, rc);
 		goto out;
 	}
 
 	boot_count += 1;
 	rc = fs_write(&file, &boot_count, sizeof(boot_count));
 	if (rc < 0) {
-		LOG_ERR("FAIL: write %s: %d", log_strdup(fname), rc);
+		LOG_ERR("FAIL: write %s: %d", fname, rc);
 		goto out;
 	}
 
@@ -104,7 +104,7 @@ static int littlefs_increase_infile_value(char *fname)
  out:
 	ret = fs_close(&file);
 	if (ret < 0) {
-		LOG_ERR("FAIL: close %s: %d", log_strdup(fname), ret);
+		LOG_ERR("FAIL: close %s: %d", fname, ret);
 		return ret;
 	}
 
@@ -183,27 +183,27 @@ static int littlefs_binary_file_adj(char *fname)
 
 	rc = fs_open(&file, fname, FS_O_CREATE | FS_O_RDWR);
 	if (rc < 0) {
-		LOG_ERR("FAIL: open %s: %d", log_strdup(fname), rc);
+		LOG_ERR("FAIL: open %s: %d", fname, rc);
 		return rc;
 	}
 
 	rc = fs_stat(fname, &dirent);
 	if (rc < 0) {
-		LOG_ERR("FAIL: stat %s: %d", log_strdup(fname), rc);
+		LOG_ERR("FAIL: stat %s: %d", fname, rc);
 		goto out;
 	}
 
 	/* Check if the file exists - if not just write the pattern */
 	if (rc == 0 && dirent.type == FS_DIR_ENTRY_FILE && dirent.size == 0) {
 		LOG_INF("Test file: %s not found, create one!",
-			log_strdup(fname));
+			fname);
 		init_pattern(file_test_pattern, sizeof(file_test_pattern));
 	} else {
 		rc = fs_read(&file, file_test_pattern,
 			     sizeof(file_test_pattern));
 		if (rc < 0) {
 			LOG_ERR("FAIL: read %s: [rd:%d]",
-				log_strdup(fname), rc);
+				fname, rc);
 			goto out;
 		}
 		incr_pattern(file_test_pattern, sizeof(file_test_pattern), 0x1);
@@ -214,19 +214,19 @@ static int littlefs_binary_file_adj(char *fname)
 
 	rc = fs_seek(&file, 0, FS_SEEK_SET);
 	if (rc < 0) {
-		LOG_ERR("FAIL: seek %s: %d", log_strdup(fname), rc);
+		LOG_ERR("FAIL: seek %s: %d", fname, rc);
 		goto out;
 	}
 
 	rc = fs_write(&file, file_test_pattern, sizeof(file_test_pattern));
 	if (rc < 0) {
-		LOG_ERR("FAIL: write %s: %d", log_strdup(fname), rc);
+		LOG_ERR("FAIL: write %s: %d", fname, rc);
 	}
 
  out:
 	ret = fs_close(&file);
 	if (ret < 0) {
-		LOG_ERR("FAIL: close %s: %d", log_strdup(fname), ret);
+		LOG_ERR("FAIL: close %s: %d", fname, ret);
 		return ret;
 	}
 
@@ -247,12 +247,12 @@ static int littlefs_flash_erase(unsigned int id)
 	}
 
 	LOG_PRINTK("Area %u at 0x%x on %s for %u bytes\n",
-		   id, (unsigned int)pfa->fa_off, pfa->fa_dev_name,
+		   id, (unsigned int)pfa->fa_off, pfa->fa_dev->name,
 		   (unsigned int)pfa->fa_size);
 
 	/* Optional wipe flash contents */
 	if (IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
-		rc = flash_area_erase(pfa, 0, pfa->fa_size);
+		rc = flash_area_flatten(pfa, 0, pfa->fa_size);
 		LOG_ERR("Erasing flash area ... %d", rc);
 	}
 
@@ -268,12 +268,12 @@ FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(storage);
 static struct fs_mount_t lfs_storage_mnt = {
 	.type = FS_LITTLEFS,
 	.fs_data = &storage,
-	.storage_dev = (void *)FLASH_AREA_ID(storage),
+	.storage_dev = (void *)FIXED_PARTITION_ID(storage_partition),
 	.mnt_point = "/lfs",
 };
 #endif /* PARTITION_NODE */
 
-	struct fs_mount_t *mp =
+	struct fs_mount_t *mountpoint =
 #if DT_NODE_EXISTS(PARTITION_NODE)
 		&FS_FSTAB_ENTRY(PARTITION_NODE)
 #else
@@ -309,18 +309,27 @@ static int littlefs_mount(struct fs_mount_t *mp)
 #endif /* CONFIG_APP_LITTLEFS_STORAGE_FLASH */
 
 #ifdef CONFIG_APP_LITTLEFS_STORAGE_BLK_SDMMC
+
+#if defined(CONFIG_DISK_DRIVER_SDMMC)
+#define DISK_NAME "SD"
+#elif defined(CONFIG_DISK_DRIVER_MMC)
+#define DISK_NAME "SD2"
+#else
+#error "No disk device defined, is your board supported?"
+#endif
+
 struct fs_littlefs lfsfs;
 static struct fs_mount_t __mp = {
 	.type = FS_LITTLEFS,
 	.fs_data = &lfsfs,
 	.flags = FS_MOUNT_FLAG_USE_DISK_ACCESS,
 };
-struct fs_mount_t *mp = &__mp;
+struct fs_mount_t *mountpoint = &__mp;
 
 static int littlefs_mount(struct fs_mount_t *mp)
 {
-	static const char *disk_mount_pt = "/"CONFIG_SDMMC_VOLUME_NAME":";
-	static const char *disk_pdrv = CONFIG_SDMMC_VOLUME_NAME;
+	static const char *disk_mount_pt = "/"DISK_NAME":";
+	static const char *disk_pdrv = DISK_NAME;
 
 	mp->storage_dev = (void *)disk_pdrv;
 	mp->mnt_point = disk_mount_pt;
@@ -329,7 +338,7 @@ static int littlefs_mount(struct fs_mount_t *mp)
 }
 #endif /* CONFIG_APP_LITTLEFS_STORAGE_BLK_SDMMC */
 
-void main(void)
+int main(void)
 {
 	char fname1[MAX_PATH_LEN];
 	char fname2[MAX_PATH_LEN];
@@ -338,15 +347,15 @@ void main(void)
 
 	LOG_PRINTK("Sample program to r/w files on littlefs\n");
 
-	rc = littlefs_mount(mp);
+	rc = littlefs_mount(mountpoint);
 	if (rc < 0) {
-		return;
+		return 0;
 	}
 
-	snprintf(fname1, sizeof(fname1), "%s/boot_count", mp->mnt_point);
-	snprintf(fname2, sizeof(fname2), "%s/pattern.bin", mp->mnt_point);
+	snprintf(fname1, sizeof(fname1), "%s/boot_count", mountpoint->mnt_point);
+	snprintf(fname2, sizeof(fname2), "%s/pattern.bin", mountpoint->mnt_point);
 
-	rc = fs_statvfs(mp->mnt_point, &sbuf);
+	rc = fs_statvfs(mountpoint->mnt_point, &sbuf);
 	if (rc < 0) {
 		LOG_PRINTK("FAIL: statvfs: %d\n", rc);
 		goto out;
@@ -354,13 +363,13 @@ void main(void)
 
 	LOG_PRINTK("%s: bsize = %lu ; frsize = %lu ;"
 		   " blocks = %lu ; bfree = %lu\n",
-		   mp->mnt_point,
+		   mountpoint->mnt_point,
 		   sbuf.f_bsize, sbuf.f_frsize,
 		   sbuf.f_blocks, sbuf.f_bfree);
 
-	rc = lsdir(mp->mnt_point);
+	rc = lsdir(mountpoint->mnt_point);
 	if (rc < 0) {
-		LOG_PRINTK("FAIL: lsdir %s: %d\n", mp->mnt_point, rc);
+		LOG_PRINTK("FAIL: lsdir %s: %d\n", mountpoint->mnt_point, rc);
 		goto out;
 	}
 
@@ -375,6 +384,7 @@ void main(void)
 	}
 
 out:
-	rc = fs_unmount(mp);
-	LOG_PRINTK("%s unmount: %d\n", mp->mnt_point, rc);
+	rc = fs_unmount(mountpoint);
+	LOG_PRINTK("%s unmount: %d\n", mountpoint->mnt_point, rc);
+	return 0;
 }

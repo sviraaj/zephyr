@@ -10,6 +10,8 @@
 #include <zephyr/drivers/pwm.h>
 #include <zephyr/types.h>
 
+#include <soc.h>
+
 #define REG_EN_ENABLE             0x1
 #define REG_EN_DISABLE            0x0
 
@@ -59,7 +61,7 @@ int pwm_litex_get_cycles_per_sec(const struct device *dev, uint32_t channel,
 	return 0;
 }
 
-static const struct pwm_driver_api pwm_litex_driver_api = {
+static DEVICE_API(pwm, pwm_litex_driver_api) = {
 	.set_cycles = pwm_litex_set_cycles,
 	.get_cycles_per_sec = pwm_litex_get_cycles_per_sec,
 };

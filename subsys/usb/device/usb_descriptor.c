@@ -13,10 +13,9 @@
 #include <zephyr/usb/usb_device.h>
 #include "usb_descriptor.h"
 #include <zephyr/drivers/hwinfo.h>
-
-#define LOG_LEVEL CONFIG_USB_DEVICE_LOG_LEVEL
+#include <zephyr/sys/iterable_sections.h>
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(usb_descriptor);
+LOG_MODULE_REGISTER(usb_descriptor, CONFIG_USB_DEVICE_LOG_LEVEL);
 
 /*
  * The last index of the initializer_string without null character is:
@@ -47,6 +46,10 @@ struct common_descriptor {
 #define USB_DESC_PRODUCT_IDX				2
 #define USB_DESC_SERIAL_NUMBER_IDX			3
 
+#ifdef CONFIG_USB_CONFIGURATION_STRING_DESC_ENABLE
+#define USB_DESC_CONFIGURATION_IDX			4
+#endif
+
 /*
  * Device and configuration descriptor placed in the device section,
  * no additional descriptor may be placed there.
@@ -57,7 +60,7 @@ USBD_DEVICE_DESCR_DEFINE(primary) struct common_descriptor common_desc = {
 		.bLength = sizeof(struct usb_device_descriptor),
 		.bDescriptorType = USB_DESC_DEVICE,
 #ifdef CONFIG_USB_DEVICE_BOS
-		.bcdUSB = sys_cpu_to_le16(USB_SRN_2_1),
+		.bcdUSB = sys_cpu_to_le16(USB_SRN_2_0_1),
 #else
 		.bcdUSB = sys_cpu_to_le16(USB_SRN_2_0),
 #endif
@@ -87,7 +90,11 @@ USBD_DEVICE_DESCR_DEFINE(primary) struct common_descriptor common_desc = {
 		.wTotalLength = 0,
 		.bNumInterfaces = 0,
 		.bConfigurationValue = 1,
+#ifdef CONFIG_USB_CONFIGURATION_STRING_DESC_ENABLE
+		.iConfiguration = USB_DESC_CONFIGURATION_IDX,
+#else
 		.iConfiguration = 0,
+#endif
 		.bmAttributes = USB_SCD_RESERVED |
 				COND_CODE_1(CONFIG_USB_SELF_POWERED,
 					    (USB_SCD_SELF_POWERED), (0)) |
@@ -117,6 +124,14 @@ struct usb_string_desription {
 		uint8_t bDescriptorType;
 		uint8_t bString[USB_BSTRING_LENGTH(CONFIG_USB_DEVICE_SN)];
 	} __packed utf16le_sn;
+
+#ifdef CONFIG_USB_CONFIGURATION_STRING_DESC_ENABLE
+	struct usb_conf_descriptor {
+		uint8_t bLength;
+		uint8_t bDescriptorType;
+		uint8_t bString[USB_BSTRING_LENGTH(CONFIG_USB_CONFIGURATION_STRING_DESC)];
+	} __packed utf16le_conf;
+#endif
 } __packed;
 
 /*
@@ -150,6 +165,14 @@ USBD_STRING_DESCR_DEFINE(primary) struct usb_string_desription string_descr = {
 		.bDescriptorType = USB_DESC_STRING,
 		.bString = CONFIG_USB_DEVICE_SN,
 	},
+#ifdef CONFIG_USB_CONFIGURATION_STRING_DESC_ENABLE
+	/* Configuration String Descriptor */
+	.utf16le_conf = {
+		.bLength = USB_STRING_DESCRIPTOR_LENGTH(CONFIG_USB_CONFIGURATION_STRING_DESC),
+		.bDescriptorType = USB_DESC_STRING,
+		.bString = CONFIG_USB_CONFIGURATION_STRING_DESC,
+	},
+#endif
 };
 
 /* This element marks the end of the entire descriptor. */
@@ -170,7 +193,7 @@ static void ascii7_to_utf16le(void *descriptor)
 	uint8_t *buf = (uint8_t *)&str_descr->bString;
 
 	LOG_DBG("idx_max %d, ascii_idx_max %d, buf %p",
-		idx_max, ascii_idx_max, buf);
+		idx_max, ascii_idx_max, (void *)buf);
 
 	for (int i = idx_max; i >= 0; i -= 2) {
 		LOG_DBG("char %c : %x, idx %d -> %d",
@@ -243,7 +266,7 @@ static int usb_validate_ep_cfg_data(struct usb_ep_descriptor * const ep_descr,
 
 			ep_cfg.ep_type = (ep_descr->bmAttributes &
 					  USB_EP_TRANSFER_TYPE_MASK);
-			ep_cfg.ep_mps = ep_descr->wMaxPacketSize;
+			ep_cfg.ep_mps = sys_le16_to_cpu(ep_descr->wMaxPacketSize);
 			ep_cfg.ep_addr = ep_descr->bEndpointAddress;
 			if (ep_cfg.ep_addr & USB_EP_DIR_IN) {
 				if ((*requested_ep & (1U << (idx + 16U)))) {
@@ -348,12 +371,36 @@ static void usb_fix_ascii_sn_string_descriptor(struct usb_sn_descriptor *sn)
 	default_sn_len = strlen(CONFIG_USB_DEVICE_SN);
 
 	if (runtime_sn_len != default_sn_len) {
-		LOG_ERR("the new SN descriptor doesn't have the same "
+		LOG_WRN("the new SN descriptor doesn't have the same "
 			"length as CONFIG_USB_DEVICE_SN");
-		return;
 	}
 
-	memcpy(sn->bString, runtime_sn, runtime_sn_len);
+	memcpy(sn->bString, runtime_sn, MIN(runtime_sn_len, default_sn_len));
+}
+
+static void usb_desc_update_mps0(struct usb_device_descriptor *const desc)
+{
+	struct usb_dc_ep_cfg_data ep_cfg = {
+		.ep_addr = 0,
+		.ep_mps = USB_MAX_CTRL_MPS,
+		.ep_type = USB_DC_EP_CONTROL,
+	};
+	int ret;
+
+	ret = usb_dc_ep_check_cap(&ep_cfg);
+	if (ret) {
+		/* Try the minimum bMaxPacketSize0 that must be supported. */
+		ep_cfg.ep_mps = 8;
+		ret = usb_dc_ep_check_cap(&ep_cfg);
+		if (ret) {
+			ep_cfg.ep_mps = 0;
+		}
+
+		__ASSERT(ret == 0, "Failed to find valid bMaxPacketSize0");
+	}
+
+	desc->bMaxPacketSize0 = ep_cfg.ep_mps;
+	LOG_DBG("Set bMaxPacketSize0 %u", desc->bMaxPacketSize0);
 }
 
 /*
@@ -378,6 +425,10 @@ static int usb_fix_descriptor(struct usb_desc_header *head)
 
 	while (head->bLength != 0U) {
 		switch (head->bDescriptorType) {
+		case USB_DESC_DEVICE:
+			LOG_DBG("Device descriptor %p", head);
+			usb_desc_update_mps0((void *)head);
+			break;
 		case USB_DESC_CONFIGURATION:
 			cfg_descr = (struct usb_cfg_descriptor *)head;
 			LOG_DBG("Configuration descriptor %p", head);
@@ -477,12 +528,18 @@ static int usb_fix_descriptor(struct usb_desc_header *head)
 
 uint8_t *usb_get_device_descriptor(void)
 {
+	static bool initialized;
+
 	LOG_DBG("__usb_descriptor_start %p", __usb_descriptor_start);
 	LOG_DBG("__usb_descriptor_end %p", __usb_descriptor_end);
 
-	if (usb_fix_descriptor(__usb_descriptor_start)) {
-		LOG_ERR("Failed to fixup USB descriptor");
-		return NULL;
+	if (!initialized) {
+		if (usb_fix_descriptor(__usb_descriptor_start)) {
+			LOG_ERR("Failed to fixup USB descriptor");
+			return NULL;
+		}
+
+		initialized = true;
 	}
 
 	return (uint8_t *) __usb_descriptor_start;

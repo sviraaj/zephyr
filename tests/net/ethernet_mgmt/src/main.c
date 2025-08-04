@@ -9,13 +9,13 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_test, NET_LOG_LEVEL);
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/ethernet_mgmt.h>
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 #if NET_LOG_LEVEL >= LOG_LEVEL_DBG
 #define DBG(fmt, ...) printk(fmt, ##__VA_ARGS__)
@@ -35,10 +35,6 @@ struct eth_fake_context {
 	struct net_if *iface;
 	uint8_t mac_address[6];
 
-	bool auto_negotiation;
-	bool full_duplex;
-	bool link_10bt;
-	bool link_100bt;
 	bool promisc_mode;
 	struct {
 		bool qav_enabled;
@@ -101,24 +97,14 @@ static int eth_fake_send(const struct device *dev,
 
 static enum ethernet_hw_caps eth_fake_get_capabilities(const struct device *dev)
 {
-	return ETHERNET_AUTO_NEGOTIATION_SET | ETHERNET_LINK_10BASE_T |
-		ETHERNET_LINK_100BASE_T | ETHERNET_DUPLEX_SET | ETHERNET_QAV |
+	return  ETHERNET_LINK_10BASE | ETHERNET_LINK_100BASE | ETHERNET_QAV |
 		ETHERNET_PROMISC_MODE | ETHERNET_PRIORITY_QUEUES |
 		ETHERNET_QBV | ETHERNET_QBU | ETHERNET_TXTIME;
 }
 
 static int eth_fake_get_total_bandwidth(struct eth_fake_context *ctx)
 {
-	if (ctx->link_100bt) {
-		return 100 * 1000 * 1000 / 8;
-	}
-
-	if (ctx->link_10bt) {
-		return 10 * 1000 * 1000 / 8;
-	}
-
-	/* No link */
-	return 0;
+	return 100 * 1000 * 1000 / 8;
 }
 
 static void eth_fake_recalc_qav_delta_bandwidth(struct eth_fake_context *ctx)
@@ -167,39 +153,6 @@ static int eth_fake_set_config(const struct device *dev,
 	int queue_id, port_id;
 
 	switch (type) {
-	case ETHERNET_CONFIG_TYPE_AUTO_NEG:
-		if (config->auto_negotiation == ctx->auto_negotiation) {
-			return -EALREADY;
-		}
-
-		ctx->auto_negotiation = config->auto_negotiation;
-
-		break;
-	case ETHERNET_CONFIG_TYPE_LINK:
-		if ((config->l.link_10bt && ctx->link_10bt) ||
-		    (config->l.link_100bt && ctx->link_100bt)) {
-			return -EALREADY;
-		}
-
-		if (config->l.link_10bt) {
-			ctx->link_10bt = true;
-			ctx->link_100bt = false;
-		} else {
-			ctx->link_10bt = false;
-			ctx->link_100bt = true;
-		}
-
-		eth_fake_recalc_qav_idle_slopes(ctx);
-
-		break;
-	case ETHERNET_CONFIG_TYPE_DUPLEX:
-		if (config->full_duplex == ctx->full_duplex) {
-			return -EALREADY;
-		}
-
-		ctx->full_duplex = config->full_duplex;
-
-		break;
 	case ETHERNET_CONFIG_TYPE_MAC_ADDRESS:
 		memcpy(ctx->mac_address, config->mac_address.addr, 6);
 
@@ -515,11 +468,6 @@ static int eth_fake_init(const struct device *dev)
 	struct eth_fake_context *ctx = dev->data;
 	int i;
 
-	ctx->auto_negotiation = true;
-	ctx->full_duplex = true;
-	ctx->link_10bt = true;
-	ctx->link_100bt = false;
-
 	memcpy(ctx->mac_address, mac_addr_init, 6);
 
 	/* Initialize priority queues */
@@ -576,20 +524,24 @@ static void iface_cb(struct net_if *iface, void *user_data)
 	}
 }
 
-static void test_setup(void)
+static void *ethernet_mgmt_setup(void)
 {
 	net_if_foreach(iface_cb, &default_iface);
 
 	zassert_not_null(default_iface, "Cannot find test interface");
+
+	return NULL;
 }
 
-static void test_change_mac_when_up(void)
+static void change_mac_when_up(void)
 {
 	struct net_if *iface = default_iface;
 	struct ethernet_req_params params;
 	int ret;
 
 	memcpy(params.mac_address.addr, mac_addr_change, 6);
+
+	net_if_up(iface);
 
 	ret = net_mgmt(NET_REQUEST_ETHERNET_SET_MAC_ADDRESS, iface,
 		       &params, sizeof(struct ethernet_req_params));
@@ -598,7 +550,7 @@ static void test_change_mac_when_up(void)
 			  "mac address change should not be possible");
 }
 
-static void test_change_mac_when_down(void)
+static void change_mac_when_down(void)
 {
 	struct net_if *iface = default_iface;
 	struct ethernet_req_params params;
@@ -621,106 +573,13 @@ static void test_change_mac_when_down(void)
 	net_if_up(iface);
 }
 
-static void test_change_auto_neg(void)
+ZTEST(net_ethernet_mgmt, test_change_mac)
 {
-	struct net_if *iface = default_iface;
-	struct ethernet_req_params params;
-	int ret;
-
-	params.auto_negotiation = false;
-
-	ret = net_mgmt(NET_REQUEST_ETHERNET_SET_AUTO_NEGOTIATION, iface,
-		       &params, sizeof(struct ethernet_req_params));
-
-	zassert_equal(ret, 0, "invalid auto negotiation change");
+	change_mac_when_up();
+	change_mac_when_down();
 }
 
-static void test_change_to_same_auto_neg(void)
-{
-	struct net_if *iface = default_iface;
-	struct ethernet_req_params params;
-	int ret;
-
-	params.auto_negotiation = false;
-
-	ret = net_mgmt(NET_REQUEST_ETHERNET_SET_AUTO_NEGOTIATION, iface,
-		       &params, sizeof(struct ethernet_req_params));
-
-	zassert_not_equal(ret, 0,
-			  "invalid change to already auto negotiation");
-}
-
-static void test_change_link(void)
-{
-	struct net_if *iface = default_iface;
-	struct ethernet_req_params params = { 0 };
-	int ret;
-
-	params.l.link_100bt = true;
-
-	ret = net_mgmt(NET_REQUEST_ETHERNET_SET_LINK, iface,
-		       &params, sizeof(struct ethernet_req_params));
-
-	zassert_equal(ret, 0, "invalid link change");
-}
-
-static void test_change_same_link(void)
-{
-	struct net_if *iface = default_iface;
-	struct ethernet_req_params params = { 0 };
-	int ret;
-
-	params.l.link_100bt = true;
-
-	ret = net_mgmt(NET_REQUEST_ETHERNET_SET_LINK, iface,
-		       &params, sizeof(struct ethernet_req_params));
-
-	zassert_not_equal(ret, 0, "invalid same link change");
-}
-
-static void test_change_unsupported_link(void)
-{
-	struct net_if *iface = default_iface;
-	struct ethernet_req_params params = { 0 };
-	int ret;
-
-	params.l.link_1000bt = true;
-
-	ret = net_mgmt(NET_REQUEST_ETHERNET_SET_LINK, iface,
-		       &params, sizeof(struct ethernet_req_params));
-
-	zassert_not_equal(ret, 0, "invalid change to unsupported link");
-}
-
-static void test_change_duplex(void)
-{
-	struct net_if *iface = default_iface;
-	struct ethernet_req_params params;
-	int ret;
-
-	params.full_duplex = false;
-
-	ret = net_mgmt(NET_REQUEST_ETHERNET_SET_DUPLEX, iface,
-		       &params, sizeof(struct ethernet_req_params));
-
-	zassert_equal(ret, 0, "invalid duplex change");
-}
-
-static void test_change_same_duplex(void)
-{
-	struct net_if *iface = default_iface;
-	struct ethernet_req_params params;
-	int ret;
-
-	params.full_duplex = false;
-
-	ret = net_mgmt(NET_REQUEST_ETHERNET_SET_DUPLEX, iface,
-		       &params, sizeof(struct ethernet_req_params));
-
-	zassert_not_equal(ret, 0, "invalid change to already set duplex");
-}
-
-static void test_change_qav_params(void)
+ZTEST(net_ethernet_mgmt, test_change_qav_params)
 {
 	struct net_if *iface = default_iface;
 	const struct device *dev = net_if_get_device(iface);
@@ -896,7 +755,7 @@ static void test_change_qav_params(void)
 	zassert_not_equal(ret, 0, "should not be able to set idle slope");
 }
 
-static void test_change_qbv_params(void)
+ZTEST(net_ethernet_mgmt, test_change_qbv_params)
 {
 	struct net_if *iface = default_iface;
 	const struct device *dev = net_if_get_device(iface);
@@ -1073,7 +932,7 @@ static void test_change_qbv_params(void)
 			  ret);
 }
 
-static void test_change_qbu_params(void)
+ZTEST(net_ethernet_mgmt, test_change_qbu_params)
 {
 	struct net_if *iface = default_iface;
 	const struct device *dev = net_if_get_device(iface);
@@ -1274,7 +1133,7 @@ static void test_change_qbu_params(void)
 	}
 }
 
-static void test_change_txtime_params(void)
+ZTEST(net_ethernet_mgmt, test_change_txtime_params)
 {
 	struct net_if *iface = default_iface;
 	const struct device *dev = net_if_get_device(iface);
@@ -1358,7 +1217,7 @@ static void test_change_txtime_params(void)
 	}
 }
 
-static void test_change_promisc_mode(bool mode)
+static void change_promisc_mode(bool mode)
 {
 	struct net_if *iface = default_iface;
 	struct ethernet_req_params params;
@@ -1372,17 +1231,17 @@ static void test_change_promisc_mode(bool mode)
 	zassert_equal(ret, 0, "invalid promisc mode change");
 }
 
-static void test_change_promisc_mode_on(void)
+static void change_promisc_mode_on(void)
 {
-	test_change_promisc_mode(true);
+	change_promisc_mode(true);
 }
 
-static void test_change_promisc_mode_off(void)
+static void change_promisc_mode_off(void)
 {
-	test_change_promisc_mode(false);
+	change_promisc_mode(false);
 }
 
-static void test_change_to_same_promisc_mode(void)
+static void change_to_same_promisc_mode(void)
 {
 	struct net_if *iface = default_iface;
 	struct ethernet_req_params params;
@@ -1397,26 +1256,10 @@ static void test_change_to_same_promisc_mode(void)
 		      "invalid change to already set promisc mode");
 }
 
-void test_main(void)
+ZTEST(net_ethernet_mgmt, test_change_to_promisc_mode)
 {
-	ztest_test_suite(ethernet_mgmt_test,
-			 ztest_unit_test(test_setup),
-			 ztest_unit_test(test_change_mac_when_up),
-			 ztest_unit_test(test_change_mac_when_down),
-			 ztest_unit_test(test_change_auto_neg),
-			 ztest_unit_test(test_change_to_same_auto_neg),
-			 ztest_unit_test(test_change_link),
-			 ztest_unit_test(test_change_same_link),
-			 ztest_unit_test(test_change_unsupported_link),
-			 ztest_unit_test(test_change_duplex),
-			 ztest_unit_test(test_change_same_duplex),
-			 ztest_unit_test(test_change_qav_params),
-			 ztest_unit_test(test_change_qbv_params),
-			 ztest_unit_test(test_change_qbu_params),
-			 ztest_unit_test(test_change_txtime_params),
-			 ztest_unit_test(test_change_promisc_mode_on),
-			 ztest_unit_test(test_change_to_same_promisc_mode),
-			 ztest_unit_test(test_change_promisc_mode_off));
-
-	ztest_run_test_suite(ethernet_mgmt_test);
+	change_promisc_mode_on();
+	change_to_same_promisc_mode();
+	change_promisc_mode_off();
 }
+ZTEST_SUITE(net_ethernet_mgmt, NULL, ethernet_mgmt_setup, NULL, NULL, NULL);

@@ -4,20 +4,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
-#define NSEC_PER_MSEC (uint64_t)(NSEC_PER_USEC * USEC_PER_MSEC)
+
 /**
- * @brief Test delay during boot
- * @defgroup kernel_init_tests Init
+ * @defgroup kernel_init_tests Kernel Initialization
  * @ingroup all_tests
+ * @{
+ * @}
+ *
+ * @addtogroup kernel_init_tests
  * @{
  */
 
 /**
  * @brief This module verifies the delay specified during boot.
  */
-void test_bootdelay(void)
+ZTEST(boot_delay, test_bootdelay)
 {
 	if (CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC > 1000000000) {
 		/* Systems with very fast counters (like the x86 TSC)
@@ -43,3 +46,6 @@ void test_bootdelay(void)
 /**
  * @}
  */
+
+extern void *common_setup(void);
+ZTEST_SUITE(boot_delay, NULL, common_setup, NULL, NULL, NULL);

@@ -14,13 +14,11 @@
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/led.h>
 #include <zephyr/sys/util.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 
 #define LOG_LEVEL CONFIG_LED_LOG_LEVEL
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(pca9633);
-
-#include "led_context.h"
 
 /* PCA9633 select registers determine the source that drives LED outputs */
 #define PCA9633_LED_OFF         0x0     /* LED driver off */
@@ -37,32 +35,31 @@ LOG_MODULE_REGISTER(pca9633);
 #define PCA9633_LEDOUT          0x08
 
 /* PCA9633 mode register 1 */
+#define PCA9633_MODE1_ALLCAL    0x01    /* All Call Address enabled */
 #define PCA9633_MODE1_SLEEP     0x10    /* Sleep Mode */
 /* PCA9633 mode register 2 */
 #define PCA9633_MODE2_DMBLNK    0x20    /* Enable blinking */
 
 #define PCA9633_MASK            0x03
 
+#define PCA9633_MIN_PERIOD      41U
+#define PCA9633_MAX_PERIOD      10667U
+
 struct pca9633_config {
 	struct i2c_dt_spec i2c;
-};
-
-struct pca9633_data {
-	struct led_data dev_data;
+	bool disable_allcall;
 };
 
 static int pca9633_led_blink(const struct device *dev, uint32_t led,
 			     uint32_t delay_on, uint32_t delay_off)
 {
-	struct pca9633_data *data = dev->data;
 	const struct pca9633_config *config = dev->config;
-	struct led_data *dev_data = &data->dev_data;
 	uint8_t gdc, gfrq;
 	uint32_t period;
 
 	period = delay_on + delay_off;
 
-	if (period < dev_data->min_period || period > dev_data->max_period) {
+	if (period < PCA9633_MIN_PERIOD || period > PCA9633_MAX_PERIOD) {
 		return -EINVAL;
 	}
 
@@ -119,17 +116,10 @@ static int pca9633_led_set_brightness(const struct device *dev, uint32_t led,
 				      uint8_t value)
 {
 	const struct pca9633_config *config = dev->config;
-	struct pca9633_data *data = dev->data;
-	struct led_data *dev_data = &data->dev_data;
 	uint8_t val;
 
-	if (value < dev_data->min_brightness ||
-	    value > dev_data->max_brightness) {
-		return -EINVAL;
-	}
-
 	/* Set the LED brightness value */
-	val = (value * 255U) / dev_data->max_brightness;
+	val = (value * 255U) / LED_BRIGHTNESS_MAX;
 	if (i2c_reg_write_byte_dt(&config->i2c,
 			       PCA9633_PWM_BASE + led,
 			       val)) {
@@ -184,32 +174,30 @@ static inline int pca9633_led_off(const struct device *dev, uint32_t led)
 static int pca9633_led_init(const struct device *dev)
 {
 	const struct pca9633_config *config = dev->config;
-	struct pca9633_data *data = dev->data;
-	struct led_data *dev_data = &data->dev_data;
 
 	if (!device_is_ready(config->i2c.bus)) {
 		LOG_ERR("I2C bus is not ready");
 		return -ENODEV;
 	}
 
-	/* Take the LED driver out from Sleep mode. */
-	if (i2c_reg_update_byte_dt(&config->i2c,
-				PCA9633_MODE1,
-				PCA9633_MODE1_SLEEP,
-				~PCA9633_MODE1_SLEEP)) {
+	/*
+	 * Take the LED driver out from Sleep mode and disable All Call Address
+	 * if specified in DT.
+	 */
+	if (i2c_reg_update_byte_dt(
+		    &config->i2c, PCA9633_MODE1,
+		    config->disable_allcall ? PCA9633_MODE1_SLEEP | PCA9633_MODE1_ALLCAL
+					    : PCA9633_MODE1_SLEEP,
+		    config->disable_allcall ? ~(PCA9633_MODE1_SLEEP | PCA9633_MODE1_ALLCAL)
+					    : ~PCA9633_MODE1_SLEEP)) {
 		LOG_ERR("LED reg update failed");
 		return -EIO;
 	}
-	/* Hardware specific limits */
-	dev_data->min_period = 41U;
-	dev_data->max_period = 10667U;
-	dev_data->min_brightness = 0U;
-	dev_data->max_brightness = 100U;
 
 	return 0;
 }
 
-static const struct led_driver_api pca9633_led_api = {
+static DEVICE_API(led, pca9633_led_api) = {
 	.blink = pca9633_led_blink,
 	.set_brightness = pca9633_led_set_brightness,
 	.on = pca9633_led_on,
@@ -218,12 +206,12 @@ static const struct led_driver_api pca9633_led_api = {
 
 #define PCA9633_DEVICE(id)						\
 	static const struct pca9633_config pca9633_##id##_cfg = {	\
-		.i2c = I2C_DT_SPEC_INST_GET(id)				\
+		.i2c = I2C_DT_SPEC_INST_GET(id),			\
+		.disable_allcall = DT_INST_PROP(id, disable_allcall),	\
 	};								\
-	static struct pca9633_data pca9633_##id##_data;			\
 									\
 	DEVICE_DT_INST_DEFINE(id, &pca9633_led_init, NULL,		\
-			&pca9633_##id##_data,				\
+			NULL,						\
 			&pca9633_##id##_cfg, POST_KERNEL,		\
 			CONFIG_LED_INIT_PRIORITY,			\
 			&pca9633_led_api);

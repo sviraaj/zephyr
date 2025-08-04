@@ -1,17 +1,17 @@
 # Copyright (c) 2020, Markus Fuchs <markus.fuchs@de.sauter-bc.com>
 # SPDX-License-Identifier: Apache-2.0
 
-include: base.yaml
+include: [base.yaml, reset-device.yaml]
 
 properties:
-    reg:
-      required: true
+  reg:
+    required: true
 
-    label:
-      required: true
+  interrupts:
+    required: true
 
-    interrupts:
-      required: true
+  clocks:
+    required: true
 
-    clocks:
-      required: true
+  resets:
+    required: true

@@ -9,7 +9,7 @@
 #include <errno.h>
 #include <string.h>
 
-#if DT_NODE_HAS_STATUS(DT_INST(0, greeled_lpd8806), okay)
+#if DT_NODE_HAS_STATUS_OKAY(DT_INST(0, greeled_lpd8806))
 #define DT_DRV_COMPAT greeled_lpd8806
 #else
 #define DT_DRV_COMPAT greeled_lpd8803
@@ -19,7 +19,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(lpd880x);
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/sys/util.h>
@@ -36,6 +36,7 @@ LOG_MODULE_REGISTER(lpd880x);
 
 struct lpd880x_config {
 	struct spi_dt_spec bus;
+	size_t length;
 };
 
 static int lpd880x_update(const struct device *dev, void *data, size_t size)
@@ -46,7 +47,7 @@ static int lpd880x_update(const struct device *dev, void *data, size_t size)
 	 * a zero byte propagates through at most 32 LED driver ICs.
 	 * The LPD8803 is the worst case, at 3 output channels per IC.
 	 */
-	uint8_t reset_size = ceiling_fraction(ceiling_fraction(size, 3), 32);
+	uint8_t reset_size = DIV_ROUND_UP(DIV_ROUND_UP(size, 3), 32);
 	uint8_t reset_buf[reset_size];
 	uint8_t last = 0x00;
 	const struct spi_buf bufs[3] = {
@@ -77,7 +78,7 @@ static int lpd880x_update(const struct device *dev, void *data, size_t size)
 
 	rc = spi_write_dt(&config->bus, &tx);
 	if (rc) {
-		LOG_ERR("can't update strip: %d", rc);
+		LOG_ERR("can't update strip: %zu", rc);
 	}
 
 	return rc;
@@ -125,11 +126,18 @@ static int lpd880x_strip_update_channels(const struct device *dev,
 	return lpd880x_update(dev, channels, num_channels);
 }
 
+static size_t lpd880x_strip_length(const struct device *dev)
+{
+	const struct lpd880x_config *config = dev->config;
+
+	return config->length;
+}
+
 static int lpd880x_strip_init(const struct device *dev)
 {
 	const struct lpd880x_config *config = dev->config;
 
-	if (!spi_is_ready(&config->bus)) {
+	if (!spi_is_ready_dt(&config->bus)) {
 		LOG_ERR("SPI device %s not ready", config->bus.bus->name);
 		return -ENODEV;
 	}
@@ -138,12 +146,14 @@ static int lpd880x_strip_init(const struct device *dev)
 }
 
 static const struct lpd880x_config lpd880x_config = {
-	.bus = SPI_DT_SPEC_INST_GET(0, LPD880X_SPI_OPERATION, 0)
+	.bus = SPI_DT_SPEC_INST_GET(0, LPD880X_SPI_OPERATION, 0),
+	.length = DT_INST_PROP(0, chain_length),
 };
 
-static const struct led_strip_driver_api lpd880x_strip_api = {
+static DEVICE_API(led_strip, lpd880x_strip_api) = {
 	.update_rgb = lpd880x_strip_update_rgb,
 	.update_channels = lpd880x_strip_update_channels,
+	.length = lpd880x_strip_length,
 };
 
 DEVICE_DT_INST_DEFINE(0, lpd880x_strip_init, NULL,

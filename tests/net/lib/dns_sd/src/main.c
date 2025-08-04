@@ -7,23 +7,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 #include <zephyr/net/dns_sd.h>
 #include <zephyr/net/net_context.h>
 #include <zephyr/net/net_pkt.h>
+#include <zephyr/net/socket.h>
 
 #include "dns_pack.h"
 #include "dns_sd.h"
 
 #define BUFSZ 256
-#define IP_ADDR(a, b, c, d) ((uint32_t)		  \
-			     0			  \
-			     | ((a & 0xff) << 24) \
-			     | ((b & 0xff) << 16) \
-			     | ((c & 0xff) <<  8) \
-			     | ((d & 0xff) <<  0) \
-			     )
 
 extern bool label_is_valid(const char *label, size_t label_size);
 extern int add_a_record(const struct dns_sd_rec *inst, uint32_t ttl,
@@ -51,7 +45,8 @@ extern int add_srv_record(const struct dns_sd_rec *inst, uint32_t ttl,
 			  uint16_t *host_offset);
 extern size_t service_proto_size(const struct dns_sd_rec *ref);
 extern bool rec_is_valid(const struct dns_sd_rec *ref);
-extern int setup_dst_addr(struct net_context *ctx, struct net_pkt *pkt,
+extern int setup_dst_addr(int sock, sa_family_t family,
+			  struct sockaddr *src, socklen_t src_len,
 			  struct sockaddr *dst, socklen_t *dst_len);
 
 
@@ -136,7 +131,7 @@ static uint8_t *create_query(const struct dns_sd_rec *inst,
 }
 
 /** Test for @ref label_is_valid */
-static void test_label_is_valid(void)
+ZTEST(dns_sd, test_label_is_valid)
 {
 	zassert_equal(false, label_is_valid(NULL,
 					    DNS_LABEL_MIN_SIZE), "");
@@ -161,7 +156,7 @@ static void test_label_is_valid(void)
 }
 
 /** Test for @ref dns_sd_rec_is_valid */
-static void test_dns_sd_rec_is_valid(void)
+ZTEST(dns_sd, test_dns_sd_rec_is_valid)
 {
 	DNS_SD_REGISTER_TCP_SERVICE(name_min,
 				"x",
@@ -245,7 +240,7 @@ static void test_dns_sd_rec_is_valid(void)
 }
 
 /** Test for @ref creqte_query */
-static void test_create_query(void)
+ZTEST(dns_sd, test_create_query)
 {
 	size_t actual_query_size = -1;
 	uint8_t *actual_query = create_query(&nasxxxxxx,
@@ -267,7 +262,7 @@ static void test_create_query(void)
 }
 
 /** Test for @ref add_ptr_record */
-static void test_add_ptr_record(void)
+ZTEST(dns_sd, test_add_ptr_record)
 {
 	const uint32_t ttl = DNS_SD_PTR_TTL;
 	const uint32_t offset = sizeof(struct dns_header);
@@ -339,7 +334,7 @@ static void test_add_ptr_record(void)
 }
 
 /** Test for @ref add_txt_record */
-static void test_add_txt_record(void)
+ZTEST(dns_sd, test_add_txt_record)
 {
 	const uint32_t ttl = DNS_SD_TXT_TTL;
 	const uint32_t offset = 0;
@@ -377,7 +372,7 @@ static void test_add_txt_record(void)
 }
 
 /** Test for @ref add_srv_record */
-static void test_add_srv_record(void)
+ZTEST(dns_sd, test_add_srv_record)
 {
 	const uint32_t ttl = DNS_SD_SRV_TTL;
 	const uint32_t offset = 0;
@@ -433,13 +428,13 @@ static void test_add_srv_record(void)
 }
 
 /** Test for @ref add_a_record */
-static void test_add_a_record(void)
+ZTEST(dns_sd, test_add_a_record)
 {
 	const uint32_t ttl = DNS_SD_A_TTL;
 	const uint32_t offset = 0;
 	const uint16_t host_offset = 0x59;
 	/* this one is made up */
-	const uint32_t addr = IP_ADDR(177, 5, 240, 13);
+	const struct in_addr addr = { { { 177, 5, 240, 13 } } };
 
 	static uint8_t actual_buf[BUFSZ];
 	static const uint8_t expected_buf[] = {
@@ -449,7 +444,7 @@ static void test_add_a_record(void)
 
 	int expected_int = sizeof(expected_buf);
 	int actual_int = add_a_record(&nasxxxxxx, ttl, host_offset,
-				      addr, actual_buf, offset,
+				      ntohl(addr.s_addr), actual_buf, offset,
 				      sizeof(actual_buf));
 
 	zassert_equal(actual_int, expected_int, "");
@@ -460,18 +455,18 @@ static void test_add_a_record(void)
 	/* test offset too large */
 	zassert_equal(-E2BIG,
 		      add_a_record(&nasxxxxxx, ttl, DNS_SD_PTR_MASK,
-				   addr, actual_buf, offset,
+				   ntohl(addr.s_addr), actual_buf, offset,
 				   sizeof(actual_buf)), "");
 
 	/* test buffer too small */
 	zassert_equal(-ENOSPC, add_a_record(&nasxxxxxx, ttl,
-					    host_offset, addr,
+					    host_offset, ntohl(addr.s_addr),
 					    actual_buf, offset,
 					    0), "");
 }
 
 /** Test for @ref add_aaaa_record */
-static void test_add_aaaa_record(void)
+ZTEST(dns_sd, test_add_aaaa_record)
 {
 	const uint32_t ttl = DNS_SD_AAAA_TTL;
 	const uint32_t offset = 0;
@@ -514,11 +509,9 @@ static void test_add_aaaa_record(void)
 }
 
 /** Test for @ref dns_sd_handle_ptr_query */
-static void test_dns_sd_handle_ptr_query(void)
+ZTEST(dns_sd, test_dns_sd_handle_ptr_query)
 {
-	struct in_addr addr = {
-		.s_addr = htonl(IP_ADDR(177, 5, 240, 13)),
-	};
+	struct in_addr addr = { { { 177, 5, 240, 13 } } };
 	static uint8_t actual_rsp[512];
 	static uint8_t expected_rsp[] = {
 		0x00, 0x00, 0x84, 0x00, 0x00, 0x00, 0x00, 0x01,
@@ -575,7 +568,7 @@ static void test_dns_sd_handle_ptr_query(void)
 }
 
 /** Test for @ref dns_sd_handle_ptr_query */
-static void test_dns_sd_handle_service_type_enum(void)
+ZTEST(dns_sd, test_dns_sd_handle_service_type_enum)
 {
 	DNS_SD_REGISTER_TCP_SERVICE(chromecast,
 				"Chromecast-abcd",
@@ -584,9 +577,7 @@ static void test_dns_sd_handle_service_type_enum(void)
 				DNS_SD_EMPTY_TXT,
 				CONST_PORT);
 
-	struct in_addr addr = {
-		.s_addr = htonl(IP_ADDR(177, 5, 240, 13)),
-	};
+	struct in_addr addr = { { { 177, 5, 240, 13 } } };
 	static uint8_t actual_rsp[512];
 	static uint8_t expected_rsp[] = {
 		0x00, 0x00, 0x84, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
@@ -627,7 +618,7 @@ static void test_dns_sd_handle_service_type_enum(void)
 }
 
 /** Test @ref dns_sd_rec_match */
-static void test_dns_sd_rec_match(void)
+ZTEST(dns_sd, test_dns_sd_rec_match)
 {
 	DNS_SD_REGISTER_TCP_SERVICE(record,
 				    "NGINX",
@@ -664,77 +655,75 @@ static void test_dns_sd_rec_match(void)
 }
 
 /** Test @ref setup_dst_addr */
-static void test_setup_dst_addr(void)
+ZTEST(dns_sd, test_setup_dst_addr)
 {
-	int ret;
 	struct net_if *iface;
 	struct sockaddr dst;
 	socklen_t dst_len;
+	socklen_t optlen;
+	int ttl;
 
 	iface = net_if_get_first_by_type(&NET_L2_GET_NAME(DUMMY));
 	zassert_not_null(iface, "Interface not available");
 
 	/* IPv4 case */
-	struct net_context *ctx_v4;
-	struct net_pkt *pkt_v4;
+	int v4;
 	struct in_addr addr_v4_expect = { { { 224, 0, 0, 251 } } };
 
 	memset(&dst, 0, sizeof(struct sockaddr));
 
-	ret = net_context_get(AF_INET, SOCK_DGRAM, IPPROTO_UDP, &ctx_v4);
-	zassert_equal(ret, 0, "Create IPv4 UDP context failed");
+	v4 = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	zassert_true(v4 >= 0, "Create IPv4 UDP context failed (%d)", -errno);
 
-	pkt_v4 = net_pkt_alloc_with_buffer(iface, 0, AF_INET,
-					   IPPROTO_UDP, K_SECONDS(1));
-	zassert_not_null(pkt_v4, "Packet alloc failed");
+	zassert_equal(0, setup_dst_addr(v4, AF_INET, NULL, 0, &dst, &dst_len), "");
 
-	zassert_equal(0, setup_dst_addr(ctx_v4, pkt_v4, &dst, &dst_len), "");
-	zassert_equal(255, ctx_v4->ipv4_ttl, "");
+	optlen = sizeof(int);
+	(void)zsock_getsockopt(v4, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, &optlen);
+
+	zassert_equal(255, ttl, "TTL invalid (%d vs %d)", 255, ttl);
 	zassert_true(net_ipv4_addr_cmp(&addr_v4_expect,
 				       &net_sin(&dst)->sin_addr), "");
 	zassert_equal(8, dst_len, "");
 
+	(void)zsock_close(v4);
+
 #if defined(CONFIG_NET_IPV6)
 	/* IPv6 case */
-	struct net_context *ctx_v6;
-	struct net_pkt *pkt_v6;
+	int v6;
 	struct in6_addr addr_v6_expect = { { { 0xff, 0x02, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0xfb } } };
 
 	memset(&dst, 0, sizeof(struct sockaddr));
 
-	ret = net_context_get(AF_INET6, SOCK_DGRAM, IPPROTO_UDP, &ctx_v6);
-	zassert_equal(ret, 0, "Create IPv6 UDP context failed");
+	v6 = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	zassert_true(v6 >= 0, "Create IPv6 UDP context failed (%d)", -errno);
 
-	pkt_v6 = net_pkt_alloc_with_buffer(iface, 0, AF_INET6,
-					   IPPROTO_UDP, K_SECONDS(1));
-	zassert_not_null(pkt_v6, "Packet alloc failed");
+	zassert_equal(0, setup_dst_addr(v6, AF_INET6, NULL, 0, &dst, &dst_len), "");
 
-	zassert_equal(0, setup_dst_addr(ctx_v6, pkt_v6, &dst, &dst_len), "");
-	zassert_equal(255, ctx_v6->ipv6_hop_limit, "");
+	optlen = sizeof(int);
+	(void)zsock_getsockopt(v6, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &ttl, &optlen);
+
+	zassert_equal(255, ttl, "Hoplimit invalid (%d vs %d)", 255, ttl);
 	zassert_true(net_ipv6_addr_cmp(&addr_v6_expect,
 				       &net_sin6(&dst)->sin6_addr), "");
 	zassert_equal(24, dst_len, "");
+
+	(void)zsock_close(v6);
 #endif
 
 	/* Unknown family case */
 
-	struct net_context *ctx_xx;
-	struct net_pkt *pkt_xx;
+	int xx;
 
-	ret = net_context_get(AF_INET, SOCK_DGRAM, IPPROTO_UDP, &ctx_xx);
-	zassert_equal(ret, 0, "Create IPV4 udp context failed");
-
-	pkt_xx = net_pkt_alloc_with_buffer(iface, 0, AF_PACKET,
-					   IPPROTO_UDP, K_SECONDS(1));
-	zassert_not_null(pkt_xx, "Packet alloc failed");
+	xx = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	zassert_true(xx >= 0, "Create IPV4 udp socket failed");
 
 	zassert_equal(-EPFNOSUPPORT,
-		      setup_dst_addr(ctx_xx, pkt_xx, &dst, &dst_len), "");
+		      setup_dst_addr(xx, AF_PACKET, NULL, 0, &dst, &dst_len), "");
 }
 
 /** test for @ref dns_sd_is_service_type_enumeration */
-static void test_is_service_type_enumeration(void)
+ZTEST(dns_sd, test_is_service_type_enumeration)
 {
 	static const struct dns_sd_rec filter_ok = {
 		.instance = "_services",
@@ -760,7 +749,7 @@ static void test_is_service_type_enumeration(void)
 	zassert_false(dns_sd_is_service_type_enumeration(&filter_nok), "");
 }
 
-static void test_extract_service_type_enumeration(void)
+ZTEST(dns_sd, test_extract_service_type_enumeration)
 {
 	static const uint8_t query[] = {
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00, 0x09, 0x5f,
@@ -800,7 +789,7 @@ static void test_extract_service_type_enumeration(void)
 	zassert_true(dns_sd_is_service_type_enumeration(&record), "");
 }
 
-static void test_wildcard_comparison(void)
+ZTEST(dns_sd, test_wildcard_comparison)
 {
 	size_t n_matches = 0;
 	size_t n_records = 0;
@@ -831,24 +820,4 @@ static void test_wildcard_comparison(void)
 		"all records: n_records: %zu n_matches: %zu", n_records, n_matches);
 }
 
-void test_main(void)
-{
-	ztest_test_suite(dns_sd_tests,
-			 ztest_unit_test(test_label_is_valid),
-			 ztest_unit_test(test_dns_sd_rec_is_valid),
-			 ztest_unit_test(test_create_query),
-			 ztest_unit_test(test_add_ptr_record),
-			 ztest_unit_test(test_add_txt_record),
-			 ztest_unit_test(test_add_srv_record),
-			 ztest_unit_test(test_add_a_record),
-			 ztest_unit_test(test_add_aaaa_record),
-			 ztest_unit_test(test_dns_sd_handle_ptr_query),
-			 ztest_unit_test(test_dns_sd_rec_match),
-			 ztest_unit_test(test_setup_dst_addr),
-			 ztest_unit_test(test_is_service_type_enumeration),
-			 ztest_unit_test(test_extract_service_type_enumeration),
-			 ztest_unit_test(test_wildcard_comparison),
-			 ztest_unit_test(test_dns_sd_handle_service_type_enum));
-
-	ztest_run_test_suite(dns_sd_tests);
-}
+ZTEST_SUITE(dns_sd, NULL, NULL, NULL, NULL, NULL);

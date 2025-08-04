@@ -5,13 +5,12 @@
  */
 
 #include "mock_backend.h"
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <zephyr/logging/log_core.h>
 #include <zephyr/logging/log_backend_std.h>
 #include <stdlib.h>
 
 static uint32_t log_format_current = CONFIG_LOG_BACKEND_MOCK_OUTPUT_DEFAULT;
-union log_msg2_generic *test_msg;
 
 static uint8_t mock_output_buf[1];
 uint8_t test_output_buf[256];
@@ -43,11 +42,9 @@ static int char_out(uint8_t *data, size_t length, void *ctx)
 LOG_OUTPUT_DEFINE(log_output_mock, char_out, mock_output_buf, sizeof(mock_output_buf));
 
 static void process(const struct log_backend *const backend,
-		union log_msg2_generic *msg)
+		union log_msg_generic *msg)
 {
 	uint32_t flags = log_backend_std_get_flags();
-
-	test_msg = msg;
 
 	log_format_func_t log_output_func = log_format_func_t_get(log_format_current);
 
@@ -66,7 +63,8 @@ void validate_msg(const char *type, const char *optional_flags,
 	const char *raw_data_str = "SYS-T RAW DATA: ";
 	const char *output_str = test_output_buf;
 	const char *syst_format_headers[4] = {type, optional_flags, module_id, sub_type};
-	const char *syst_headers_name[4] = {"type", "optional_flags", "module_id", "sub_type"};
+	const char *syst_headers_name[4] __maybe_unused = {"type", "optional_flags", "module_id",
+							   "sub_type"};
 
 	/* Validate "SYS-T RAW DATA: " prefix in the output_str */
 	zassert_mem_equal(raw_data_str, output_str, strlen(raw_data_str),
@@ -123,10 +121,8 @@ static void panic(struct log_backend const *const backend)
 }
 
 const struct log_backend_api mock_log_backend_api = {
-	.process = IS_ENABLED(CONFIG_LOG2) ? process : NULL,
+	.process = process,
 	.init = mock_init,
-	.format_set = IS_ENABLED(CONFIG_LOG1) ? NULL : format_set,
+	.format_set = format_set,
 	.panic = panic
 };
-
-LOG_BACKEND_DEFINE(log_backend_mock, mock_log_backend_api, true);

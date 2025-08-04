@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
-#include <ztest.h>
+#include <zephyr/kernel.h>
+#include <zephyr/ztest.h>
 #include <zephyr/sys/crc.h>
 #include <dns_pack.h>
 #include <dns_internal.h>
@@ -14,8 +14,8 @@
 /* RFC 1035, 4.1.1. Header section format */
 #define DNS_HEADER_SIZE	12
 
-static uint8_t buf[MAX_BUF_SIZE];
-static uint16_t buf_len;
+static uint8_t dns_buf[MAX_BUF_SIZE];
+static uint16_t dns_buf_len;
 
 static uint8_t qname[MAX_BUF_SIZE];
 static uint16_t qname_len;
@@ -61,90 +61,90 @@ static int eval_query(const char *dname, uint16_t tid, enum dns_rr_type type,
 		goto lb_exit;
 	}
 
-	rc = dns_msg_pack_query(buf, &buf_len, MAX_BUF_SIZE, qname, qname_len,
+	rc = dns_msg_pack_query(dns_buf, &dns_buf_len, MAX_BUF_SIZE, qname, qname_len,
 				tid, type);
 	if (rc != 0) {
 		goto lb_exit;
 	}
 
-	if (dns_unpack_header_id(buf) != tid) {
+	if (dns_unpack_header_id(dns_buf) != tid) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
 	/* This is a query */
-	if (dns_header_qr(buf) != DNS_QUERY) {
+	if (dns_header_qr(dns_buf) != DNS_QUERY) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
 	/* This is a query (standard query) */
-	if (dns_header_opcode(buf) != DNS_QUERY) {
+	if (dns_header_opcode(dns_buf) != DNS_QUERY) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
 	/* Authoritative Answer must be 0 for a Query */
-	if (dns_header_aa(buf) != 0) {
+	if (dns_header_aa(dns_buf) != 0) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
 	/* TrunCation is always 0 */
-	if (dns_header_tc(buf) != 0) {
+	if (dns_header_tc(dns_buf) != 0) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
 	/* Recursion Desired is always 1 */
-	if (dns_header_rd(buf) != 1) {
+	if (dns_header_rd(dns_buf) != 1) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
 	/* Recursion Available is always 0 */
-	if (dns_header_ra(buf) != 0) {
+	if (dns_header_ra(dns_buf) != 0) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
 	/* Z is always 0 */
-	if (dns_header_z(buf) != 0) {
+	if (dns_header_z(dns_buf) != 0) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
 	/* Response code must be 0 (no error) */
-	if (dns_header_rcode(buf) != DNS_HEADER_NOERROR) {
+	if (dns_header_rcode(dns_buf) != DNS_HEADER_NOERROR) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
 	/* Question counter must be 1 */
-	if (dns_header_qdcount(buf) != 1) {
+	if (dns_header_qdcount(dns_buf) != 1) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
 	/* Answer counter must be 0 */
-	if (dns_header_ancount(buf) != 0) {
+	if (dns_header_ancount(dns_buf) != 0) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
 	/* Name server resource records counter must be 0 */
-	if (dns_header_nscount(buf) != 0) {
+	if (dns_header_nscount(dns_buf) != 0) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
 	/* Additional records counter must be 0 */
-	if (dns_header_arcount(buf) != 0) {
+	if (dns_header_arcount(dns_buf) != 0) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
-	question = buf + DNS_HEADER_SIZE;
+	question = dns_buf + DNS_HEADER_SIZE;
 
 	/* QClass */
 	if (dns_unpack_query_qclass(question + qname_len) != DNS_CLASS_IN) {
@@ -159,12 +159,12 @@ static int eval_query(const char *dname, uint16_t tid, enum dns_rr_type type,
 	}
 
 	/* compare with the expected result */
-	if (buf_len != expected_len) {
+	if (dns_buf_len != expected_len) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
 
-	if (memcmp(expected, buf, buf_len) != 0) {
+	if (memcmp(expected, dns_buf, dns_buf_len) != 0) {
 		rc = -EINVAL;
 		goto lb_exit;
 	}
@@ -414,7 +414,7 @@ lb_exit:
 }
 
 
-void test_dns_query(void)
+ZTEST(dns_packet, test_dns_query)
 {
 	int rc;
 
@@ -454,7 +454,7 @@ static uint8_t resp_ipv4[] = { 0xb0, 0x41, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01,
 
 static const uint8_t resp_ipv4_addr[] = {140, 211, 169, 8};
 
-void test_dns_response(void)
+ZTEST(dns_packet, test_dns_response)
 {
 	struct dns_response_test test = {
 		.dname = DNAME1,
@@ -505,7 +505,7 @@ char answer_ipv4[] = {
 
 static const uint8_t answer_ipv4_addr[] = { 174, 137, 42, 65 };
 
-void test_dns_response2(void)
+ZTEST(dns_packet, test_dns_response2)
 {
 	struct dns_response_test test1 = {
 		.dname = DNAME2,
@@ -529,7 +529,7 @@ void test_dns_response2(void)
 		      " at line %d", -rc);
 }
 
-void test_mdns_query(void)
+ZTEST(dns_packet, test_mdns_query)
 {
 	int rc;
 
@@ -564,7 +564,7 @@ static const uint8_t resp_ipv6_addr[] = {
 	0x02, 0x00, 0x5e, 0xff, 0xfe, 0x00, 0x53, 0x37
 };
 
-void test_mdns_response(void)
+ZTEST(dns_packet, test_mdns_response)
 {
 	struct dns_response_test test1 = {
 		.dname = ZEPHYR_LOCAL,
@@ -707,6 +707,24 @@ static uint8_t resp_truncated_response_ipv4_5[] = {
 
 	/* Resource data length */
 	0x00, 0x04,
+};
+
+static uint8_t resp_truncated_response_ipv4_6[] = {
+	/* DNS msg header (12 bytes) */
+	/* Id (0) */
+	0x00, 0x00,
+	/* Flags (response, rcode = 1) */
+	0x80, 0x01,
+	/* Number of questions */
+	0x00, 0x01,
+	/* Number of answers */
+	0x00, 0x00,
+	/* Number of authority RRs */
+	0x00, 0x00,
+	/* Number of additional RRs */
+	0x00, 0x00,
+
+	/* Rest of the data is missing */
 };
 
 static uint8_t resp_valid_response_ipv4_6[] = {
@@ -1093,8 +1111,13 @@ static void run_dns_malformed_response(const char *test_case,
 
 	dns_id = dns_unpack_header_id(dns_msg.msg);
 
-	setup_dns_context(&dns_ctx, 0, dns_id, query, sizeof(query),
-			  DNS_QUERY_TYPE_A);
+	/* If the message is longer than 12 bytes, it could be a valid DNS message
+	 * in which case setup the context for the reply.
+	 */
+	if (len > 12) {
+		setup_dns_context(&dns_ctx, 0, dns_id, query, sizeof(query),
+				  DNS_QUERY_TYPE_A);
+	}
 
 	ret = dns_validate_msg(&dns_ctx, &dns_msg, &dns_id, &query_idx,
 			       NULL, &query_hash);
@@ -1121,7 +1144,6 @@ static void run_dns_valid_response(const char *test_case,
 		      test_case, ret);
 }
 
-#define DNS_RESOLVER_MAX_BUF_SIZE	512
 #define DNS_RESOLVER_MIN_BUF	1
 #define DNS_RESOLVER_BUF_CTR	(DNS_RESOLVER_MIN_BUF + 1)
 #define DNS_MAX_NAME_LEN	255
@@ -1198,9 +1220,16 @@ static void test_dns_malformed_responses(void)
 	RUN_MALFORMED_TEST(resp_truncated_response_ipv4_3);
 	RUN_MALFORMED_TEST(resp_truncated_response_ipv4_4);
 	RUN_MALFORMED_TEST(resp_truncated_response_ipv4_5);
+	RUN_MALFORMED_TEST(resp_truncated_response_ipv4_6);
 }
 
-static void test_dns_id_len(void)
+ZTEST(dns_packet, test_dns_malformed_and_valid_responses)
+{
+	test_dns_malformed_responses();
+	test_dns_valid_responses();
+}
+
+ZTEST(dns_packet, test_dns_id_len)
 {
 	struct dns_msg_t dns_msg = { 0 };
 	uint8_t buf[1];
@@ -1218,7 +1247,7 @@ static void test_dns_id_len(void)
 		      "DNS message length check failed (%d)", ret);
 }
 
-static void test_dns_flags_len(void)
+ZTEST(dns_packet, test_dns_flags_len)
 {
 	struct dns_msg_t dns_msg = { 0 };
 	uint8_t buf[3];
@@ -1236,26 +1265,278 @@ static void test_dns_flags_len(void)
 		      "DNS message length check failed (%d)", ret);
 }
 
-void test_main(void)
+static uint8_t invalid_answer_resp_ipv4[18] = {
+	/* DNS msg header (12 bytes) */
+	0x01, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x01, 0x00, 0x01,
+};
+
+ZTEST(dns_packet, test_dns_invalid_answer)
 {
-	ztest_test_suite(dns_tests,
-			 ztest_unit_test(test_dns_query),
-			 ztest_unit_test(test_dns_response),
-			 ztest_unit_test(test_dns_response2),
-			 ztest_unit_test(test_mdns_query),
-			 ztest_unit_test(test_mdns_response),
-			 ztest_unit_test(test_dns_id_len),
-			 ztest_unit_test(test_dns_flags_len),
-			 ztest_unit_test(test_dns_malformed_responses),
-			 ztest_unit_test(test_dns_valid_responses)
-		);
+	struct dns_msg_t dns_msg = { 0 };
+	enum dns_rr_type type;
+	uint32_t ttl;
+	int ret;
 
-	ztest_run_test_suite(dns_tests);
+	dns_msg.msg = invalid_answer_resp_ipv4;
+	dns_msg.msg_size = sizeof(invalid_answer_resp_ipv4);
+	dns_msg.answer_offset = 12;
 
-	/* TODO:
-	 *	1) add malformed DNS data (mostly done)
-	 *	2) add validations against buffer overflows
-	 *	3) add debug info to detect the exit point (or split the tests)
-	 *	4) add test data with CNAME and more RR
-	 */
+	ret = dns_unpack_answer(&dns_msg, 0, &ttl, &type);
+	zassert_equal(ret, -EINVAL, "DNS message answer check succeed (%d)", ret);
 }
+
+static uint8_t recursive_query_resp_ipv4[] = {
+	/* DNS msg header (12 bytes) */
+	0x74, 0xe1, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01,
+	0x00, 0x00, 0x00, 0x00,
+
+	/* Query string (westus2-prod-2.notifications.teams.microsoft.com)
+	 * (length 50)
+	 */
+	0x0e, 0x77, 0x65, 0x73,	0x74, 0x75, 0x73, 0x32,
+	0x2d, 0x70, 0x72, 0x6f, 0x64, 0x2d, 0x32, 0x0d,
+	0x6e, 0x6f, 0x74, 0x69, 0x66, 0x69, 0x63, 0x61,
+	0x74, 0x69, 0x6f, 0x6e, 0x73, 0x05, 0x74, 0x65,
+	0x61, 0x6d, 0x73, 0x09, 0x6d, 0x69, 0x63, 0x72,
+	0x6f, 0x73, 0x6f, 0x66, 0x74, 0x03, 0x63, 0x6f,
+	0x6d, 0x00,
+
+	/* Type (2 bytes) */
+	0x00, 0x01,
+
+	/* Class (2 bytes) */
+	0x00, 0x01,
+
+	/* Answer 1 */
+	0xc0, 0x0c,
+
+	/* Answer type (cname) */
+	0x00, 0x05,
+
+	/* Class */
+	0x00, 0x01,
+
+	/* TTL */
+	0x00, 0x00, 0x00, 0x04,
+
+	/* RR data length */
+	0x00, 0x02,
+
+	/* Data */
+	0xc0, 0x4e, /* <--- recursive pointer */
+};
+
+NET_BUF_POOL_DEFINE(dns_qname_pool_for_test, 2, 128, 0, NULL);
+
+ZTEST(dns_packet, test_dns_recursive_query)
+{
+	static const uint8_t query[] = {
+		/* Query string */
+		0x0e, 0x77, 0x65, 0x73,	0x74, 0x75, 0x73, 0x32,
+		0x2d, 0x70, 0x72, 0x6f, 0x64, 0x2d, 0x32, 0x0d,
+		0x6e, 0x6f, 0x74, 0x69, 0x66, 0x69, 0x63, 0x61,
+		0x74, 0x69, 0x6f, 0x6e, 0x73, 0x05, 0x74, 0x65,
+		0x61, 0x6d, 0x73, 0x09, 0x6d, 0x69, 0x63, 0x72,
+		0x6f, 0x73, 0x6f, 0x66, 0x74, 0x03, 0x63, 0x6f,
+		0x6d, 0x00,
+
+		/* Type */
+		0x00, 0x01,
+	};
+	struct dns_msg_t dns_msg = { 0 };
+	uint16_t dns_id = 0;
+	int query_idx = -1;
+	uint16_t query_hash = 0;
+	struct net_buf *dns_cname;
+	int ret;
+
+	dns_cname = net_buf_alloc(&dns_qname_pool_for_test, dns_ctx.buf_timeout);
+	zassert_not_null(dns_cname, "Out of mem");
+
+	dns_msg.msg = recursive_query_resp_ipv4;
+	dns_msg.msg_size = sizeof(recursive_query_resp_ipv4);
+
+	dns_id = dns_unpack_header_id(dns_msg.msg);
+
+	setup_dns_context(&dns_ctx, 0, dns_id, query, sizeof(query),
+			  DNS_QUERY_TYPE_A);
+
+	ret = dns_validate_msg(&dns_ctx, &dns_msg, &dns_id, &query_idx,
+			       dns_cname, &query_hash);
+	zassert_true(ret == DNS_EAI_SYSTEM && errno == ELOOP,
+		     "[%s] DNS message was valid (%d / %d)",
+		     "recursive rsp", ret, errno);
+
+	net_buf_unref(dns_cname);
+}
+
+static uint8_t invalid_compression_response_ipv4[] = {
+	/* DNS msg header (12 bytes) */
+	0x74, 0xe1, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01,
+	0x00, 0x00, 0x00, 0x00,
+
+	/* Query string */
+	0x0e, 0x77, 0x65, 0x73,	0x74, 0x75, 0x73, 0x32,
+	0x2d, 0x70, 0x72, 0x6f, 0x64, 0x2d, 0x32, 0x0d,
+	0x6e, 0x6f, 0x74, 0x69, 0x66, 0x69, 0x63, 0x61,
+	0x74, 0x69, 0x6f, 0x6e, 0x73, 0x05, 0x74, 0x65,
+	0x61, 0x6d, 0x73, 0x09, 0x6d, 0x69, 0x63, 0x72,
+	0x6f, 0x73, 0x6f, 0x66, 0x74, 0x03, 0x63, 0x6f,
+	0x6d, 0x00,
+
+	/* Type */
+	0x00, 0x01,
+
+	/* Class */
+	0x00, 0x01,
+
+	/* Answer 1 */
+	0xb0, 0x0c, /* <--- invalid compression pointer */
+
+	/* Answer type (cname) */
+	0x00, 0x05,
+
+	/* Class */
+	0x00, 0x01,
+
+	/* TTL */
+	0x00, 0x00, 0x00, 0x04,
+
+	/* RR data length */
+	0x00, 0x02,
+
+	/* Data */
+	0xc0, 0x0c,
+};
+
+ZTEST(dns_packet, test_dns_invalid_compress_bits)
+{
+	static const uint8_t query[] = {
+		/* Query string */
+		0x0e, 0x77, 0x65, 0x73,	0x74, 0x75, 0x73, 0x32,
+		0x2d, 0x70, 0x72, 0x6f, 0x64, 0x2d, 0x32, 0x0d,
+		0x6e, 0x6f, 0x74, 0x69, 0x66, 0x69, 0x63, 0x61,
+		0x74, 0x69, 0x6f, 0x6e, 0x73, 0x05, 0x74, 0x65,
+		0x61, 0x6d, 0x73, 0x09, 0x6d, 0x69, 0x63, 0x72,
+		0x6f, 0x73, 0x6f, 0x66, 0x74, 0x03, 0x63, 0x6f,
+		0x6d, 0x00,
+
+		/* Type */
+		0x00, 0x01,
+	};
+	struct dns_msg_t dns_msg = { 0 };
+	uint16_t dns_id = 0;
+	int query_idx = -1;
+	uint16_t query_hash = 0;
+	struct net_buf *dns_cname;
+	int ret;
+
+	dns_cname = net_buf_alloc(&dns_qname_pool_for_test, dns_ctx.buf_timeout);
+	zassert_not_null(dns_cname, "Out of mem");
+
+	dns_msg.msg = invalid_compression_response_ipv4;
+	dns_msg.msg_size = sizeof(invalid_compression_response_ipv4);
+
+	dns_id = dns_unpack_header_id(dns_msg.msg);
+
+	setup_dns_context(&dns_ctx, 0, dns_id, query, sizeof(query),
+			  DNS_QUERY_TYPE_A);
+
+	ret = dns_validate_msg(&dns_ctx, &dns_msg, &dns_id, &query_idx,
+			       dns_cname, &query_hash);
+	zassert_true(ret == DNS_EAI_SYSTEM && errno == EINVAL,
+		     "[%s] DNS message was valid (%d / %d)",
+		     "invalid compression rsp", ret, errno);
+
+	net_buf_unref(dns_cname);
+}
+
+static uint8_t invalid_compression_response_cname_ipv4[] = {
+	/* DNS msg header (12 bytes) */
+	0x74, 0xe1, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01,
+	0x00, 0x00, 0x00, 0x00,
+
+	/* Query string */
+	0x0e, 0x77, 0x65, 0x73,	0x74, 0x75, 0x73, 0x32,
+	0x2d, 0x70, 0x72, 0x6f, 0x64, 0x2d, 0x32, 0x0d,
+	0x6e, 0x6f, 0x74, 0x69, 0x66, 0x69, 0x63, 0x61,
+	0x74, 0x69, 0x6f, 0x6e, 0x73, 0x05, 0x74, 0x65,
+	0x61, 0x6d, 0x73, 0x09, 0x6d, 0x69, 0x63, 0x72,
+	0x6f, 0x73, 0x6f, 0x66, 0x74, 0x03, 0x63, 0x6f,
+	0x6d, 0x00,
+
+	/* Type */
+	0x00, 0x01,
+
+	/* Class */
+	0x00, 0x01,
+
+	/* Answer 1 */
+	0xc0, 0x0c,
+
+	/* Answer type (cname) */
+	0x00, 0x05,
+
+	/* Class */
+	0x00, 0x01,
+
+	/* TTL */
+	0x00, 0x00, 0x00, 0x04,
+
+	/* RR data length */
+	0x00, 0x02,
+
+	/* Data */
+	0xb0, 0x0c, /* <--- invalid compression pointer */
+};
+
+ZTEST(dns_packet, test_dns_invalid_compress_bits_cname)
+{
+	static const uint8_t query[] = {
+		/* Query string */
+		0x0e, 0x77, 0x65, 0x73,	0x74, 0x75, 0x73, 0x32,
+		0x2d, 0x70, 0x72, 0x6f, 0x64, 0x2d, 0x32, 0x0d,
+		0x6e, 0x6f, 0x74, 0x69, 0x66, 0x69, 0x63, 0x61,
+		0x74, 0x69, 0x6f, 0x6e, 0x73, 0x05, 0x74, 0x65,
+		0x61, 0x6d, 0x73, 0x09, 0x6d, 0x69, 0x63, 0x72,
+		0x6f, 0x73, 0x6f, 0x66, 0x74, 0x03, 0x63, 0x6f,
+		0x6d, 0x00,
+
+		/* Type */
+		0x00, 0x01,
+	};
+	struct dns_msg_t dns_msg = { 0 };
+	uint16_t dns_id = 0;
+	int query_idx = -1;
+	uint16_t query_hash = 0;
+	struct net_buf *dns_cname;
+	int ret;
+
+	dns_cname = net_buf_alloc(&dns_qname_pool_for_test, dns_ctx.buf_timeout);
+	zassert_not_null(dns_cname, "Out of mem");
+
+	dns_msg.msg = invalid_compression_response_cname_ipv4;
+	dns_msg.msg_size = sizeof(invalid_compression_response_cname_ipv4);
+
+	dns_id = dns_unpack_header_id(dns_msg.msg);
+
+	setup_dns_context(&dns_ctx, 0, dns_id, query, sizeof(query),
+			  DNS_QUERY_TYPE_A);
+
+	ret = dns_validate_msg(&dns_ctx, &dns_msg, &dns_id, &query_idx,
+			       dns_cname, &query_hash);
+	zassert_true(ret == DNS_EAI_SYSTEM && errno == EINVAL,
+		     "[%s] DNS message was valid (%d / %d)",
+		     "invalid compression rsp", ret, errno);
+
+	net_buf_unref(dns_cname);
+}
+
+ZTEST_SUITE(dns_packet, NULL, NULL, NULL, NULL, NULL);
+/* TODO:
+ *	1) add malformed DNS data (mostly done)
+ *	2) add validations against buffer overflows
+ *	3) add debug info to detect the exit point (or split the tests)
+ *	4) add test data with CNAME and more RR
+ */

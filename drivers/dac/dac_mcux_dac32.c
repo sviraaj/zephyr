@@ -6,7 +6,7 @@
 
 #define DT_DRV_COMPAT nxp_kinetis_dac32
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/drivers/dac.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/drivers/pinctrl.h>
@@ -41,6 +41,11 @@ static int mcux_dac32_channel_setup(const struct device *dev,
 
 	if (channel_cfg->resolution != 12) {
 		LOG_ERR("unsupported resolution %d", channel_cfg->resolution);
+		return -ENOTSUP;
+	}
+
+	if (channel_cfg->internal) {
+		LOG_ERR("Internal channels not supported");
 		return -ENOTSUP;
 	}
 
@@ -96,7 +101,7 @@ static int mcux_dac32_init(const struct device *dev)
 	return pinctrl_apply_state(config->pincfg, PINCTRL_STATE_DEFAULT);
 }
 
-static const struct dac_driver_api mcux_dac32_driver_api = {
+static DEVICE_API(dac, mcux_dac32_driver_api) = {
 	.channel_setup = mcux_dac32_channel_setup,
 	.write_value = mcux_dac32_write_value,
 };

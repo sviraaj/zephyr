@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
-#include <ztest_error_hook.h>
+#include <zephyr/ztest.h>
+#include <zephyr/ztest_error_hook.h>
 
 /* Macro declarations */
 
@@ -34,10 +34,8 @@ static K_SEM_DEFINE(sync_sem, 0, 1);
 volatile static uint32_t test_events;
 
 /**
- * @defgroup kernel_sys_events_tests Semaphore
- * @ingroup all_tests
+ * @ingroup kernel_event_tests
  * @{
- * @}
  */
 
 static void entry_extra1(void *p1, void *p2, void *p3)
@@ -65,11 +63,11 @@ static void entry_extra2(void *p1, void *p2, void *p3)
  * the fields of a k_event structure as expected.
  */
 
-static void test_k_event_init(void)
+ZTEST(sys_events, test_k_event_init)
 {
 	k_event_init(&init_event);
 
-	zassert_true(init_event.events == 0, NULL);
+	zassert_true(init_event.events == 0);
 }
 
 static void receive_existing_events(void)
@@ -186,8 +184,8 @@ static void test_receive_existing_events(void)
 
 	k_sem_give(&sync_sem);
 	rv = k_sem_take(&receiver_sem, LONG_TIMEOUT);
-	zassert_true(rv == 0, NULL);
-	zassert_true(test_events == 0, NULL);
+	zassert_true(rv == 0);
+	zassert_true(test_events == 0);
 
 	/*
 	 * Sync point 1-2.
@@ -196,8 +194,8 @@ static void test_receive_existing_events(void)
 
 	k_sem_give(&sync_sem);
 	rv = k_sem_take(&receiver_sem, LONG_TIMEOUT);
-	zassert_true(rv == 0, NULL);
-	zassert_true(test_events == 0, NULL);
+	zassert_true(rv == 0);
+	zassert_true(test_events == 0);
 
 	/*
 	 * Sync point 1-3.
@@ -206,8 +204,8 @@ static void test_receive_existing_events(void)
 
 	k_sem_give(&sync_sem);
 	rv = k_sem_take(&receiver_sem, LONG_TIMEOUT);
-	zassert_true(rv == 0, NULL);
-	zassert_true(test_events == 0, NULL);
+	zassert_true(rv == 0);
+	zassert_true(test_events == 0);
 
 	/*
 	 * Sync point 1-4.
@@ -216,8 +214,8 @@ static void test_receive_existing_events(void)
 
 	k_sem_give(&sync_sem);
 	rv = k_sem_take(&receiver_sem, LONG_TIMEOUT);
-	zassert_true(rv == 0, NULL);
-	zassert_true(test_events == 0, NULL);
+	zassert_true(rv == 0);
+	zassert_true(test_events == 0);
 
 	/*
 	 * Sync point 1-5.
@@ -226,8 +224,8 @@ static void test_receive_existing_events(void)
 
 	k_sem_give(&sync_sem);
 	rv = k_sem_take(&receiver_sem, LONG_TIMEOUT);
-	zassert_true(rv == 0, NULL);
-	zassert_true(test_events == 0x234, NULL);
+	zassert_true(rv == 0);
+	zassert_true(test_events == 0x234);
 
 	/*
 	 * Sync point 1-6.
@@ -236,8 +234,8 @@ static void test_receive_existing_events(void)
 
 	k_sem_give(&sync_sem);
 	rv = k_sem_take(&receiver_sem, LONG_TIMEOUT);
-	zassert_true(rv == 0, NULL);
-	zassert_true(test_events == 0x1234, NULL);
+	zassert_true(rv == 0);
+	zassert_true(test_events == 0x1234);
 }
 
 /**
@@ -258,9 +256,9 @@ static void test_reset_on_receive(void)
 	k_sleep(DELAY);           /* Give receiver thread time to run */
 	k_event_post(&test_event, 0x123);
 	rv = k_sem_take(&receiver_sem, LONG_TIMEOUT);
-	zassert_true(rv == 0, NULL);
-	zassert_true(test_events == 0, NULL);
-	zassert_true(test_event.events == 0x123, NULL);
+	zassert_true(rv == 0);
+	zassert_true(test_events == 0);
+	zassert_true(test_event.events == 0x123);
 
 	/*
 	 * Sync point 2-2. Clear events before receive.
@@ -271,9 +269,9 @@ static void test_reset_on_receive(void)
 	k_sleep(DELAY);
 	k_event_post(&test_event, 0x248);
 	rv = k_sem_take(&receiver_sem, LONG_TIMEOUT);
-	zassert_true(rv == 0, NULL);
-	zassert_true(test_events == 0, NULL);
-	zassert_true(test_event.events == 0x248, NULL);
+	zassert_true(rv == 0);
+	zassert_true(test_events == 0);
+	zassert_true(test_event.events == 0x248);
 
 	/*
 	 * Sync point 2-3. Clear events before receive.
@@ -284,9 +282,9 @@ static void test_reset_on_receive(void)
 	k_sleep(DELAY);
 	k_event_post(&test_event, 0x248021);
 	rv = k_sem_take(&receiver_sem, LONG_TIMEOUT);
-	zassert_true(rv == 0, NULL);
-	zassert_true(test_events == 0x248001, NULL);
-	zassert_true(test_event.events  == 0x248021, NULL);
+	zassert_true(rv == 0);
+	zassert_true(test_events == 0x248001);
+	zassert_true(test_event.events  == 0x248021);
 
 	/*
 	 * Sync point 2-4. Clear events before receive.
@@ -297,9 +295,9 @@ static void test_reset_on_receive(void)
 	k_sleep(DELAY);
 	k_event_post(&test_event, 0x123456);
 	rv = k_sem_take(&receiver_sem, LONG_TIMEOUT);
-	zassert_true(rv == 0, NULL);
-	zassert_true(test_events == 0x123450, NULL);
-	zassert_true(test_event.events  == 0x123456, NULL);
+	zassert_true(rv == 0);
+	zassert_true(test_events == 0x123450);
+	zassert_true(test_event.events  == 0x123456);
 
 	k_event_set(&test_event, 0x0);  /* Clear events */
 
@@ -324,7 +322,7 @@ void test_wake_multiple_threads(void)
 
 	events = k_event_wait_all(&test_event, 0x333, false, SHORT_TIMEOUT);
 
-	zassert_true(events == 0x333, NULL);
+	zassert_true(events == 0x333);
 }
 
 /**
@@ -334,13 +332,13 @@ void test_wake_multiple_threads(void)
  * involve waking or receiving events.
  */
 
-static void test_event_deliver(void)
+ZTEST(sys_events, test_event_deliver)
 {
 	uint32_t  events;
 
 	k_event_init(&deliver_event);
 
-	zassert_true(deliver_event.events == 0, NULL);
+	zassert_true(deliver_event.events == 0);
 
 	/*
 	 * Verify k_event_post() and k_event_set() update the
@@ -349,15 +347,15 @@ static void test_event_deliver(void)
 
 	events = 0xAAAA;
 	k_event_post(&deliver_event, events);
-	zassert_true(deliver_event.events == events, NULL);
+	zassert_true(deliver_event.events == events);
 
 	events |= 0x55555ABC;
 	k_event_post(&deliver_event, events);
-	zassert_true(deliver_event.events == events, NULL);
+	zassert_true(deliver_event.events == events);
 
 	events = 0xAAAA0000;
 	k_event_set(&deliver_event, events);
-	zassert_true(deliver_event.events == events, NULL);
+	zassert_true(deliver_event.events == events);
 }
 
 /**
@@ -368,7 +366,7 @@ static void test_event_deliver(void)
  *   k_event_post(), k_event_set(), k_event_wait() and k_event_wait_all().
  */
 
-void test_event_receive(void)
+ZTEST(sys_events, test_event_receive)
 {
 
 	/* Create helper threads */
@@ -394,17 +392,18 @@ void test_event_receive(void)
 	test_wake_multiple_threads();
 }
 
-void test_main(void)
+void *sys_events_setup(void)
 {
 	k_thread_access_grant(k_current_get(), &treceiver, &textra1, &textra2,
 			      &test_event, &sync_event,
 			      &init_event, &deliver_event,
 			      &receiver_sem, &sync_sem);
 
-	ztest_test_suite(sys_events,
-			 ztest_1cpu_unit_test(test_k_event_init),
-			 ztest_1cpu_unit_test(test_event_deliver),
-			 ztest_1cpu_unit_test(test_event_receive));
-
-	ztest_run_test_suite(sys_events);
+	return NULL;
 }
+
+/**
+ * @}
+ */
+ZTEST_SUITE(sys_events, NULL, sys_events_setup,
+		ztest_simple_1cpu_before, ztest_simple_1cpu_after, NULL);

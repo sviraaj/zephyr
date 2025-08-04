@@ -43,10 +43,6 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 /* resource state */
 struct ipso_accel_data {
 	double x_value;
-	double y_value;
-	double z_value;
-	double min_range;
-	double max_range;
 };
 
 static struct ipso_accel_data accel_data[MAX_INSTANCE_COUNT];
@@ -108,20 +104,12 @@ static struct lwm2m_engine_obj_inst *accel_create(uint16_t obj_inst_id)
 	INIT_OBJ_RES_DATA(X_VALUE_RID, res[avail], i, res_inst[avail], j,
 			  &accel_data[avail].x_value,
 			  sizeof(accel_data[avail].x_value));
-	INIT_OBJ_RES_DATA(Y_VALUE_RID, res[avail], i, res_inst[avail], j,
-			  &accel_data[avail].y_value,
-			  sizeof(accel_data[avail].y_value));
-	INIT_OBJ_RES_DATA(Z_VALUE_RID, res[avail], i, res_inst[avail], j,
-			  &accel_data[avail].z_value,
-			  sizeof(accel_data[avail].z_value));
+	INIT_OBJ_RES_OPTDATA(Y_VALUE_RID, res[avail], i, res_inst[avail], j);
+	INIT_OBJ_RES_OPTDATA(Z_VALUE_RID, res[avail], i, res_inst[avail], j);
 	INIT_OBJ_RES_OPTDATA(SENSOR_UNITS_RID, res[avail], i,
 			     res_inst[avail], j);
-	INIT_OBJ_RES_DATA(MIN_RANGE_VALUE_RID, res[avail], i, res_inst[avail],
-			  j, &accel_data[avail].min_range,
-			  sizeof(accel_data[avail].min_range));
-	INIT_OBJ_RES_DATA(MAX_RANGE_VALUE_RID, res[avail], i, res_inst[avail],
-			  j, &accel_data[avail].max_range,
-			  sizeof(accel_data[avail].max_range));
+	INIT_OBJ_RES_OPTDATA(MIN_RANGE_VALUE_RID, res[avail], i, res_inst[avail], j);
+	INIT_OBJ_RES_OPTDATA(MAX_RANGE_VALUE_RID, res[avail], i, res_inst[avail], j);
 #if defined(CONFIG_LWM2M_IPSO_ACCELEROMETER_VERSION_1_1)
 	INIT_OBJ_RES_OPTDATA(APPLICATION_TYPE_RID, res[avail], i,
 			     res_inst[avail], j);
@@ -142,7 +130,7 @@ static struct lwm2m_engine_obj_inst *accel_create(uint16_t obj_inst_id)
 	return &inst[avail];
 }
 
-static int ipso_accel_init(const struct device *dev)
+static int ipso_accel_init(void)
 {
 	accel.obj_id = IPSO_OBJECT_ACCELEROMETER_ID;
 	accel.version_major = ACCEL_VERSION_MAJOR;
@@ -157,4 +145,4 @@ static int ipso_accel_init(const struct device *dev)
 	return 0;
 }
 
-SYS_INIT(ipso_accel_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+LWM2M_OBJ_INIT(ipso_accel_init);

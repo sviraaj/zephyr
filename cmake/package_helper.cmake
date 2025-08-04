@@ -29,34 +29,20 @@
 # It is also possible to pass additional build settings.
 # If you invoke CMake for 'hello_world' as:
 #
-#   $ cmake -DBOARD=<board> -B build -S samples/hello_world -DOVERLAY_CONFIG=foo.overlay
+#   $ cmake -DBOARD=<board> -B build -S samples/hello_world -DEXTRA_CONF_FILE=foo.conf
 #
 # you just add the same argument to the helper like:
-#   $ cmake -DBOARD=<board> -B build -S samples/hello_world -DOVERLAY_CONFIG=foo.overlay \
+#   $ cmake -DBOARD=<board> -B build -S samples/hello_world -DEXTRA_CONF_FILE=foo.conf \
 #           -DMODULES=dts -P <ZEPHYR_BASE>/cmake/package_helper.cmake
 #
 # Note: the samples CMakeLists.txt file is not processed by package helper, so
 #       any 'set(<var> <value>)' specified before 'find_package(Zephyr)' must be
 #       manually applied, for example if the CMakeLists.txt contains:
-#          set(OVERLAY_CONFIG foo.overlay)
+#          set(EXTRA_CONF_FILE foo.conf)
 #          find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
-#       the 'foo.overlay' must be specified using '-DOVERLAY_CONFIG=foo.overlay'
+#       the 'foo.conf' must be specified using '-DEXTRA_CONF_FILE=foo.conf'
 
-cmake_minimum_required(VERSION 3.20)
-
-# add_custom_target and set_target_properties are not supported in script mode.
-# However, several Zephyr CMake modules create custom target for user convenience
-# like menuconfig, boards, shields, etc.
-# As we are not generating a build system with this tool, only running part of
-# the modules, then we simply override those functions to allow running those
-# modules.
-function(add_custom_target)
-  # This silence the error: 'add_custom_target command is not scriptable'
-endfunction()
-
-function(set_target_properties)
-  # This silence the error: 'set_target_properties command is not scriptable'
-endfunction()
+cmake_minimum_required(VERSION 3.20.5)
 
 # Find last `-B` and `-S` instances.
 foreach(i RANGE ${CMAKE_ARGC})

@@ -27,12 +27,24 @@ struct lll_sync {
 	uint8_t filter_policy:1;
 	uint8_t is_rx_enabled:1;
 	uint8_t is_aux_sched:1;
+	uint8_t forced:1;
 
-#if defined(CONFIG_BT_CTLR_SYNC_ISO)
+#if defined(CONFIG_BT_CTLR_SYNC_ISO) || \
+	defined(CONFIG_BT_CTLR_SYNC_TRANSFER_RECEIVER) || \
+	defined(CONFIG_BT_CTLR_SYNC_TRANSFER_SENDER)
 	uint8_t sca:3;
-#endif /* CONFIG_BT_CTLR_SYNC_ISO */
+#endif /* CONFIG_BT_CTLR_SYNC_ISO || CONFIG_BT_CTLR_SYNC_TRANSFER_RECEIVER/SENDER */
+
+#if defined(CONFIG_BT_CTLR_SCAN_AUX_SYNC_RESERVE_MIN)
+	/* Counter used by LLL abort of event when in unreserved time space to
+	 * provide near fair scheduling of overlapping multiple Periodic
+	 * Sync sets.
+	 */
+	uint8_t abort_count;
+#endif /* CONFIG_BT_CTLR_SCAN_AUX_SYNC_RESERVE_MIN */
 
 	uint16_t skip_prepare;
+	uint16_t lazy_prepare;
 	uint16_t skip_event;
 	uint16_t event_counter;
 
@@ -56,6 +68,16 @@ struct lll_sync {
 
 #if defined(CONFIG_BT_CTLR_DF_SCAN_CTE_RX)
 	struct lll_df_sync df_cfg;
+	/* Member stores one additional IQ report rx node for notification of insufficient
+	 * resources to sample all CTEs in currently pending synchronization event.
+	 * The member is temporary storage used between prepare of an event and IQ data report
+	 * generation.
+	 */
+	struct node_rx_iq_report *node_cte_incomplete;
+	/* Member stores information if there were insufficient IQ report rx nodes for all CTEs
+	 * in pending synchronization event.
+	 */
+	bool is_cte_incomplete;
 #endif /* CONFIG_BT_CTLR_DF_SCAN_CTE_RX */
 };
 
@@ -66,3 +88,4 @@ void lll_sync_prepare(void *param);
 enum sync_status lll_sync_cte_is_allowed(uint8_t cte_type_mask, uint8_t filter_policy,
 					 uint8_t rx_cte_time, uint8_t rx_cte_type);
 extern uint16_t ull_sync_lll_handle_get(struct lll_sync *lll);
+extern struct lll_sync *ull_sync_lll_is_valid_get(struct lll_sync *lll);

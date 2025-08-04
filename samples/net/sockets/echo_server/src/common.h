@@ -5,16 +5,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "net_sample_common.h"
 
 #define MY_PORT 4242
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS) || defined(CONFIG_NET_TCP) || \
-	defined(CONFIG_COVERAGE)
+	defined(CONFIG_COVERAGE_GCOV)
 #define STACK_SIZE 4096
 #else
 #define STACK_SIZE 2048
 #endif
 
-#if IS_ENABLED(CONFIG_NET_TC_THREAD_COOPERATIVE)
+#if defined(CONFIG_NET_TC_THREAD_COOPERATIVE)
 #define THREAD_PRIORITY K_PRIO_COOP(CONFIG_NUM_COOP_PRIORITIES - 1)
 #else
 #define THREAD_PRIORITY K_PRIO_PREEMPT(8)
@@ -73,32 +74,16 @@ void stop_tcp(void);
 
 void quit(void);
 
-#if defined(CONFIG_NET_VLAN)
-int init_vlan(void);
+#if defined(CONFIG_NET_SAMPLE_WEBSOCKET_CONSOLE)
+int init_ws(void);
 #else
-static inline int init_vlan(void)
+static inline int init_ws(void)
 {
 	return 0;
 }
-#endif /* CONFIG_NET_VLAN */
+#endif /* CONFIG_NET_SAMPLE_WEBSOCKET_CONSOLE */
 
-#if defined(CONFIG_NET_L2_IPIP)
-int init_tunnel(void);
-bool is_tunnel(struct net_if *iface);
-#else
-static inline int init_tunnel(void)
-{
-	return 0;
-}
-
-static inline bool is_tunnel(struct net_if *iface)
-{
-	ARG_UNUSED(iface);
-	return false;
-}
-#endif /* CONFIG_NET_L2_IPIP */
-
-#if defined(CONFIG_USB_DEVICE_STACK)
+#if defined(CONFIG_USB_DEVICE_STACK) || defined(CONFIG_USB_DEVICE_STACK_NEXT)
 int init_usb(void);
 #else
 static inline int init_usb(void)

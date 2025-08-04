@@ -85,6 +85,11 @@ struct rf2xx_config {
 
 	uint8_t inst;
 	uint8_t has_mac;
+
+	uint8_t const *tx_pwr_table;
+	uint8_t tx_pwr_table_size;
+	int8_t tx_pwr_min[2];
+	int8_t tx_pwr_max[2];
 };
 
 struct rf2xx_context {
@@ -101,6 +106,12 @@ struct rf2xx_context {
 	struct k_sem trx_tx_sync;
 
 	enum rf2xx_trx_model_t trx_model;
+
+	/* PHY specific driver attributes */
+	enum ieee802154_phy_channel_page cc_page;
+	struct ieee802154_phy_channel_range cc_range;
+	struct ieee802154_phy_supported_channels cc_channels;
+
 	enum rf2xx_trx_state_trac_t trx_trac;
 
 	enum ieee802154_tx_mode tx_mode;
@@ -110,6 +121,7 @@ struct rf2xx_context {
 	int8_t trx_rssi_base;
 	uint8_t trx_version;
 	uint8_t rx_phr;
+	bool promiscuous;
 };
 
 #endif /* ZEPHYR_DRIVERS_IEEE802154_IEEE802154_RF2XX_H_ */

@@ -6,6 +6,9 @@
 
 #define DT_DRV_COMPAT raspberrypi_pico_reset
 
+#include <limits.h>
+
+#include <zephyr/arch/cpu.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/reset.h>
 
@@ -135,7 +138,7 @@ static int reset_rpi_init(const struct device *dev)
 	return 0;
 }
 
-static const struct reset_driver_api reset_rpi_driver_api = {
+static DEVICE_API(reset, reset_rpi_driver_api) = {
 	.status = reset_rpi_status,
 	.line_assert = reset_rpi_line_assert,
 	.line_deassert = reset_rpi_line_deassert,

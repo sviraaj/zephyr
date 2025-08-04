@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/ztest.h>
+#include <zephyr/kernel.h>
+#include <zephyr/test_toolchain.h>
 
 #define STACKSIZE       2048
 #define THREAD_COUNT	64
@@ -14,8 +15,18 @@
 void *last_sp = (void *)0xFFFFFFFF;
 volatile unsigned int changed;
 
-void alternate_thread(void)
+/*
+ * The `alternate_thread` function deliberately makes use of a dangling pointer
+ * in order to test stack randomisation.
+ */
+TOOLCHAIN_DISABLE_GCC_WARNING(TOOLCHAIN_WARNING_DANGLING_POINTER)
+
+void alternate_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	int i;
 	void *sp_val;
 
@@ -32,6 +43,7 @@ void alternate_thread(void)
 	last_sp = sp_val;
 }
 
+TOOLCHAIN_ENABLE_GCC_WARNING(TOOLCHAIN_WARNING_DANGLING_POINTER)
 
 K_THREAD_STACK_DEFINE(alt_thread_stack_area, STACKSIZE);
 static struct k_thread alt_thread_data;
@@ -42,7 +54,7 @@ static struct k_thread alt_thread_data;
  * @ingroup kernel_memprotect_tests
  *
  */
-void test_stack_pt_randomization(void)
+ZTEST(stack_pointer_randomness, test_stack_pt_randomization)
 {
 	int i, sp_changed;
 	int old_prio = k_thread_priority_get(k_current_get());
@@ -55,9 +67,10 @@ void test_stack_pt_randomization(void)
 	/* Start thread */
 	for (i = 0; i < THREAD_COUNT; i++) {
 		k_thread_create(&alt_thread_data, alt_thread_stack_area,
-				STACKSIZE, (k_thread_entry_t)alternate_thread,
+				STACKSIZE, alternate_thread,
 				NULL, NULL, NULL, K_HIGHEST_THREAD_PRIO, 0,
 				K_NO_WAIT);
+		k_sleep(K_MSEC(10));
 	}
 
 
@@ -71,9 +84,5 @@ void test_stack_pt_randomization(void)
 	k_thread_priority_set(k_current_get(), old_prio);
 }
 
-void test_main(void)
-{
-	ztest_test_suite(stack_pointer_randomness,
-			ztest_1cpu_unit_test(test_stack_pt_randomization));
-	ztest_run_test_suite(stack_pointer_randomness);
-}
+ZTEST_SUITE(stack_pointer_randomness, NULL, NULL,
+		ztest_simple_1cpu_before, ztest_simple_1cpu_after, NULL);

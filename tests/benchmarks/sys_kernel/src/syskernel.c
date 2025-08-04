@@ -6,8 +6,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
-#include <tc_util.h>
+#include <zephyr/kernel.h>
+#include <zephyr/tc_util.h>
 
 #include "syskernel.h"
 
@@ -120,7 +120,7 @@ void output_close(void)
  * @brief Perform all selected benchmarks
  *
  */
-void main(void)
+int main(void)
 {
 	int	    continuously = 0;
 	int	    test_result;
@@ -161,11 +161,12 @@ void main(void)
 		test_result += lifo_test();
 		test_result += fifo_test();
 		test_result += stack_test();
+		test_result += malloc_test();
 		test_result += mem_slab_test();
 
 		if (test_result) {
-			/* sema/lifo/fifo/stack/mem_slab account for 14 tests in total */
-			if (test_result == 14) {
+			/* sema/lifo/fifo/stack/malloc/mem_slab account for 16 tests in total */
+			if (test_result == 16) {
 				fprintf(output_file, sz_module_result_fmt,
 					sz_success);
 			} else {
@@ -180,4 +181,5 @@ void main(void)
 	} while (continuously);
 
 	output_close();
+	return 0;
 }
