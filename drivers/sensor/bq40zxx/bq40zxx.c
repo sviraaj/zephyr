@@ -7,6 +7,10 @@
 #define DT_DRV_COMPAT ti_bq40zxx
 
 #include <drivers/i2c.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr.h>
+#include <device.h>
+#include <zephyr/drivers/i2c/i2c_recovery_stm32.h>
 #include <init.h>
 #include <drivers/sensor.h>
 #include <sys/__assert.h>
@@ -34,6 +38,13 @@
 
 #define FP    4
 
+
+/* Using the labels defined in your DTS */ //** working code
+static const struct gpio_dt_spec rec_scl = GPIO_DT_SPEC_GET(DT_NODELABEL(scl_rec_i2c2), gpios);
+static const struct gpio_dt_spec rec_sda = GPIO_DT_SPEC_GET(DT_NODELABEL(sda_rec_i2c2), gpios);
+
+
+
 /*******************************************************************
  * ********************** SMBUS block ******************************
  * *****************************************************************/
@@ -43,9 +54,17 @@ static int smbus_block_read(struct bq40zxx_data *bq40zxx, uint8_t reg_addr,
     //LOG_INF("SBR: %d, 0x%x", rd_sz, reg_addr);
     int status = i2c_burst_read(bq40zxx->i2c, DT_INST_REG_ADDR(0),
             reg_addr, rd_buf, rd_sz);
-	if (status < 0) {
-		LOG_DBG("Unable to read register");
-		return -EIO;
+	if (status == -EBUSY || status == -EIO || status == -ETIMEDOUT) {
+        LOG_DBG("Recovery Initiated");
+        i2c_recovery_stm32(I2C2, GPIOF, LL_GPIO_PIN_1, LL_GPIO_PIN_0, &rec_scl, &rec_sda);
+        // Re-attempt once
+        status = i2c_burst_read(bq40zxx->i2c, DT_INST_REG_ADDR(0),
+            reg_addr, rd_buf, rd_sz);
+        if (status < 0) {
+			LOG_DBG("Unable to read register");
+			return -EIO;
+		
+		}
 	}
     return status;
 }
