@@ -290,6 +290,37 @@ zephyr_udc0: &usbotg_hs {
 	status = "okay";
 };
 
+/ {
+   /* Standalone node for I2C2 recovery (PF1/PF0) */
+    i2c2_recovery: i2c2_recovery {
+        compatible = "gpio-keys";
+        scl_rec_i2c2: scl_rec_i2c2 {
+            gpios = <&gpiof 1 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+                       label = "RECOVERY_I2C2_SCL";
+        };
+        sda_rec_i2c2: sda_rec_i2c2 {
+            gpios = <&gpiof 0 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+                       label = "RECOVERY_I2C2_SDA";
+        };
+    };
+};
+
+/ {
+    /* Standalone node for I2C1 recovery (PB6/PB7) */
+    i2c1_recovery: i2c1_recovery {
+        compatible = "gpio-keys";
+        scl_rec_i2c1: scl_rec_i2c1 {
+            gpios = <&gpiob 6 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+            label = "RECOVERY_I2C1_SCL";
+        };
+        sda_rec_i2c1: sda_rec_i2c1 {
+            gpios = <&gpiob 7 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+            label = "RECOVERY_I2C1_SDA";
+        };
+    };
+};
+
+
 &i2c1 {
 	pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb7>;
     pinctrl-names = "default";

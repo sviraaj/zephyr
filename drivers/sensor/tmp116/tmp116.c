@@ -15,6 +15,8 @@
 #include <zephyr/sys/__assert.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/kernel.h>
+#include <zephyr/drivers/i2c/i2c_recovery_stm32.h>
+
 
 #include "tmp116.h"
 
@@ -24,6 +26,11 @@
 
 LOG_MODULE_REGISTER(TMP116, CONFIG_SENSOR_LOG_LEVEL);
 
+static const struct gpio_dt_spec rec_scl = GPIO_DT_SPEC_GET(DT_NODELABEL(scl_rec_i2c1), gpios);
+static const struct gpio_dt_spec rec_sda = GPIO_DT_SPEC_GET(DT_NODELABEL(sda_rec_i2c1), gpios);
+
+
+
 static int tmp116_reg_read(const struct device *dev, uint8_t reg,
 			   uint16_t *val)
 {
@@ -31,7 +38,11 @@ static int tmp116_reg_read(const struct device *dev, uint8_t reg,
 
 	if (i2c_burst_read_dt(&cfg->bus, reg, (uint8_t *)val, 2)
 	    < 0) {
-		return -EIO;
+		i2c_recovery_stm32(I2C1, GPIOB, LL_GPIO_PIN_6, LL_GPIO_PIN_7, &rec_scl, &rec_sda);
+		if (i2c_burst_read_dt(&cfg->bus, reg, (uint8_t *)val, 2)
+			< 0) {
+				return -EIO;
+		}
 	}
 
 	*val = sys_be16_to_cpu(*val);
