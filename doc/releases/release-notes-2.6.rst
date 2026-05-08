@@ -921,7 +921,7 @@ Libraries / Subsystems
 
   * Introduced logging v2 which allows logging any variable types (including
     floating point variables). New version does not require transient string
-    duplication (``log_strdup()``). Legacy mode remains and is still the default
+    duplication (````). Legacy mode remains and is still the default
     but user API is not changed and modes are interchangeable.
     ``CONFIG_LOG2_MODE_DEFERRED`` or ``CONFIG_LOG2_MODE_IMMEDIATE`` enable
     logging v2. Logging backend API is extended to support v2 and the most

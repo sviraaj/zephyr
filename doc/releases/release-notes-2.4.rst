@@ -64,7 +64,7 @@ API Changes
   ignore this diagnostic result or initiate another feed operation
   later.
 
-* ``<drivers/uart.h>`` has seen its callbacks normalized.
+* ``<zephyr/drivers/uart.h>`` has seen its callbacks normalized.
   :c:type:`uart_callback_t` and :c:type:`uart_irq_callback_user_data_t`
   had their signature changed to add a struct device pointer as first parameter.
   :c:type:`uart_irq_callback_t` has been removed. :c:func:`uart_callback_set`,

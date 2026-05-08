@@ -290,6 +290,7 @@ static void spi_stm32_shift_m(SPI_TypeDef *spi, struct spi_stm32_data *data)
 		spi_context_update_tx(&data->ctx, 2, 1);
 	}
 
+
 	while (!ll_func_rx_is_not_empty(spi)) {
 		/* NOP */
 	}

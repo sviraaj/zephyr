@@ -790,7 +790,7 @@ release:
 * :github:`22730` - CONFIG_BT_SETTINGS writes bt/hash to storage twice
 * :github:`22722` - posix: redefinition of symbols while porting zeromq to zephyr
 * :github:`22720` - armv8-m: userspace: some parts in userspace enter sequence need to be atomic
-* :github:`22698` - log_stack_usage: prints err: missinglog_strdup()
+* :github:`22698` - log_stack_usage: prints err: missing
 * :github:`22697` - nrf52 telnet_shell panic. Mutex using in ISR.
 * :github:`22693` - net: config: build break when CONFIG_NET_NATIVE=n
 * :github:`22689` - driver: modem: sara-u2  error when connecting

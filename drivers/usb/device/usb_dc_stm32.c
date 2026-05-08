@@ -276,6 +276,7 @@ static int usb_dc_stm32_clock_enable(void)
 	LL_AHB1_GRP1_DisableClockLowPower(LL_AHB1_GRP1_PERIPH_OTGHSULPI);
 #endif
 #endif
+#endif
 
 	return 0;
 }

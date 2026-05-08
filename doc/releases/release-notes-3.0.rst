@@ -1017,7 +1017,7 @@ release:
 * :github:`41524` - drivers: dma: dma_mcux_edma: unused variables cause daily build failures
 * :github:`41523` - drivers: i2c: i2c_mcux: unused variables cause daily build failures
 * :github:`41509` - OpenThread's timer processing enters infinite loop in 49th day of system uptime
-* :github:`41503` - including <net/socket.h> fails with redefinition of 'struct zsock_timeval' (sometimes :-) )
+* :github:`41503` - including <zephyr/net/socket.h> fails with redefinition of 'struct zsock_timeval' (sometimes :-) )
 * :github:`41499` - drivers: iwdg: stm32: 'WDT_OPT_PAUSE_HALTED_BY_DBG' might not work
 * :github:`41488` - Stall logging on nrf52840
 * :github:`41486` - Zephyr project installation

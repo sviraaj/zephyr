@@ -1113,7 +1113,7 @@ release:
 * :github:`15381` - [Coverity CID :197623]Incorrect expression in /tests/kernel/interrupt/src/nested_irq.c
 * :github:`15380` - USAGE FAULT on tests/crypto/rand32/ on sam_e70_xplained
 * :github:`15379` - foundries.io CI: tests/kernel/mem_protect/stackprot fails on nrf52
-* :github:`15370` - log_strdup() leaks memory if log message is filtered
+* :github:`15370` -  leaks memory if log message is filtered
 * :github:`15365` - Bluetooth qualification test MESH/SR/HM/CFS/BV-02-C is failing
 * :github:`15361` - nRF timer: investigate race condition when setting clock timeout in TICKLESS mode
 * :github:`15348` - ARM Cortex-M: SysTick: unhandled race condition
@@ -2055,7 +2055,7 @@ release:
 * :github:`10453` - dma_stm32 driver has been broken by commit 07ff2d5
 * :github:`10444` - tests/subsys/logging/log_core fails on few ARM platforms
 * :github:`10439` - Logger calls will execute functions even though the LOG_LEVEL is masked
-* :github:`10428` - logging: Weird output from log_strdup()
+* :github:`10428` - logging: Weird output from 
 * :github:`10420` - gcc: "Exec format error" - WSL in Windows 10 1803
 * :github:`10415` -  logging: Unaligned memory access in log_free
 * :github:`10413` - Shell: trying to browse history freezes shell on disco_l475_iot1

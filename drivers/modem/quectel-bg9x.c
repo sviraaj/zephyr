@@ -144,7 +144,7 @@ static int on_cmd_sockread_common(int socket_fd,
 
 	/* check to make sure we have all of the data. */
 	if (net_buf_frags_len(data->rx_buf) < (socket_data_length + bytes_to_skip)) {
-		LOG_DBG("Not enough data -- wait!");
+		LOG_INF("Not enough data -- wait!");
 		return -EAGAIN;
 	}
 
@@ -479,7 +479,7 @@ static ssize_t send_socket_data(struct modem_socket *sock,
 	ret = k_sem_take(&mdata.sem_tx_ready, K_MSEC(5000));
 	if (ret < 0) {
 		/* Didn't get the data prompt - Exit. */
-		LOG_DBG("Timeout waiting for tx");
+		LOG_INF("Timeout waiting for tx");
 		goto exit;
 	}
 
@@ -491,13 +491,13 @@ static ssize_t send_socket_data(struct modem_socket *sock,
 	k_sem_reset(&mdata.sem_response);
 	ret = k_sem_take(&mdata.sem_response, timeout);
 	if (ret < 0) {
-		LOG_DBG("No send response");
+		LOG_INF("No send response");
 		goto exit;
 	}
 
 	ret = modem_cmd_handler_get_error(&mdata.cmd_handler_data);
 	if (ret != 0) {
-		LOG_DBG("Failed to send data");
+		LOG_INF("Failed to send data");
 	}
 
 exit:
@@ -580,7 +580,7 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 {
 	struct modem_socket *sock = (struct modem_socket *)obj;
 	char   sendbuf[sizeof("AT+QIRD=##,####")] = {0};
-	int    ret;
+	int    ret, next_packet_size;
 	struct socket_read_data sock_data;
 
 	/* Modem command to read the data. */
@@ -779,7 +779,6 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
 	sock->is_connected = true;
 	errno = 0;
 	return 0;
-
 exit:
 	(void) modem_cmd_handler_update_cmds(&mdata.cmd_handler_data,
 					     NULL, 0U, false);
@@ -816,7 +815,7 @@ static ssize_t offload_sendmsg(void *obj, const struct msghdr *msg, int flags)
 	ssize_t sent = 0;
 	int rc;
 
-	LOG_DBG("msg_iovlen:%zd flags:%d", msg->msg_iovlen, flags);
+	LOG_INF("msg_iovlen:%zd flags:%d", msg->msg_iovlen, flags);
 
 	for (int i = 0; i < msg->msg_iovlen; i++) {
 		const char *buf = msg->msg_iov[i].iov_base;
@@ -916,6 +915,12 @@ static void pin_init(void)
 	gpio_pin_set_dt(&power_gpio, 0);
 	k_sleep(K_SECONDS(2));
 
+	LOG_INF("MDM_RESET_PIN -> ASSERTED");
+	modem_pin_write(&mctx, MDM_RESET, 1);
+	k_sleep(K_SECONDS(1));
+	LOG_INF("MDM_RESET_PIN -> NOT_ASSERTED");
+	modem_pin_write(&mctx, MDM_RESET, 0);
+
 	LOG_INF("... Done!");
 
 #if !DT_INST_NODE_HAS_PROP(0, mdm_reset_gpios)
@@ -947,8 +952,13 @@ static const struct modem_cmd unsol_cmds[] = {
 /* Commands sent to the modem to set it up at boot time. */
 static const struct setup_cmd setup_cmds[] = {
 	SETUP_CMD_NOHANDLE("ATE0"),
-	SETUP_CMD_NOHANDLE("ATH"),
+	//SETUP_CMD_NOHANDLE("ATH"),
+    SETUP_CMD_NOHANDLE("AT+CFUN=0"),
 	SETUP_CMD_NOHANDLE("AT+CMEE=1"),
+    SETUP_CMD_NOHANDLE("AT+QCFG=\"nwscanmode\", 1"),
+    SETUP_CMD_NOHANDLE("AT+CFUN=1"),
+    SETUP_CMD_NOHANDLE("AT+CREG=2"),
+    SETUP_CMD_NOHANDLE("AT+IFC=2,2"),
 
 	/* Commands to read info from the modem (things like IMEI, Model etc). */
 	SETUP_CMD("AT+CGMI", "", on_cmd_atcmdinfo_manufacturer, 0U, ""),
@@ -1031,6 +1041,7 @@ restart:
 		goto error;
 	}
 
+	k_sleep(K_SECONDS(20));
 	/* Run setup commands on the modem. */
 	ret = modem_cmd_handler_setup_cmds(&mctx.iface, &mctx.cmd_handler,
 					   setup_cmds, ARRAY_SIZE(setup_cmds),

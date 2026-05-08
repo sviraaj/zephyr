@@ -324,6 +324,14 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data)
 	int ret;
 	uint16_t offset, len;
 
+	/* Allow modem drivers to pre-process raw RX data when needed. */
+	if (data->process_data != NULL) {
+		size_t sz = net_buf_frags_len(data->rx_buf);
+		size_t processed_len = data->process_data((void *)data, sz);
+
+		data->rx_buf = net_buf_skip(data->rx_buf, processed_len);
+	}
+
 	/* process all of the data in the net_buf */
 	while (data->rx_buf && data->rx_buf->len) {
 		skipcrlf(data);
@@ -368,9 +376,9 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data)
 				data->match_buf_len - 1, match_len);
 		}
 
-#if defined(CONFIG_MODEM_CONTEXT_VERBOSE_DEBUG)
-		LOG_HEXDUMP_DBG(data->match_buf, match_len, "RECV");
-#endif
+//#if defined(CONFIG_MODEM_CONTEXT_VERBOSE_DEBUG)
+	LOG_HEXDUMP_DBG(data->match_buf, match_len, "RECV");
+//#endif
 
 		k_sem_take(&data->sem_parse_lock, K_FOREVER);
 
@@ -379,13 +387,20 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data)
 			LOG_DBG("match cmd [%s] (len:%zu)",
 				cmd->cmd, match_len);
 
-			ret = process_cmd(cmd, match_len, data);
+			ret = process_cmd(cmd, len, data);
 			if (ret == -EAGAIN) {
 				k_sem_give(&data->sem_parse_lock);
 				break;
 			} else if (ret < 0) {
 				LOG_ERR("process cmd [%s] (len:%zu, ret:%d)",
 					cmd->cmd, match_len, ret);
+			}
+
+			/* Stop here if the modem driver needs follow-up processing. */
+			if (data->process_data != NULL) {
+				data->rx_buf = net_buf_skip(data->rx_buf, match_len);
+				k_sem_give(&data->sem_parse_lock);
+				break;
 			}
 
 			/*
@@ -515,7 +530,7 @@ int modem_cmd_send_ext(struct modem_iface *iface,
 		}
 	}
 
-#if defined(CONFIG_MODEM_CONTEXT_VERBOSE_DEBUG)
+//#if defined(CONFIG_MODEM_CONTEXT_VERBOSE_DEBUG)
 	LOG_HEXDUMP_DBG(buf, strlen(buf), "SENT DATA");
 
 	if (data->eol_len > 0) {
@@ -528,7 +543,7 @@ int modem_cmd_send_ext(struct modem_iface *iface,
 	} else {
 		LOG_DBG("EOL not set!!!");
 	}
-#endif
+//#endif
 	if (sem) {
 		k_sem_reset(sem);
 	}

@@ -110,6 +110,13 @@ source "drivers/sensor/ina3221/Kconfig"
 source "drivers/sensor/isl29035/Kconfig"
 source "drivers/sensor/ism330dhcx/Kconfig"
 source "drivers/sensor/ite_tach_it8xxx2/Kconfig"
+
+source "drivers/sensor/hdc2080/Kconfig"
+
+source "drivers/sensor/icm20600/Kconfig"
+
+source "drivers/sensor/bq40zxx/Kconfig"
+
 source "drivers/sensor/ite_vcmp_it8xxx2/Kconfig"
 source "drivers/sensor/lis2dh/Kconfig"
 source "drivers/sensor/lis2ds12/Kconfig"
