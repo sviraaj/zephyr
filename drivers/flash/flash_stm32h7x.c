@@ -192,6 +192,17 @@ static int flash_stm32_check_status(const struct device *dev)
 	return 0;
 }
 
+static void flash_stm32_clear_status_flags(const struct device *dev)
+{
+	FLASH_TypeDef *regs = FLASH_STM32_REGS(dev);
+
+	regs->CCR1 = FLASH_FLAG_ALL_BANK1;
+#ifdef DUAL_BANK
+	regs->CCR2 = FLASH_FLAG_ALL_BANK2;
+#endif
+	barrier_dsync_fence_full();
+}
+
 
 int flash_stm32_wait_flash_idle(const struct device *dev)
 {
@@ -287,6 +298,8 @@ static int erase_sector(const struct device *dev, int offset)
 		return -EIO;
 	}
 
+	flash_stm32_clear_status_flags(dev);
+
 	rc = flash_stm32_wait_flash_idle(dev);
 	if (rc < 0) {
 		return rc;
@@ -355,6 +368,8 @@ static int write_ndwords(const struct device *dev,
 	if (*(sector.cr) & FLASH_CR_LOCK) {
 		return -EIO;
 	}
+
+	flash_stm32_clear_status_flags(dev);
 
 	/* Check that no Flash main memory operation is ongoing */
 	rc = flash_stm32_wait_flash_idle(dev);

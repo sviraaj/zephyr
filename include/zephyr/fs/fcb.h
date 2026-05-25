@@ -39,6 +39,7 @@ extern "C" {
 
 #define FCB_MAX_LEN	(0x3fffu) /**< Max length of element (16,383) */
 
+#define META_INFO_LEN    (4U)
 /**
  * @brief FCB entry info structure. This data structure describes the element
  * location in the flash.

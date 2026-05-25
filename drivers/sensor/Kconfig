@@ -129,6 +129,13 @@ source "drivers/sensor/tdk/icp10125/Kconfig"
 source "drivers/sensor/isl29035/Kconfig"
 source "drivers/sensor/ist8310/Kconfig"
 source "drivers/sensor/lm35/Kconfig"
+
+source "drivers/sensor/hdc2080/Kconfig"
+
+source "drivers/sensor/icm20600/Kconfig"
+
+source "drivers/sensor/bq40zxx/Kconfig"
+
 source "drivers/sensor/lm75/Kconfig"
 source "drivers/sensor/lm77/Kconfig"
 source "drivers/sensor/ltrf216a/Kconfig"

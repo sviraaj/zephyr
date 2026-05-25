@@ -1,0 +1,5 @@
+board:
+  name: zb_tv_h723zi
+  vendor: zedblox
+  socs:
+    - name: stm32h723xx

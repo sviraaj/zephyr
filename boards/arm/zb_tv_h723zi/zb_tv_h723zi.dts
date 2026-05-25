@@ -1,0 +1,612 @@
+/*
+ * Copyright (c) 2020 Teslabs Engineering S.L.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+#include <st/h7/stm32h723Xg.dtsi>
+#include <st/h7/stm32h723zgtx-pinctrl.dtsi>
+
+//#include "arduino_r3_connector.dtsi"
+
+/ {
+	model = "ZedBlox ZB_TV H723ZI board";
+	compatible = "zedblox,zb-tv-h723zi";
+
+	chosen {
+		zephyr,console = &uart5;
+		//zephyr,console = &cdc_acm_uart0;
+		zephyr,shell-uart = &uart5;
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,dtcm = &dtcm;
+        zephyr,display = &ltdc;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,entropy = &rng; // Ensure this points to your hardware RNG node
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		green_led: led_0 {
+			gpios = <&gpiof 12 GPIO_ACTIVE_HIGH>;
+			label = "User LD1";
+		};
+        /* FIXME
+		yellow_led: led_1 {
+			gpios = <&gpioe 1 GPIO_ACTIVE_HIGH>;
+			label = "User LD2";
+		};
+        */
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+		user_button_0: button_0 {
+			label = "User1";
+			gpios = <&gpioe 9 GPIO_ACTIVE_HIGH>;
+		};
+		user_button_1: button_1 {
+			label = "User2";
+			gpios = <&gpioe 8 GPIO_ACTIVE_HIGH>;
+		};
+		user_button_2: button_2 {
+			label = "User3";
+			gpios = <&gpioe 7 GPIO_ACTIVE_HIGH>;
+		};
+		user_button_3: button_3 {
+			label = "User4";
+			gpios = <&gpiog 1 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+    vbatt {
+		compatible = "voltage-divider";
+		io-channels = <&adc1 0>;
+		output-ohms = <47000>;
+		full-ohms = <(47000 + 220000)>;
+        //power-gpios = <&sx1509b 8 GPIO_ACTIVE_HIGH>;
+	};
+
+	aliases {
+		led0 = &green_led;
+		led1 = &green_led;
+		led2 = &green_led;
+		//led1 = &yellow_led;
+		sw0 = &user_button_0;
+		sw1 = &user_button_1;
+		sw2 = &user_button_2;
+		sw3 = &user_button_3;
+        gpioa = &gpioa;
+        gpioc = &gpioc;
+        gpiod = &gpiod;
+        gpiog = &gpiog;
+        gpioe = &gpioe;
+        gpiof = &gpiof;
+        spi3 = &spi3;
+		uart5 = &uart5;
+		usart3 = &usart3;
+	};
+
+/*
+	LG_COMP_CTRL - PF2
+	LG_COMP_CTRL1 - PC4
+	LG_COMP_CTRL2 - PC5
+	USR_BUTTON1 - PG1
+	USR_BUTTON2 - PE7
+	USR_BUTTON3 - PE8
+	USR_BUTTON4 - PE9
+	NRF_LCD_CS - PA15
+	NRF_LCD_RSTB - PD0
+	NTC_ADC - PF5
+	PWM1 - PC8
+	GPIO1 - PD3
+	GPIO2 - PD4
+	GPIO3 - PD5
+	RESET_MCU - PG6
+	PWRKEY_MCU - PG5
+	PWR_OUT_CTRL - PD11
+	HEATER_CTRL - PD12
+	SEL1 - PD13
+	SEL2 - PD14
+	DIAG_EN - PD15
+	LED_CTRL - PF11
+	FAN_CTRL - PB2
+	BACKLIGHT_EN - PA0
+	BUZZER - PA7
+	LED1 - PE2
+	LED2 - PE3
+	LED3 - PE4
+	LG_CMP - PF3
+	IMU_INT1 - PF13
+	IMU_INT2 - PG0
+	BATTERY - PF4
+	3V8_GOOD - PG7
+*/
+    zephyr,user {
+		lg_cmp-gpios = <&gpioc 13 GPIO_ACTIVE_HIGH>;
+		imu_int1-gpios = <&gpiof 13 GPIO_ACTIVE_HIGH>;
+		imu_int2-gpios = <&gpiog 0 GPIO_ACTIVE_HIGH>;
+		battery-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>;
+		3v8_good-gpios = <&gpiof 10 GPIO_ACTIVE_HIGH>;
+		reset_mcu-gpios = <&gpioe 1 GPIO_ACTIVE_HIGH>;
+		pwrkey_mcu-gpios = <&gpioe 0 GPIO_ACTIVE_HIGH>;
+		pwr_out_ctrl-gpios = <&gpioa 4 GPIO_ACTIVE_HIGH>;
+		htr_ctrl-gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>;
+		sel1-gpios = <&gpioa 6 GPIO_ACTIVE_HIGH>;
+		sel2-gpios = <&gpiob 0 GPIO_ACTIVE_HIGH>;
+		diag_en-gpios = <&gpiob 1 GPIO_ACTIVE_HIGH>;
+		led_ctrl-gpios = <&gpioa 2 GPIO_ACTIVE_HIGH>;
+		fan_ctrl-gpios = <&gpioa 3 GPIO_ACTIVE_HIGH>;
+		backlight_en-gpios = <&gpioa 15 GPIO_ACTIVE_HIGH>;
+		buzzer-gpios = <&gpioe 10 GPIO_ACTIVE_HIGH>;
+		lg_comp_ctrl-gpios = <&gpiof 2 GPIO_ACTIVE_HIGH>;
+		lg_comp_ctrl1-gpios = <&gpiof 3 GPIO_ACTIVE_HIGH>;
+		lg_comp_ctrl2-gpios = <&gpiof 4 GPIO_ACTIVE_HIGH>;
+		nrf_lcd_cs-gpios = <&gpiog 5 GPIO_ACTIVE_HIGH>;
+		nrf_lcd_rstb-gpios = <&gpiod 0 GPIO_ACTIVE_HIGH>;
+		ntc_adc-gpios = <&gpiof 5 GPIO_ACTIVE_HIGH>;
+		pwm1-gpios = <&gpioc 8 GPIO_ACTIVE_HIGH>;
+		gpio1-gpios = <&gpiod 13 GPIO_ACTIVE_HIGH>;
+		gpio2-gpios = <&gpiod 14 GPIO_ACTIVE_HIGH>;
+		gpio3-gpios = <&gpiod 15 GPIO_ACTIVE_HIGH>;
+    };
+
+/*
+    gpio_i2c0: gpio_i2c {
+        compatible = "gpio-i2c";
+        status = "okay";
+        clock-frequency = <I2C_BITRATE_STANDARD>;
+        //i2c2_scl_pf1 &i2c2_sda_pf0
+        sda-gpios = <&gpiof 0 (GPIO_OPEN_DRAIN)>;
+        scl-gpios = <&gpiof 1 (GPIO_OPEN_DRAIN)>;
+        #label = "GPIO_I2C_0";
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        bq40zxx: bq40zxx@b {
+            compatible = "ti,bq40zxx";
+            reg = <0x0b>;
+            #label = "BQ40ZXX";
+            design-voltage = <11100>;
+            design-capacity = <16400>;
+            taper-current = <130>;
+            terminate-voltage = <9000>;
+        };
+    };
+*/
+};
+
+/*
+zephyr_udc0: &usbotg_hs {
+	pinctrl-0 = <&usb_otg_hs_dm_pb14 &usb_otg_hs_dp_pb15>;
+    pinctrl-names = "default";
+	status = "okay";
+};
+*/
+
+/*
+&zephyr_udc0 {
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+		#label = "CDC_ACM_0";
+	};
+};
+*/
+/*
+&clk_hse {
+	hse-bypass;
+	clock-frequency = <DT_FREQ_M(8)>;
+	status = "okay";
+};
+
+&pll {
+	div-m = <1>;
+	mul-n = <24>;
+	div-p = <2>;
+	div-q = <4>;
+	div-r = <2>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+*/
+
+&clk_hsi{
+    hsi-div = <1>;
+	status = "okay";
+};
+
+&clk_hsi48 {
+	status = "okay";
+};
+
+&pll {
+	div-m = <4>;
+	mul-n = <10>;
+	div-p = <2>;
+	div-q = <2>;
+	div-r = <2>;
+	clocks = <&clk_hsi>;
+	status = "okay";
+};
+
+&pll3 {
+	div-m = <4>;
+	mul-n = <16>;
+	div-p = <2>;
+	div-q = <2>;
+	div-r = <2>;
+	clocks = <&clk_hsi>;
+	status = "okay";
+};
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(75)>;
+	d1cpre = <1>;
+	hpre = <1>;
+	d1ppre = <1>;
+	d2ppre1 = <2>;
+	d2ppre2 = <2>;
+	d3ppre = <2>;
+};
+
+&usart1 {
+	pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
+    pinctrl-names = "default";
+    // cts - pa11, rts - pa12
+	current-speed = <115200>;
+    hw-flow-control;
+	status = "okay";
+    quectel_bg95: quectel_bg95 {
+        compatible = "quectel,bg95";
+	    label = "quectel-bg95";
+        status = "okay";
+        // 3V8 power
+		mdm-power-gpios = <&gpioc 4 GPIO_ACTIVE_HIGH>;
+        // pwr/rst
+		mdm-reset-gpios = <&gpioe 0 0>;
+    };
+};
+
+&usart3 {
+	pinctrl-0 = <&usart3_tx_pd8 &usart3_rx_pd9>;
+    pinctrl-names = "default";
+	current-speed = <9600>;
+	status = "okay";
+	modbus0 {
+		compatible = "zephyr,modbus-serial";
+		label = "MODBUS0";
+		status = "okay";
+	};
+};
+
+&uart5 {
+	pinctrl-0 = <&uart5_tx_pb13 &uart5_rx_pb12>;
+    pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+&rtc {
+	status = "okay";
+};
+
+/ {
+   /* Standalone node for I2C2 recovery (PF1/PF0) */
+    i2c2_recovery: i2c2_recovery {
+        compatible = "gpio-keys";
+        scl_rec_i2c2: scl_rec_i2c2 {
+            gpios = <&gpiof 1 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+                       label = "RECOVERY_I2C2_SCL";
+        };
+        sda_rec_i2c2: sda_rec_i2c2 {
+            gpios = <&gpiof 0 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+                       label = "RECOVERY_I2C2_SDA";
+        };
+    };
+};
+
+/ {
+    /* Standalone node for I2C1 recovery (PB6/PB7) */
+    i2c1_recovery: i2c1_recovery {
+        compatible = "gpio-keys";
+        scl_rec_i2c1: scl_rec_i2c1 {
+            gpios = <&gpiob 6 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+            label = "RECOVERY_I2C1_SCL";
+        };
+        sda_rec_i2c1: sda_rec_i2c1 {
+            gpios = <&gpiob 7 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+            label = "RECOVERY_I2C1_SDA";
+        };
+    };
+};
+
+&i2c1 {
+    pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb7>;
+    pinctrl-names = "default";
+    status = "okay";
+    clock-frequency = <I2C_BITRATE_STANDARD>;
+
+    ti_tmp116_int: ti_tmp116@48 {
+        compatible = "ti,tmp116";
+		status = "okay";
+        reg = <0x48>;
+        label = "TMP116_INT";
+        /* These define how the children (the eeprom) describe their address */
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        eeprom: ti_tmp116_eeprom@0 {
+            compatible = "ti,tmp116-eeprom";
+            /* reg now matches #address-cells (1) + #size-cells (0) = 1 cell total */
+            reg = <0x0>; 
+            label = "TMP116_EEPROM";
+            read-only;
+        };
+    };
+};
+&i2c2 {
+	pinctrl-0 = <&i2c2_scl_pf1 &i2c2_sda_pf0>;
+	pinctrl-names = "default";
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	label = "I2C_2";
+
+	bq40zxx: bq40zxx@b {
+		compatible = "ti,bq40zxx";
+		reg = <0x0b>;
+		label = "BQ40ZXX";
+		design-voltage = <11100>;
+		design-capacity = <16400>;
+		taper-current = <130>;
+		terminate-voltage = <9000>;
+	};
+};
+
+&i2c4 {
+	pinctrl-0 = <&i2c4_scl_pf14 &i2c4_sda_pf15>;
+
+
+
+	pinctrl-names = "default";
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+
+	icm20600: icm20600@68 {
+		compatible = "invensense,icm20xxx";
+		status = "okay";
+		reg = <0x68>;
+		label = "ICM20600";
+	};
+};
+
+&timers12 {
+	status = "okay";
+
+	pwm12: pwm {
+		status = "okay";
+		pinctrl-0 = <&tim12_ch1_pb14>;
+        pinctrl-names = "default";
+	};
+};
+
+&adc1 {
+    pinctrl-0 = <&adc1_inp16_pa0>;
+	st,adc-clock-source = <1>;
+    st,adc-prescaler = <4>;
+    pinctrl-names = "default";
+	status = "okay";
+};
+
+&rng {
+	/delete-property/ health-test-magic;
+	/delete-property/ health-test-config;
+	clocks = <&rcc STM32_CLOCK_BUS_AHB2 0x00000040>,
+		 <&rcc STM32_SRC_HSI48 RNG_SEL(0)>;
+	status = "okay";
+};
+
+&spi5 {
+	status = "okay";
+	pinctrl-0 = <&spi5_sck_pf7 &spi5_miso_pf8 &spi5_mosi_pf9>;
+    pinctrl-names = "default";
+	cs-gpios = <&gpiof 6 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+	s25_mx25: s25_mx25_64@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		//writeoc = "pp4io";
+		//readoc = "read4io";
+		//sck-frequency = <8000000>;
+		//has-be32k;
+        spi-max-frequency = <8000000>;
+		label = "S25-OR-MX25_65";
+		jedec-id = [01 60 17];
+		//jedec-id = [C2 28 17];
+		size = <67108864>;
+		//has-dpd;
+		//t-enter-dpd = <4000>;
+		//t-exit-dpd = <6000>;
+	};
+};
+
+&spi3 {
+    // SPI LCD Display
+	status = "okay";
+	pinctrl-0 = <&spi3_sck_pc10 &spi3_miso_pc11 &spi3_mosi_pc12>;
+    ///delete-property/ clocks;
+	//clocks = <&rcc STM32_CLOCK_BUS_APB2 0x00001000>,
+	//	 <&rcc STM32_SRC_PLL1_Q SPI123_SEL(0)>;
+    pinctrl-names = "default";
+	cs-gpios = <&gpiog 5 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+};
+
+&spi1 {
+	status = "okay";
+	pinctrl-0 = <&spi1_sck_pg11 &spi1_miso_pg9 &spi1_mosi_pd7>;
+    /delete-property/ clocks;
+	clocks = <&rcc STM32_CLOCK_BUS_APB2 0x00001000>,
+		 <&rcc STM32_SRC_PLL1_Q SPI123_SEL(0)>;
+    pinctrl-names = "default";
+	cs-gpios = <&gpiog 10 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+};
+
+&backup_sram {
+	status = "okay";
+};
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/* 128KB for bootloader */
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 DT_SIZE_K(128)>;
+			read-only;
+		};
+
+		/* application image slot: 384KB */
+		slot0_partition: partition@20000 {
+			label = "image-0";
+			reg = <0x00020000 DT_SIZE_K(384)>;
+		};
+
+		/* backup slot: 384KB */
+			slot1_partition: partition@80000 {
+				label = "image-1";
+				reg = <0x00080000 DT_SIZE_K(384)>;
+			};
+
+		/* swap slot: 128KB */
+			scratch_partition: partition@e0000 {
+				label = "image-scratch";
+				reg = <0x000E0000 DT_SIZE_K(128)>;
+			};
+
+		/* storage: 128KB for settings
+		storage_partition: partition@20000 {
+			#label = "storage";
+			reg = <0x00020000 0x00020000>;
+		};
+        */
+
+        /* Storage partition will be used by nvs settings */
+		//settings_partition: partition@f8000 {
+		//	#label = "settings_store";
+		//	reg = <0x000e0000 0x00020000>;
+		//};
+	};
+};
+
+&iwdg1 {
+	status = "okay";
+};
+
+/*
+&fmc {
+	pinctrl-0 = <&fmc_nbl0_pe0 &fmc_nbl1_pe1
+		     &fmc_sdclk_pg8 &fmc_sdnwe_ph5 &fmc_sdcke1_ph7
+		     &fmc_sdne1_ph6 &fmc_sdnras_pf11 &fmc_sdncas_pg15
+		     &fmc_a0_pf0 &fmc_a1_pf1 &fmc_a2_pf2 &fmc_a3_pf3 &fmc_a4_pf4
+		     &fmc_a5_pf5 &fmc_a6_pf12 &fmc_a7_pf13 &fmc_a8_pf14
+		     &fmc_a9_pf15 &fmc_a10_pg0 &fmc_a11_pg1
+		     &fmc_a14_pg4 &fmc_a15_pg5 &fmc_d0_pd14 &fmc_d1_pd15
+		     &fmc_d2_pd0 &fmc_d3_pd1 &fmc_d4_pe7 &fmc_d5_pe8 &fmc_d6_pe9
+		     &fmc_d7_pe10 &fmc_d8_pe11 &fmc_d9_pe12 &fmc_d10_pe13
+		     &fmc_d11_pe14 &fmc_d12_pe15 &fmc_d13_pd8 &fmc_d14_pd9
+		     &fmc_d15_pd10>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	sdram {
+		status = "okay";
+		power-up-delay = <100>;
+		num-auto-refresh = <8>;
+		mode-register = <0x220>;
+		refresh-rate = <0x603>;
+		bank@1 {
+			reg = <1>;
+			st,sdram-control = <STM32_FMC_SDRAM_NC_9
+						STM32_FMC_SDRAM_NR_12
+						STM32_FMC_SDRAM_MWID_16
+						STM32_FMC_SDRAM_NB_4
+						STM32_FMC_SDRAM_CAS_2
+						STM32_FMC_SDRAM_SDCLK_PERIOD_3
+						STM32_FMC_SDRAM_RBURST_ENABLE
+						STM32_FMC_SDRAM_RPIPE_2>;
+			st,sdram-timing = <2 7 4 7 2 2 2>;
+		};
+	};
+};
+
+&sdmmc1 {
+	pinctrl-0 = <&sdmmc1_d0_pc8 &sdmmc1_d1_pc9
+		     &sdmmc1_d2_pc10 &sdmmc1_d3_pc11
+		     &sdmmc1_ck_pc12 &sdmmc1_cmd_pd2>;
+	pinctrl-names = "default";
+	cd-gpios = <&gpioi 8 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+	status = "okay";
+};
+
+&ltdc {
+	pinctrl-0 = <&ltdc_r0_pg13 &ltdc_r1_pa2 &ltdc_r2_pa1 &ltdc_r3_pb0
+		     &ltdc_r4_pa5 &ltdc_r5_pc0 &ltdc_r6_pb1 &ltdc_r7_pe15
+		     &ltdc_g0_pe5 &ltdc_g1_pe6 &ltdc_g2_pa6 &ltdc_g3_pe11
+		     &ltdc_g4_pb10 &ltdc_g5_pb11 &ltdc_g6_pc7 &ltdc_g7_pg8
+		     &ltdc_b0_pg14 &ltdc_b1_pg12 &ltdc_b2_pd6 &ltdc_b3_pd10
+		     &ltdc_b4_pe12 &ltdc_b5_pa3 &ltdc_b6_pb8 &ltdc_b7_pb9
+		     &ltdc_de_pe13 &ltdc_clk_pe14 &ltdc_hsync_pc6 &ltdc_vsync_pa4>;
+	pinctrl-names = "default";
+	disp-on-gpios = <&gpiod 12 GPIO_ACTIVE_HIGH>;
+	bl-ctrl-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>;
+	status = "okay";
+
+	width = <480>;
+	height = <272>;
+	hsync-pol = <STM32_LTDC_HSPOL_ACTIVE_LOW>;
+	vsync-pol = <STM32_LTDC_VSPOL_ACTIVE_LOW>;
+	de-pol = <STM32_LTDC_DEPOL_ACTIVE_LOW>;
+	pclk-pol = <STM32_LTDC_PCPOL_ACTIVE_LOW>;
+	hsync-duration = <50>;
+	vsync-duration = <3>;
+	hbp-duration = <43>;
+	vbp-duration = <12>;
+	hfp-duration = <8>;
+	vfp-duration = <8>;
+	def-back-color-red = <0x00>;
+	def-back-color-green = <0xFF>;
+	def-back-color-blue = <0x00>;
+};
+*/
+
+&s25_mx25 {
+	/*
+	 * For more information, see:
+	 * http://docs.zephyrproject.org/latest/guides/dts/index.html#flash-partitions
+	 */
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+			/* Storage partition will be used by FCB if enabled. */
+		ext_storage_partition: partition@0 {
+				label = "ext_storage";
+				reg = <0x00000000 0x00400000>;
+			};
+
+			/* Storage partition will be used by filesystem if enabled. */
+		fs_partition: partition@400000 {
+				label = "fs_storage";
+				reg = <0x00400000 0x003E0000>;
+			};
+
+		settings_partition: partition@7e0000 {
+			label = "settings_store";
+			reg = <0x007E0000 0x00020000>;
+		};
+	};
+};
