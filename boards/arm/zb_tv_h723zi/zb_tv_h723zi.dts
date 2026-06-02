@@ -255,6 +255,7 @@ zephyr_udc0: &usbotg_hs {
 	pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
     pinctrl-names = "default";
     // cts - pa11, rts - pa12
+	interrupts = <37 1>; 
 	current-speed = <115200>;
     hw-flow-control;
 	status = "okay";

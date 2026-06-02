@@ -957,58 +957,345 @@ MODEM_CMD_DEFINE(on_cmd_qfopen)
     mdata.fops.open_fd = ATOI(argv[0], 0, "fd");
     return 0;
 }
-
 /* Handler: CONNECT <rd_sz> */
 MODEM_CMD_DEFINE(on_cmd_qfread)
 {
     size_t cur_len = net_buf_frags_len(data->rx_buf);
-    char buf[8];
-    int i = 0;
+    char buf[16]; 
+    size_t i = 0;
     int ret = 0;
     int buf_len = 0;
+    uint32_t expected_rd_sz = 0;
 
-    if (cur_len < (len + 3)) {
-        return -EAGAIN;
-    }
+    if (cur_len < (len + 3)) return -EAGAIN;
 
-	buf_len = net_buf_linearize(buf, 8,
-            data->rx_buf, len, cur_len - len);
-    buf[7] = '\0';
+    buf_len = net_buf_linearize(buf, sizeof(buf) - 1, data->rx_buf, len, MIN(cur_len - len, 15));
+    buf[buf_len] = '\0';
 
-    while((buf[i] != '\r') && (i < 7)) {
-        i++;
-    }
-
-    if (i >= 7) {
-        if (buf_len < 8) {
-            return -EAGAIN;
-        }
-        LOG_ERR("Wrong format in QFREAD");
-        return -EINVAL; /* FIXME */
-    }
+    while((buf[i] != '\r') && (i < buf_len)) i++;
+    if (i >= buf_len || i == 0) return -EAGAIN;
     buf[i] = '\0';
 
-    mdata.fops.act_rd_sz = ATOI(buf, 0, "rd_sz");
+    expected_rd_sz = (uint32_t)ATOI(buf, 0, "rd_sz");
+    size_t header_total = len + i + 2;
 
-    if (cur_len < (len + i + 2 + mdata.fops.act_rd_sz))
-    {
-		//LOG_INF("Not enough data -- wait!");
-        return -EAGAIN;
+    if (expected_rd_sz > mdata.fops.rd_buf_sz) {
+        printk("OTA_QFREAD_TOO_BIG expected=%u buf=%lu\n",
+               expected_rd_sz, (unsigned long)mdata.fops.rd_buf_sz);
+        mdata.fops.status = -EOVERFLOW;
+        mdata.fops.act_rd_sz = 0U;
+        return header_total;
     }
 
-    LOG_INF("mdata.fops.act_rd_sz: %d", mdata.fops.act_rd_sz);
+    if (cur_len < (header_total + expected_rd_sz)) return -EAGAIN;
 
-	ret = net_buf_linearize(mdata.fops.rw_buf, mdata.fops.rd_buf_sz,
-				data->rx_buf, len + i + 2, mdata.fops.act_rd_sz);
-    if (ret < MIN(mdata.fops.rd_buf_sz, ret < mdata.fops.act_rd_sz))
-    {
-        LOG_ERR("Could not fetch data");
+    /* Copy data to application buffer */
+    ret = net_buf_linearize(mdata.fops.rw_buf, mdata.fops.rd_buf_sz,
+                            data->rx_buf, header_total, expected_rd_sz);
+
+    if (ret != (int)expected_rd_sz) {
+        printk("OTA_QFREAD_SHORT_COPY copied=%d expected=%u consume=%lu\n",
+               ret, expected_rd_sz, (unsigned long)(header_total + MAX(ret, 0)));
+        mdata.fops.status = -EIO;
+        mdata.fops.act_rd_sz = 0U;
+        return header_total + MAX(ret, 0);
     }
 
-    mdata.fops.act_rd_sz = ret;
+    /* --- DETECTION LOGIC --- */
+    bool is_corrupted = false;
+    if (ret == (int)expected_rd_sz && ret > 0) {
+        uint8_t last = mdata.fops.rw_buf[ret - 1];
+        uint8_t prev = ret > 1 ? mdata.fops.rw_buf[ret - 2] : 0;
 
-    return (ret + len + i + 2);
+        if (last == '\r' || last == '\n') {
+            printk("OTA_QFREAD_BLOCK_TAIL_CRLF len=%d prev=0x%02x last=0x%02x consume=%lu\n",
+                   ret, prev, last, (unsigned long)(header_total + ret));
+            is_corrupted = true;
+        }
+    }
+
+    /* Store a real negative status for the caller, but consume this response
+     * so the next retry can seek/read the same file offset cleanly.
+     */
+    if (is_corrupted) {
+        mdata.fops.status = -EILSEQ;
+        mdata.fops.act_rd_sz = 0U;
+    } else {
+        mdata.fops.status = 0;
+        mdata.fops.act_rd_sz = ret;
+    }
+
+    /* 
+     * RETURN VALUE IS KEY: 
+     * We return (header_total + ret) to TELL THE MODEM DRIVER to clear the 
+     * bad bytes from RAM, so we don't loop forever.
+     */
+    return (header_total + ret);
 }
+// /* Handler: CONNECT <rd_sz> */
+// MODEM_CMD_DEFINE(on_cmd_qfread)
+// {
+//     size_t cur_len = net_buf_frags_len(data->rx_buf);
+//     char buf[16]; 
+//     int i = 0;
+//     int ret = 0;
+//     int buf_len = 0;
+//     uint32_t expected_rd_sz = 0;
+
+//     /* 1. Ensure we have enough data to read the 'CONNECT <sz>\r\n' header */
+//     if (cur_len < (len + 3)) {
+//         return -EAGAIN;
+//     }
+
+//     /* 2. Extract the 'rd_sz' string */
+//     buf_len = net_buf_linearize(buf, sizeof(buf) - 1,
+//                                 data->rx_buf, len, MIN(cur_len - len, 15));
+//     buf[buf_len] = '\0';
+
+//     while((buf[i] != '\r') && (i < buf_len)) {
+//         i++;
+//     }
+
+//     if (i >= buf_len || i == 0) {
+//         return -EAGAIN;
+//     }
+//     buf[i] = '\0';
+
+//     expected_rd_sz = (uint32_t)ATOI(buf, 0, "rd_sz");
+//     size_t header_total = len + i + 2;
+
+//     /* 3. Check if Total Packet (Header + Data) is in buffer */
+//     if (cur_len < (header_total + expected_rd_sz)) {
+//         return -EAGAIN;
+//     }
+
+//     /* 4. LINEARIZE: Copy to application buffer */
+//     ret = net_buf_linearize(mdata.fops.rw_buf, mdata.fops.rd_buf_sz,
+//                             data->rx_buf, header_total, expected_rd_sz);
+
+//     /* 5. CORRUPTION DETECTION (The Shift Fix)
+//      * If UART dropped a byte, the modem footer \r\n will be in our data.
+//      */
+//     if (ret == (int)expected_rd_sz && ret >= 2) {
+//         if (mdata.fops.rw_buf[ret-2] == 0x0D && mdata.fops.rw_buf[ret-1] == 0x0A) {
+//             /* SHIFT DETECTED: Signal to OTA loop to retry this block */
+//             printk("!!! UART OVERRUN DETECTED: Data Shifted at offset %zu !!!\n", header_total);
+//             return -EBADMSG; 
+//         }
+//     }
+
+//     if (ret < (int)expected_rd_sz) {
+//         printk("!!! DATA LOSS !!! Expected %u, but only got %d \n", expected_rd_sz, ret);
+//         return -EAGAIN;
+//     }
+
+//     /* Success Path */
+//     mdata.fops.act_rd_sz = ret;
+//     return (header_total + ret);
+// }
+
+// /* Handler: CONNECT <rd_sz> */
+// MODEM_CMD_DEFINE(on_cmd_qfread)
+// {
+//     size_t cur_len = net_buf_frags_len(data->rx_buf);
+//     char buf[16]; // Increased from 8 to 16 for safety
+//     int i = 0;
+//     int ret = 0;
+//     int buf_len = 0;
+//     uint32_t expected_rd_sz = 0;
+
+//     /* 1. Ensure we have enough data to even read the 'CONNECT <sz>\r\n' header */
+//     if (cur_len < (len + 3)) {
+//         return -EAGAIN;
+//     }
+
+//     /* 2. Extract the 'rd_sz' string from the net_buf */
+//     buf_len = net_buf_linearize(buf, sizeof(buf) - 1,
+//                                 data->rx_buf, len, cur_len - len);
+//     buf[buf_len] = '\0';
+	
+
+//     /* Find the delimiter (\r) that marks the end of the CONNECT header */
+//     while((buf[i] != '\r') && (i < buf_len)) {
+//         i++;
+//     }
+
+//     if (i >= buf_len || i == 0) {
+//         return -EAGAIN; // Still waiting for the full header string
+//     }
+//     buf[i] = '\0';
+
+//     /* Parse actual size the modem says it is sending */
+//     expected_rd_sz = (uint32_t)ATOI(buf, 0, "rd_sz");
+
+//     /* 
+//      * OFFSET CALCULATION (Critical for 3.7):
+//      * Header = 'len' (prefix) + 'i' (size string) + 2 (\r\n)
+//      */
+//     size_t header_total = len + i + 2;
+
+//     /* 3. Check if the TOTAL packet (Header + Binary Data) has arrived */
+//     if (cur_len < (header_total + expected_rd_sz)) {
+//         return -EAGAIN;
+//     }
+
+//     printk("QFREAD: HeaderLen=%zu, DataExpected=%u, TotalInBuf=%zu \n", 
+//             header_total, expected_rd_sz, cur_len);
+
+//     /* 4. LINEARIZE (Copy from net_buf to your application buffer) */
+//     ret = net_buf_linearize(mdata.fops.rw_buf, mdata.fops.rd_buf_sz,
+//                             data->rx_buf, header_total, expected_rd_sz);
+
+//     // /* 5. CORTEX-M7 MEMORY BARRIER (Critical for Migration to 3.7)
+//     //  * This ensures the CPU finishes writing to RAM before the App thread 
+//     //  * or the Flash DMA tries to read this data. 
+//     //  */
+//     // #if defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
+//     //     __DSB(); 
+//     // #endif
+
+//     /* 6. PROPER ERROR CHECKING (Fixed your logic bug here) */
+//     if (ret < (int)expected_rd_sz) {
+//         printk("!!! DATA LOSS !!! Expected %u, but only got %d \n", expected_rd_sz, ret);
+//     } else {
+//         /* DEBUG: Print first/last bytes of the chunk to verify alignment */
+//         printk("Chunk Verify: First[%02x %02x] Last[%02x %02x] \n", 
+//                 mdata.fops.rw_buf[0], mdata.fops.rw_buf[1],
+//                 mdata.fops.rw_buf[ret-2], mdata.fops.rw_buf[ret-1]);
+//     }
+
+//     mdata.fops.act_rd_sz = ret;
+
+//     /* 7. Return total bytes consumed from the modem RX ring buffer */
+//     return (header_total + ret);
+// }
+
+// /* Handler: CONNECT <rd_sz> */
+// MODEM_CMD_DEFINE(on_cmd_qfread)
+// {
+//     size_t cur_len = net_buf_frags_len(data->rx_buf);
+//     char buf[16]; // Increased from 8 to 16 for safety
+//     int i = 0;
+//     int ret = 0;
+//     int buf_len = 0;
+//     uint32_t expected_rd_sz = 0;
+
+//     /* 1. Ensure we have enough data to even read the 'CONNECT <sz>\r\n' header */
+//     if (cur_len < (len + 3)) {
+//         return -EAGAIN;
+//     }
+
+//     /* 2. Extract the 'rd_sz' string from the net_buf */
+//     buf_len = net_buf_linearize(buf, sizeof(buf) - 1,
+//                                 data->rx_buf, len, cur_len - len);
+//     buf[buf_len] = '\0';
+	
+
+//     /* Find the delimiter (\r) that marks the end of the CONNECT header */
+//     while((buf[i] != '\r') && (i < buf_len)) {
+//         i++;
+//     }
+
+//     if (i >= buf_len || i == 0) {
+//         return -EAGAIN; // Still waiting for the full header string
+//     }
+//     buf[i] = '\0';
+
+//     /* Parse actual size the modem says it is sending */
+//     expected_rd_sz = (uint32_t)ATOI(buf, 0, "rd_sz");
+
+//     /* 
+//      * OFFSET CALCULATION (Critical for 3.7):
+//      * Header = 'len' (prefix) + 'i' (size string) + 2 (\r\n)
+//      */
+//     size_t header_total = len + i + 2;
+
+//     /* 3. Check if the TOTAL packet (Header + Binary Data) has arrived */
+//     if (cur_len < (header_total + expected_rd_sz)) {
+//         return -EAGAIN;
+//     }
+
+//     printk("QFREAD: HeaderLen=%zu, DataExpected=%u, TotalInBuf=%zu \n", 
+//             header_total, expected_rd_sz, cur_len);
+
+//     /* 4. LINEARIZE (Copy from net_buf to your application buffer) */
+//     ret = net_buf_linearize(mdata.fops.rw_buf, mdata.fops.rd_buf_sz,
+//                             data->rx_buf, header_total, expected_rd_sz);
+
+//     // /* 5. CORTEX-M7 MEMORY BARRIER (Critical for Migration to 3.7)
+//     //  * This ensures the CPU finishes writing to RAM before the App thread 
+//     //  * or the Flash DMA tries to read this data. 
+//     //  */
+//     // #if defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
+//     //     __DSB(); 
+//     // #endif
+
+//     /* 6. PROPER ERROR CHECKING (Fixed your logic bug here) */
+//     if (ret < (int)expected_rd_sz) {
+//         printk("!!! DATA LOSS !!! Expected %u, but only got %d \n", expected_rd_sz, ret);
+//     } else {
+//         /* DEBUG: Print first/last bytes of the chunk to verify alignment */
+//         printk("Chunk Verify: First[%02x %02x] Last[%02x %02x] \n", 
+//                 mdata.fops.rw_buf[0], mdata.fops.rw_buf[1],
+//                 mdata.fops.rw_buf[ret-2], mdata.fops.rw_buf[ret-1]);
+//     }
+
+//     mdata.fops.act_rd_sz = ret;
+
+//     /* 7. Return total bytes consumed from the modem RX ring buffer */
+//     return (header_total + ret);
+// }
+// /* Handler: CONNECT <rd_sz> */
+// MODEM_CMD_DEFINE(on_cmd_qfread)
+// {
+//     size_t cur_len = net_buf_frags_len(data->rx_buf);
+//     char buf[8];
+//     int i = 0;
+//     int ret = 0;
+//     int buf_len = 0;
+
+//     if (cur_len < (len + 3)) {
+//         return -EAGAIN;
+//     }
+
+// 	buf_len = net_buf_linearize(buf, 8,
+//             data->rx_buf, len, cur_len - len);
+//     buf[7] = '\0';
+
+//     while((buf[i] != '\r') && (i < 7)) {
+//         i++;
+//     }
+
+//     if (i >= 7) {
+//         if (buf_len < 8) {
+//             return -EAGAIN;
+//         }
+//         LOG_ERR("Wrong format in QFREAD");
+//         return -EINVAL; /* FIXME */
+//     }
+//     buf[i] = '\0';
+
+//     mdata.fops.act_rd_sz = ATOI(buf, 0, "rd_sz");
+
+//     if (cur_len < (len + i + 2 + mdata.fops.act_rd_sz))
+//     {
+// 		//LOG_INF("Not enough data -- wait!");
+//         return -EAGAIN;
+//     }
+
+//     LOG_INF("mdata.fops.act_rd_sz: %d", mdata.fops.act_rd_sz);
+
+// 	ret = net_buf_linearize(mdata.fops.rw_buf, mdata.fops.rd_buf_sz,
+// 				data->rx_buf, len + i + 2, mdata.fops.act_rd_sz);
+//     if (ret < MIN(mdata.fops.rd_buf_sz, ret < mdata.fops.act_rd_sz))
+//     {
+//         LOG_ERR("Could not fetch data");
+//     }
+
+//     mdata.fops.act_rd_sz = ret;
+
+//     return (ret + len + i + 2);
+// }
 
 /* Handler: +QFWRITE: <wr_sz>,<tot_sz> */
 MODEM_CMD_DEFINE(on_cmd_qfwrite)
@@ -3108,6 +3395,8 @@ int quectel_bg95_fread(struct device *dev,
     k_sem_take(&mdata.mdm_lock, K_FOREVER);
 
     /* read buf len */
+    mdata.fops.status = 0;
+    mdata.fops.act_rd_sz = 0U;
     mdata.fops.rd_buf_sz = len;
     mdata.fops.rw_buf = buf;
 
@@ -3117,6 +3406,11 @@ int quectel_bg95_fread(struct device *dev,
 		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
+
+    if (mdata.fops.status < 0) {
+        ret = mdata.fops.status;
+        goto ret;
+    }
 
     /* return actual read size */
     ret = mdata.fops.act_rd_sz;
