@@ -972,9 +972,22 @@ MODEM_CMD_DEFINE(on_cmd_qfread)
     buf_len = net_buf_linearize(buf, sizeof(buf) - 1, data->rx_buf, len, MIN(cur_len - len, 15));
     buf[buf_len] = '\0';
 
-    while((buf[i] != '\r') && (i < buf_len)) i++;
-    if (i >= buf_len || i == 0) return -EAGAIN;
-    buf[i] = '\0';
+	while((buf[i] != '\r') && (i < buf_len)) i++;
+	if (i >= buf_len || i == 0) return -EAGAIN;
+
+	if ((i + 1) >= buf_len) {
+		return -EAGAIN;
+	}
+
+	if (buf[i + 1] != '\n') {
+		printk("OTA_QFREAD_BAD_HEADER_CRLF hdr_cr=0x%02x hdr_lf=0x%02x\n",
+		       buf[i], buf[i + 1]);
+		mdata.fops.status = -EILSEQ;
+		mdata.fops.act_rd_sz = 0U;
+		return len + i + 1;
+	}
+
+	buf[i] = '\0';
 
     expected_rd_sz = (uint32_t)ATOI(buf, 0, "rd_sz");
     size_t header_total = len + i + 2;
@@ -1001,29 +1014,8 @@ MODEM_CMD_DEFINE(on_cmd_qfread)
         return header_total + MAX(ret, 0);
     }
 
-    /* --- DETECTION LOGIC --- */
-    bool is_corrupted = false;
-    if (ret == (int)expected_rd_sz && ret > 0) {
-        uint8_t last = mdata.fops.rw_buf[ret - 1];
-        uint8_t prev = ret > 1 ? mdata.fops.rw_buf[ret - 2] : 0;
-
-        if (last == '\r' || last == '\n') {
-            printk("OTA_QFREAD_BLOCK_TAIL_CRLF len=%d prev=0x%02x last=0x%02x consume=%lu\n",
-                   ret, prev, last, (unsigned long)(header_total + ret));
-            is_corrupted = true;
-        }
-    }
-
-    /* Store a real negative status for the caller, but consume this response
-     * so the next retry can seek/read the same file offset cleanly.
-     */
-    if (is_corrupted) {
-        mdata.fops.status = -EILSEQ;
-        mdata.fops.act_rd_sz = 0U;
-    } else {
-        mdata.fops.status = 0;
-        mdata.fops.act_rd_sz = ret;
-    }
+	mdata.fops.status = 0;
+	mdata.fops.act_rd_sz = ret;
 
     /* 
      * RETURN VALUE IS KEY: 
@@ -3386,11 +3378,16 @@ int quectel_bg95_fread(struct device *dev,
     struct modem_cmd cmd =
 		MODEM_CMD_DIRECT("CONNECT ", on_cmd_qfread);
 
-    char send_cmd[sizeof("AT+QFREAD=##,#####")];
+    char send_cmd[48];
 	int ret = 0;
+	int cmd_len;
 
 	memset(send_cmd, 0, sizeof(send_cmd));
-	snprintk(send_cmd, sizeof(send_cmd), "AT+QFREAD=%d,%u", fd, len);
+	cmd_len = snprintk(send_cmd, sizeof(send_cmd), "AT+QFREAD=%d,%zu", fd, len);
+	if (cmd_len < 0 || cmd_len >= (int)sizeof(send_cmd)) {
+		printk("OTA_QFREAD_CMD_TRUNC fd=%d len=%lu\n", fd, (unsigned long)len);
+		return -ENOSPC;
+	}
 
     k_sem_take(&mdata.mdm_lock, K_FOREVER);
 
@@ -3468,11 +3465,16 @@ ret:
 int quectel_bg95_fseek(struct device *dev,
                 int fd, size_t off)
 {
-    char buf[sizeof("AT+QFSEEK=##,#####,#####")];
+    char buf[48];
 	int ret = 0;
+	int cmd_len;
 
 	memset(buf, 0, sizeof(buf));
-	snprintk(buf, sizeof(buf), "AT+QFSEEK=%d,%d,0", fd, off);
+	cmd_len = snprintk(buf, sizeof(buf), "AT+QFSEEK=%d,%zu,0", fd, off);
+	if (cmd_len < 0 || cmd_len >= (int)sizeof(buf)) {
+		printk("OTA_QFSEEK_CMD_TRUNC fd=%d off=%lu\n", fd, (unsigned long)off);
+		return -ENOSPC;
+	}
 
     k_sem_take(&mdata.mdm_lock, K_FOREVER);
 

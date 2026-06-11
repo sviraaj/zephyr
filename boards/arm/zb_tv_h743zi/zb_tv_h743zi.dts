@@ -10,8 +10,8 @@
 //#include "arduino_r3_connector.dtsi"
 
 / {
-	model = "STMicroelectronics STM32H743ZI-ZB_TV board";
-	compatible = "st,stm32h743zi-zb_tv";
+	model = "ZedBlox ZB_TV H743ZI board";
+	compatible = "zedblox,zb-tv-h743zi";
 
 	chosen {
 		zephyr,console = &uart5;
@@ -22,6 +22,7 @@
 		zephyr,dtcm = &dtcm;
         zephyr,display = &ltdc;
 		zephyr,code-partition = &slot0_partition;
+		zephyr,entropy = &rng; // Ensure this points to your hardware RNG node
 	};
 
 	leds {
@@ -214,6 +215,10 @@ zephyr_udc0: &usbotg_hs {
 	status = "okay";
 };
 
+&clk_hsi48 {
+	status = "okay";
+};
+
 &pll {
 	div-m = <4>;
 	mul-n = <10>;
@@ -342,6 +347,8 @@ zephyr_udc0: &usbotg_hs {
     pinctrl-names = "default";
 	status = "okay";
 	clock-frequency = <I2C_BITRATE_STANDARD>;
+	label = "I2C_2";
+
     bq40zxx: bq40zxx@b {
         compatible = "ti,bq40zxx";
         reg = <0x0b>;
@@ -384,13 +391,21 @@ zephyr_udc0: &usbotg_hs {
 
 &adc1 {
     pinctrl-0 = <&adc1_inp16_pa0>;
+	st,adc-clock-source = <1>;
+    st,adc-prescaler = <4>;
     pinctrl-names = "default";
 	status = "okay";
 };
 
+
 &rng {
+	/delete-property/ health-test-magic;
+	/delete-property/ health-test-config;
+	clocks = <&rcc STM32_CLOCK_BUS_AHB2 0x00000040>,
+		 <&rcc STM32_SRC_HSI48 RNG_SEL(0)>;
 	status = "okay";
 };
+
 
 &spi5 {
 	status = "okay";
@@ -441,6 +456,14 @@ zephyr_udc0: &usbotg_hs {
 };
 
 &flash0 {
+	/*
+	 * stm32h743Xg.dtsi overrides flash0 to only "soc-nv-flash", but
+	 * stm32h743.dtsi also leaves max-erase-time on this node. Zephyr 3.7
+	 * validates properties strictly, so keep the STM32 flash compatible
+	 * here so max-erase-time is accepted by st,stm32-nv-flash.yaml.
+	 */
+	compatible = "st,stm32-nv-flash", "soc-nv-flash";
+
 	partitions {
 		compatible = "fixed-partitions";
 		#address-cells = <1>;
