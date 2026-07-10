@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <zephyr/types.h>
+#include <zephyr/sys/mem_stats.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,7 +42,7 @@ extern "C" {
  * are constant time (though there is a search of the smallest bucket
  * that has a compile-time-configurable upper bound, setting this to
  * extreme values results in an effectively linear search of the
- * list), objectively fast (~hundred instructions) and and amenable to
+ * list), objectively fast (~hundred instructions) and amenable to
  * locked operation.
  */
 
@@ -65,13 +66,13 @@ struct z_heap_stress_result {
 	uint64_t accumulated_in_use_bytes;
 };
 
-#ifdef CONFIG_SYS_HEAP_RUNTIME_STATS
+/**
+ * @defgroup low_level_heap_allocator Low Level Heap Allocator
+ * @ingroup heaps
+ * @{
+ */
 
-struct sys_heap_runtime_stats {
-	size_t free_bytes;
-	size_t allocated_bytes;
-	size_t max_allocated_bytes;
-};
+#ifdef CONFIG_SYS_HEAP_RUNTIME_STATS
 
 /**
  * @brief Get the runtime statistics of a sys_heap
@@ -81,7 +82,7 @@ struct sys_heap_runtime_stats {
  * @return -EINVAL if null pointers, otherwise 0
  */
 int sys_heap_runtime_stats_get(struct sys_heap *heap,
-		struct sys_heap_runtime_stats *stats);
+		struct sys_memory_stats *stats);
 
 /**
  * @brief Reset the maximum heap usage.
@@ -166,11 +167,6 @@ void sys_heap_free(struct sys_heap *heap, void *mem);
  * the remaining memory returned to the heap.  If the allocation of a
  * new block fails, then NULL will be returned and the old block will
  * not be freed or modified.
- *
- * @note The return of a NULL on failure is a different behavior than
- * POSIX realloc(), which specifies that the original pointer will be
- * returned (i.e. it is not possible to safely detect realloc()
- * failure in POSIX, but it is here).
  *
  * @param heap Heap from which to allocate
  * @param ptr Original pointer returned from a previous allocation
@@ -262,6 +258,9 @@ void sys_heap_stress(void *(*alloc_fn)(void *arg, size_t bytes),
  */
 void sys_heap_print_info(struct sys_heap *heap, bool dump_chunks);
 
+/**
+ * @}
+ */
 
 #ifdef __cplusplus
 }

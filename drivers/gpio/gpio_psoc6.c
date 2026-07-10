@@ -14,7 +14,7 @@
 #include <soc.h>
 #include <zephyr/drivers/gpio.h>
 
-#include "gpio_utils.h"
+#include <zephyr/drivers/gpio/gpio_utils.h>
 #include "cy_gpio.h"
 #include "cy_sysint.h"
 
@@ -171,6 +171,8 @@ static int gpio_psoc6_pin_interrupt_configure(const struct device *dev,
 		case GPIO_INT_TRIG_LOW:
 			lv_trg = CY_GPIO_INTR_FALLING;
 			break;
+		default:
+			return -EINVAL;
 		}
 	}
 

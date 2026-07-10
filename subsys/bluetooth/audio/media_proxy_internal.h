@@ -9,19 +9,23 @@
 
 /** @brief Internal APIs for Bluetooth Media Control */
 
+#include <stdint.h>
+
+#include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/audio/media_proxy.h>
+#include <zephyr/sys/util_macro.h>
 
 #define MPL_NO_TRACK_ID 0
 
 /* Debug output of 48 bit Object ID value */
 /* (Zephyr does not yet support debug output of more than 32 bit values.) */
 /* Takes a text and a 64-bit integer as input */
-#define BT_DBG_OBJ_ID(text, id64) \
+#define LOG_DBG_OBJ_ID(text, id64) \
 	do { \
-		if (IS_ENABLED(CONFIG_BT_DEBUG_MCS)) { \
+		if (IS_ENABLED(CONFIG_BT_MCS_LOG_LEVEL_DBG)) { \
 			char t[BT_OTS_OBJ_ID_STR_LEN]; \
 			(void)bt_ots_obj_id_to_str(id64, t, sizeof(t)); \
-			BT_DBG(text "0x%s", log_strdup(t)); \
+			LOG_DBG(text "0x%s", t); \
 		} \
 	} while (0)
 
@@ -30,6 +34,9 @@
 
 /** @brief Callbacks to a controller, from the media proxy */
 struct media_proxy_sctrl_cbs {
+	void (*player_name)(const char *name);
+
+	void (*icon_url)(const char *url);
 
 	void (*track_changed)(void);
 

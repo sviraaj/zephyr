@@ -12,7 +12,7 @@ This is just a placeholder for moving Zephyr's devicetree libraries
 to PyPI.
 '''
 
-version = '0.0.1'
+version = '0.0.2'
 
 setuptools.setup(
     # TBD, just use these for now.
@@ -36,7 +36,7 @@ setuptools.setup(
         'Operating System :: Microsoft :: Windows',
     ],
     install_requires=[
-        'PyYAML>=5.1',
+        'PyYAML>=6.0',
     ],
     python_requires='>=3.6',
 )

@@ -10,13 +10,13 @@
 	 * space needs to be reserved for the rodata that will be
 	 * produced by gperf during the final stages of linking.
 	 * The alignment and size are produced by
-	 * scripts/gen_kobject_placeholders.py. These are here
+	 * scripts/build/gen_kobject_placeholders.py. These are here
 	 * so the addresses to kobjects would remain the same
 	 * during the final stages of linking (LINKER_ZEPHYR_FINAL).
 	 */
 
 #if defined(LINKER_ZEPHYR_PREBUILT)
-#include <linker-kobject-prebuilt-rodata.h>
+#include <zephyr/linker-kobject-prebuilt-rodata.h>
 #ifdef KOBJECT_RODATA_ALIGN
 	. = ALIGN(KOBJECT_RODATA_ALIGN);
 
@@ -29,7 +29,7 @@
 #endif /* LINKER_ZEPHYR_PREBUILT */
 
 #if defined(LINKER_ZEPHYR_FINAL)
-#include <linker-kobject-prebuilt-rodata.h>
+#include <zephyr/linker-kobject-prebuilt-rodata.h>
 #ifdef KOBJECT_RODATA_ALIGN
 	. = ALIGN(KOBJECT_RODATA_ALIGN);
 
@@ -43,7 +43,7 @@
 	_kobject_rodata_area_used = _kobject_rodata_area_end - _kobject_rodata_area_start;
 
 	ASSERT(_kobject_rodata_area_used <= KOBJECT_RODATA_SZ,
-"scripts/gen_kobject_placeholders.py did not reserve enough space \
+"scripts/build/gen_kobject_placeholders.py did not reserve enough space \
 for kobject rodata."
 	);
 

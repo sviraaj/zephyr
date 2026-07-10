@@ -1,4 +1,4 @@
-# Copyright (c) 2022, NXP
+# Copyright 2022-2024 NXP
 # SPDX-License-Identifier: Apache-2.0
 
 description: |
@@ -30,21 +30,22 @@ description: |
 
 compatible: "nxp,kinetis-pinctrl"
 
-include:
-  - name: base.yaml
-  - name: pincfg-node-group.yaml
-    child-binding:
-      child-binding:
-        property-allowlist:
-          - drive-open-drain
-          - bias-pull-up
-          - bias-pull-down
+include: base.yaml
 
 child-binding:
   description: Kinetis pin controller pin group
   child-binding:
     description: |
       Kinetis pin controller pin configuration node
+
+    include:
+      - name: pincfg-node.yaml
+        property-allowlist:
+          - drive-open-drain
+          - bias-pull-up
+          - bias-pull-down
+          - input-enable
+
     properties:
       pinmux:
         required: true
@@ -63,7 +64,6 @@ child-binding:
           0 DSE_0- low drive strength when pin is configured as output
           1 DSE_1- high drive strength when pin is configured as output
       slew-rate:
-        required: true
         type: string
         enum:
           - "fast"

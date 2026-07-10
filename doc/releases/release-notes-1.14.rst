@@ -858,11 +858,11 @@ Networking
 * Added support for SOCKS5 proxy in MQTT client.
 * Added support for IPSO Timer object in LWM2M.
 * Added support for receiving gratuitous ARP request.
-* Added :ref:`sample application <google-iot-mqtt-sample>` for Google IoT Cloud.
+* Added sample application for Google IoT Cloud.
 * :ref:`Network interface <net_if_interface>` numbering starts now from 1 for
   POSIX compatibility.
 * :ref:`OpenThread <thread_protocol_interface>` enhancements.
-* :ref:`zperf <zperf-sample>` sample application fixes.
+* :zephyr:code-sample:`zperf <zperf>` sample application fixes.
 * :ref:`LLDP <lldp_interface>` (Link Layer Discovery Protocol) enhancements.
 * ARP cache update fix.
 * gPTP link delay calculation fixes.
@@ -1113,7 +1113,7 @@ release:
 * :github:`15381` - [Coverity CID :197623]Incorrect expression in /tests/kernel/interrupt/src/nested_irq.c
 * :github:`15380` - USAGE FAULT on tests/crypto/rand32/ on sam_e70_xplained
 * :github:`15379` - foundries.io CI: tests/kernel/mem_protect/stackprot fails on nrf52
-* :github:`15370` - log_strdup() leaks memory if log message is filtered
+* :github:`15370` -  leaks memory if log message is filtered
 * :github:`15365` - Bluetooth qualification test MESH/SR/HM/CFS/BV-02-C is failing
 * :github:`15361` - nRF timer: investigate race condition when setting clock timeout in TICKLESS mode
 * :github:`15348` - ARM Cortex-M: SysTick: unhandled race condition
@@ -2055,7 +2055,7 @@ release:
 * :github:`10453` - dma_stm32 driver has been broken by commit 07ff2d5
 * :github:`10444` - tests/subsys/logging/log_core fails on few ARM platforms
 * :github:`10439` - Logger calls will execute functions even though the LOG_LEVEL is masked
-* :github:`10428` - logging: Weird output from log_strdup()
+* :github:`10428` - logging: Weird output from 
 * :github:`10420` - gcc: "Exec format error" - WSL in Windows 10 1803
 * :github:`10415` -  logging: Unaligned memory access in log_free
 * :github:`10413` - Shell: trying to browse history freezes shell on disco_l475_iot1
@@ -2067,7 +2067,7 @@ release:
 * :github:`10345` - The OpenAMP remote build is for wrong board
 * :github:`10344` - SPI Chip Select usage is not unambiguous
 * :github:`10329` - SystemView overflow event
-* :github:`10320` - arm: mpu: mpu_config and and mpu_regions to be declared/defined as const
+* :github:`10320` - arm: mpu: mpu_config and mpu_regions to be declared/defined as const
 * :github:`10318` - It is not documented what YAML bindings do
 * :github:`10316` - net: sockets: Close doesn't unblock recv
 * :github:`10313` - net: sockets: Packets are leaked on TCP abort connection

@@ -10,13 +10,12 @@
  * The whole nRF pin configuration information is encoded in a 32-bit bitfield
  * organized as follows:
  *
- * - 31..16: Pin function.
- * - 15..14: Reserved.
- * - 13:     Pin inversion mode.
- * - 12:     Pin low power mode.
- * - 11..8:  Pin output drive configuration.
- * - 7..6:   Pin pull configuration.
- * - 5..0:   Pin number (combination of port and pin).
+ * - 31..17: Pin function.
+ * - 16:     Pin inversion mode.
+ * - 15:     Pin low power mode.
+ * - 14..11: Pin output drive configuration.
+ * - 10..9:  Pin pull configuration.
+ * - 8..0:   Pin number (combination of port and pin).
  */
 
 /**
@@ -25,29 +24,29 @@
  */
 
 /** Position of the function field. */
-#define NRF_FUN_POS 16U
+#define NRF_FUN_POS 17U
 /** Mask for the function field. */
-#define NRF_FUN_MSK 0xFFFFU
+#define NRF_FUN_MSK 0x7FFFU
 /** Position of the invert field. */
-#define NRF_INVERT_POS 13U
+#define NRF_INVERT_POS 16U
 /** Mask for the invert field. */
 #define NRF_INVERT_MSK 0x1U
 /** Position of the low power field. */
-#define NRF_LP_POS 12U
+#define NRF_LP_POS 15U
 /** Mask for the low power field. */
 #define NRF_LP_MSK 0x1U
 /** Position of the drive configuration field. */
-#define NRF_DRIVE_POS 8U
+#define NRF_DRIVE_POS 11U
 /** Mask for the drive configuration field. */
 #define NRF_DRIVE_MSK 0xFU
 /** Position of the pull configuration field. */
-#define NRF_PULL_POS 6U
+#define NRF_PULL_POS 9U
 /** Mask for the pull configuration field. */
 #define NRF_PULL_MSK 0x3U
 /** Position of the pin field. */
 #define NRF_PIN_POS 0U
 /** Mask for the pin field. */
-#define NRF_PIN_MSK 0x3FU
+#define NRF_PIN_MSK 0x1FFU
 
 /** @} */
 
@@ -126,12 +125,37 @@
 #define NRF_FUN_QSPI_IO2 33U
 /** QSPI IO3 */
 #define NRF_FUN_QSPI_IO3 34U
+/** EXMIF CK */
+#define NRF_FUN_EXMIF_CK 35U
+/** EXMIF DQ0 */
+#define NRF_FUN_EXMIF_DQ0 36U
+/** EXMIF DQ1 */
+#define NRF_FUN_EXMIF_DQ1 37U
+/** EXMIF DQ2 */
+#define NRF_FUN_EXMIF_DQ2 38U
+/** EXMIF DQ3 */
+#define NRF_FUN_EXMIF_DQ3 39U
+/** EXMIF DQ4 */
+#define NRF_FUN_EXMIF_DQ4 40U
+/** EXMIF DQ5 */
+#define NRF_FUN_EXMIF_DQ5 41U
+/** EXMIF DQ6 */
+#define NRF_FUN_EXMIF_DQ6 42U
+/** EXMIF DQ7 */
+#define NRF_FUN_EXMIF_DQ7 43U
+/** EXMIF CS0 */
+#define NRF_FUN_EXMIF_CS0 44U
+/** EXMIF CS1 */
+#define NRF_FUN_EXMIF_CS1 45U
+/** CAN TX */
+#define NRF_FUN_CAN_TX 46U
+/** CAN RX */
+#define NRF_FUN_CAN_RX 47U
 
 /** @} */
 
 /**
  * @name nRF pinctrl output drive.
- * @note Values match nrf_gpio_pin_drive_t constants.
  * @{
  */
 
@@ -152,7 +176,7 @@
 /** High drive '0', disconnect '1'. */
 #define NRF_DRIVE_H0D1 7U
 /** Extra high drive '0', extra high drive '1'. */
-#define NRF_DRIVE_E0E1 11U
+#define NRF_DRIVE_E0E1 8U
 
 /** @} */
 
@@ -184,14 +208,36 @@
 /** @} */
 
 /**
+ * @name nRF pinctrl helpers to indicate disconnected pins.
+ * @{
+ */
+
+/** Indicates that a pin is disconnected */
+#define NRF_PIN_DISCONNECTED NRF_PIN_MSK
+
+/** @} */
+
+/**
  * @brief Utility macro to build nRF psels property entry.
  *
  * @param fun Pin function configuration (see NRF_FUNC_{name} macros).
- * @param port Port (0 or 1).
+ * @param port Port (0 or 15).
  * @param pin Pin (0..31).
  */
 #define NRF_PSEL(fun, port, pin)						       \
-	((((((port) * 32U) + (pin)) & NRF_PIN_MSK) << NRF_PIN_POS) |	       \
+	((((((port) * 32U) + (pin)) & NRF_PIN_MSK) << NRF_PIN_POS) |		       \
+	 ((NRF_FUN_ ## fun & NRF_FUN_MSK) << NRF_FUN_POS))
+
+/**
+ * @brief Utility macro to build nRF psels property entry when a pin is disconnected.
+ *
+ * This can be useful in situations where code running before Zephyr, e.g. a bootloader
+ * configures pins that later needs to be disconnected.
+ *
+ * @param fun Pin function configuration (see NRF_FUN_{name} macros).
+ */
+#define NRF_PSEL_DISCONNECTED(fun)						       \
+	(NRF_PIN_DISCONNECTED |							       \
 	 ((NRF_FUN_ ## fun & NRF_FUN_MSK) << NRF_FUN_POS))
 
 #endif /* ZEPHYR_INCLUDE_DT_BINDINGS_PINCTRL_NRF_PINCTRL_H_ */

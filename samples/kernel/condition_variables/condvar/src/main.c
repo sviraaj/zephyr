@@ -3,9 +3,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/arch/cpu.h>
-#include <zephyr/sys/arch_interface.h>
 
 #define NUM_THREADS 3
 #define TCOUNT 10
@@ -18,7 +17,6 @@ K_CONDVAR_DEFINE(count_threshold_cv);
 
 #define STACK_SIZE (1024 + CONFIG_TEST_EXTRA_STACK_SIZE)
 
-K_THREAD_STACK_EXTERN(tstack);
 K_THREAD_STACK_ARRAY_DEFINE(tstacks, NUM_THREADS, STACK_SIZE);
 
 static struct k_thread t[NUM_THREADS];
@@ -76,7 +74,7 @@ void watch_count(void *p1, void *p2, void *p3)
 	k_mutex_unlock(&count_mutex);
 }
 
-void main(void)
+int main(void)
 {
 	long t1 = 1, t2 = 2, t3 = 3;
 	int i;
@@ -102,4 +100,5 @@ void main(void)
 
 	printk("Main(): Waited and joined with %d threads. Final value of count = %d. Done.\n",
 	       NUM_THREADS, count);
+	return 0;
 }

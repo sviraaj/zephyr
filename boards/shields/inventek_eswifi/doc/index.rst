@@ -32,8 +32,7 @@ Otherwise, J17 2-3 will select USB-5V. More information can be found at
 .. note::
 	The Inventek's EVBs signals are 3.3V only.
 
-.. image:: ./ismart4343c-evb.jpg
-   :width: 350px
+.. image:: ismart4343c-evb.jpg
    :align: center
    :alt: ISMART4343C-EVB
 
@@ -53,8 +52,7 @@ available at header J26 pin 1 and shield configuration uses D7 to control that
 signal, user need do a wire connecting these two terminals.  On the below
 image is possible see suggested wiring connections.
 
-.. image:: ./ismart4343c-evb-wiring.jpg
-   :width: 800px
+.. image:: ismart4343c-evb-wiring.jpg
    :align: center
    :alt: ISMART4343C-EVB Wiring
 
@@ -123,15 +121,15 @@ details).
 Tested Boards
 =============
 
-+-----------------------------+------------------------------+-----------+
-| Board                       | Disabled Interface           | Variation |
-+=============================+==============================+===========+
-| ATMEL sam_v71_xult          | Ethernet                     |   2 , 3   |
-+-----------------------------+------------------------------+-----------+
-| ST nucleo_f767zi            | Ethernet                     |   2 , 3   |
-+-----------------------------+------------------------------+-----------+
-| ST disco_l475_iot1          |                              |     -     |
-+-----------------------------+------------------------------+-----------+
++------------------------------+------------------------------+-----------+
+| Board                        | Disabled Interface           | Variation |
++==============================+==============================+===========+
+| ATMEL sam_v71_xult/samv71q21 | Ethernet                     |   2 , 3   |
++------------------------------+------------------------------+-----------+
+| ST nucleo_f767zi             | Ethernet                     |   2 , 3   |
++------------------------------+------------------------------+-----------+
+| ST disco_l475_iot1           |                              |     -     |
++------------------------------+------------------------------+-----------+
 
 .. note::
 	ST disco_l475_iot1 already have an ISM43362 module with IWIN SPI
@@ -142,19 +140,19 @@ Tested Boards
 Sample usage
 ************
 
-The reference sample for WIFI is :ref:`wifi_sample`.  It allows you use WIFI
+The reference sample for WIFI is :zephyr:code-sample:`wifi-shell`.  It allows you to use WIFI
 shell to scan local Wireless networks.  With the password you can pick,
 connect and send ping.
 
 Build and Programming
 *********************
 
-Set ``-DSHIELD=<shield designator>`` when you invoke ``west build``.
+Set ``--shield <shield designator>`` when you invoke ``west build``.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/net/wifi
    :host-os: unix
-   :board: [sam_v71_xult | nucleo_f767zi]
+   :board: [sam_v71_xult/samv71q21 | nucleo_f767zi]
    :shield: inventek_eswifi_arduino_uart
    :goals: build flash
    :compact:
@@ -162,7 +160,7 @@ Set ``-DSHIELD=<shield designator>`` when you invoke ``west build``.
 .. zephyr-app-commands::
    :zephyr-app: samples/net/wifi
    :host-os: unix
-   :board: [sam_v71_xult | nucleo_f767zi]
+   :board: [sam_v71_xult/samv71q21 | nucleo_f767zi]
    :shield: inventek_eswifi_arduino_spi
    :goals: build flash
    :compact:

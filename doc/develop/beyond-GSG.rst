@@ -71,8 +71,31 @@ recommended by the SoC vendor or a specific board (check your specific
 
 You can configure the Zephyr build system to use a specific toolchain by
 setting :ref:`environment variables <env_vars>` such as
-:envvar:`ZEPHYR_TOOLCHAIN_VARIANT` to a supported value, along with
-additional variable(s) specific to the toolchain variant.
+:envvar:`ZEPHYR_TOOLCHAIN_VARIANT <{TOOLCHAIN}_TOOLCHAIN_PATH>` to a supported
+value, along with additional variable(s) specific to the toolchain variant.
+
+.. _gs_toolchain_update:
+
+Updating the Zephyr SDK toolchain
+*********************************
+
+When updating Zephyr SDK, check whether the :envvar:`ZEPHYR_TOOLCHAIN_VARIANT`
+or :envvar:`ZEPHYR_SDK_INSTALL_DIR` environment variables are already set.
+
+* If the variables are not set, the latest compatible version of Zephyr SDK will be selected
+  by default. Proceed to next step without making any changes.
+
+* If :envvar:`ZEPHYR_TOOLCHAIN_VARIANT` is set, the corresponding toolchain will be selected
+  at build time. Zephyr SDK is identified by the value ``zephyr``.
+  If the :envvar:`ZEPHYR_TOOLCHAIN_VARIANT` environment variable is not ``zephyr``, then either
+  unset it or change its value to ``zephyr`` to make sure Zephyr SDK is selected.
+
+* If the :envvar:`ZEPHYR_SDK_INSTALL_DIR` environment variable is set, it will override
+  the default lookup location for Zephyr SDK. If you install Zephyr SDK to one
+  of the :ref:`recommended locations <toolchain_zephyr_sdk_bundle_variables>`,
+  you can unset this variable. Otherwise, set it to your chosen install location.
+
+For more information about these environment variables in Zephyr, see :ref:`env_vars_important`.
 
 Cloning the Zephyr Repositories
 *******************************
@@ -127,6 +150,8 @@ Export Zephyr CMake package
 The :ref:`cmake_pkg` can be exported to CMake's user package registry if it has
 not already been done as part of :ref:`getting_started`.
 
+.. _gs-board-aliases:
+
 Board Aliases
 *************
 
@@ -138,8 +163,8 @@ supported by a CMake file with content like this:
 
    # Variable foo_BOARD_ALIAS=bar replaces BOARD=foo with BOARD=bar and
    # sets BOARD_ALIAS=foo in the CMake cache.
-   set(pca10028_BOARD_ALIAS nrf51dk_nrf51422)
-   set(pca10056_BOARD_ALIAS nrf52840dk_nrf52840)
+   set(pca10028_BOARD_ALIAS nrf51dk/nrf51822)
+   set(pca10056_BOARD_ALIAS nrf52840dk/nrf52840)
    set(k64f_BOARD_ALIAS frdm_k64f)
    set(sltb004a_BOARD_ALIAS efr32mg_sltb004a)
 
@@ -152,14 +177,15 @@ Build and Run an Application
 
 You can build, flash, and run Zephyr applications on real
 hardware using a supported host system. Depending on your operating system,
-you can also run it in emulation with QEMU, or as a native POSIX application.
+you can also run it in emulation with QEMU, or as a native application with
+:ref:`native_sim <native_sim>`.
 Additional information about building applications can be found in the
 :ref:`build_an_application` section.
 
 Build Blinky
 ============
 
-Let's build the :ref:`blinky-sample` sample application.
+Let's build the :zephyr:code-sample:`blinky` sample application.
 
 Zephyr applications are built to run on specific hardware, called a
 "board"\ [#board_misnomer]_. We'll use the Phytec :ref:`reel_board
@@ -189,7 +215,7 @@ depending on your board.
 The other sample applications in the :zephyr_file:`samples` folder are
 documented in :ref:`samples-and-demos`.
 
-.. note:: If you want to re-use an
+.. note:: If you want to reuse an
    existing build directory for another board or application, you need to
    add the parameter ``-p=auto`` to ``west build`` to clean out settings
    and artifacts from the previous build.
@@ -253,6 +279,13 @@ system using `QEMU <https://www.qemu.org/>`_ when targeting either
 the x86 or ARM Cortex-M3 architectures. (QEMU is included with the Zephyr
 SDK installation.)
 
+On Windows, you need to install QEMU manually from
+`Download QEMU <https://www.qemu.org/download/#windows>`_. After installation,
+add path to QEMU installation folder to PATH environment variable.
+To enable QEMU in Test Runner (Twister) on Windows,
+:ref:`set the environment variable <env_vars>`
+``QEMU_BIN_PATH`` to the path of QEMU installation folder.
+
 For example, you can build and run the :ref:`hello_world` sample using
 the x86 emulation board configuration (``qemu_x86``), with:
 
@@ -266,22 +299,21 @@ To exit QEMU, type :kbd:`Ctrl-a`, then :kbd:`x`.
 
 Use ``qemu_cortex_m3`` to target an emulated Arm Cortex-M3 sample.
 
-.. _gs_posix:
+.. _gs_native:
 
-Run a Sample Application natively (POSIX OS)
-============================================
+Run a Sample Application natively (Linux)
+=========================================
 
-You can compile some samples to run as host processes
-on a POSIX OS. This is currently only tested on Linux hosts. See
-:ref:`native_posix` for more information. On 64-bit host operating systems, you
-need to install a 32-bit C library; see :ref:`native_posix_deps` for details.
+You can compile some samples to run as host programs
+on Linux. See :ref:`native_sim` for more information. On 64-bit host operating systems, you
+need to install a 32-bit C library, or build targeting :ref:`native_sim/native/64<native_sim32_64>`.
 
-First, build Hello World for ``native_posix``.
+First, build Hello World for ``native_sim``.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/hello_world
    :host-os: unix
-   :board: native_posix
+   :board: native_sim
    :goals: build
 
 Next, run the application.
@@ -305,7 +337,7 @@ valgrind.
 .. [#pip]
 
    pip is Python's package installer. Its ``install`` command first tries to
-   re-use packages and package dependencies already installed on your computer.
+   reuse packages and package dependencies already installed on your computer.
    If that is not possible, ``pip install`` downloads them from the Python
    Package Index (PyPI) on the Internet.
 

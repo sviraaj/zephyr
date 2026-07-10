@@ -8,7 +8,7 @@
 #define ZEPHYR_INCLUDE_LOGGING_LOG_OUTPUT_DICT_H_
 
 #include <zephyr/logging/log_output.h>
-#include <zephyr/logging/log_msg2.h>
+#include <zephyr/logging/log_msg.h>
 #include <stdarg.h>
 #include <zephyr/toolchain.h>
 #include <zephyr/sys/util.h>
@@ -30,10 +30,10 @@ enum log_dict_output_msg_type {
  */
 struct log_dict_output_normal_msg_hdr_t {
 	uint8_t type;
-	uint32_t domain:3;
-	uint32_t level:3;
-	uint32_t package_len:10;
-	uint32_t data_len:12;
+	uint32_t domain:4;
+	uint32_t level:4;
+	uint32_t package_len:16;
+	uint32_t data_len:16;
 	uintptr_t source;
 	log_timestamp_t timestamp;
 } __packed;
@@ -56,8 +56,8 @@ struct log_dict_output_dropped_msg_t {
  * @param msg Log message.
  * @param flags Optional flags.
  */
-void log_dict_output_msg2_process(const struct log_output *log_output,
-				  struct log_msg2 *msg, uint32_t flags);
+void log_dict_output_msg_process(const struct log_output *log_output,
+				 struct log_msg *msg, uint32_t flags);
 
 /** @brief Process dropped messages indication for dictionary-based logging.
  *

@@ -5,7 +5,27 @@
  */
 
 #include "pktqueue.h"
-#include "main.h"
+
+/* Amount of parallel processed sender/receiver queues of packet headers */
+#define QUEUE_NUM 2
+
+/* Amount of execution threads per pair of queues*/
+#define THREADS_NUM (CONFIG_MP_MAX_NUM_CPUS+1)
+
+/* Amount of packet headers in a queue */
+#define SIZE_OF_QUEUE 5000
+
+/* Size of packet header (in bytes) */
+#define SIZE_OF_HEADER 24
+
+/* CRC16 polynomial */
+#define POLYNOMIAL 0x8005
+
+/* CRC bytes in the packet */
+#define CRC_BYTE_1 10
+#define CRC_BYTE_2 11
+
+#define STACK_SIZE	2048
 
 static struct k_thread tthread[THREADS_NUM*QUEUE_NUM];
 static struct k_thread qthread[QUEUE_NUM];
@@ -44,10 +64,11 @@ void init_datagram_queue(struct phdr_desc_queue *queue, int queue_num)
 		/* Fill packet header with random values */
 		for (int j = 0; j < SIZE_OF_HEADER; j++) {
 			/* leave crc field zeroed */
-			if (j < CRC_BYTE_1 || j > CRC_BYTE_2)
-				descriptors[queue_num][i].ptr[j] = (uint8_t)sys_rand32_get();
-			else
+			if (j < CRC_BYTE_1 || j > CRC_BYTE_2) {
+				descriptors[queue_num][i].ptr[j] = sys_rand8_get();
+			} else {
 				descriptors[queue_num][i].ptr[j] = 0;
+			}
 		}
 		/* Compute crc for further comparison */
 		uint16_t crc;
@@ -100,7 +121,6 @@ void test_thread(void *arg1, void *arg2, void *arg3)
 /* Thread that processes one pair of sender/receiver queue */
 void queue_thread(void *arg1, void *arg2, void *arg3)
 {
-
 	ARG_UNUSED(arg1);
 	ARG_UNUSED(arg2);
 	ARG_UNUSED(arg3);
@@ -116,14 +136,15 @@ void queue_thread(void *arg1, void *arg2, void *arg3)
 	for (int i = 0; i < THREADS_NUM; i++)
 		k_thread_create(&tthread[i+THREADS_NUM*queue_num],
 			tstack[i+THREADS_NUM*queue_num], STACK_SIZE,
-			(k_thread_entry_t)test_thread,
+			test_thread,
 			(void *)&sender[queue_num],
 			(void *)&receiver[queue_num], (void *)&queue_num,
 			K_PRIO_PREEMPT(10), 0, K_NO_WAIT);
 
 	/* Wait until sender queue is not empty */
-	while (sender[queue_num].count != 0)
+	while (sender[queue_num].count != 0) {
 		k_sleep(K_MSEC(1));
+	}
 
 	/* Decrementing queue counter */
 	k_mutex_lock(&fetch_queue_mtx, K_FOREVER);
@@ -131,7 +152,7 @@ void queue_thread(void *arg1, void *arg2, void *arg3)
 	k_mutex_unlock(&fetch_queue_mtx);
 }
 
-void main(void)
+int main(void)
 {
 	uint32_t start_time, stop_time, cycles_spent, nanoseconds_spent;
 
@@ -139,7 +160,7 @@ void main(void)
 	printk("Simulating IP header validation on multiple cores.\n");
 	printk("Each of %d parallel queues is processed by %d threads"
 		" on %d cores and contain %d packet headers.\n",
-		QUEUE_NUM, THREADS_NUM, CONFIG_MP_NUM_CPUS, SIZE_OF_QUEUE);
+		QUEUE_NUM, THREADS_NUM, arch_num_cpus(), SIZE_OF_QUEUE);
 	printk("Bytes in packet header: %d\n\n", SIZE_OF_HEADER);
 
 	/* initializing "sender" queue */
@@ -154,13 +175,14 @@ void main(void)
 
 	for (int i = 0; i < QUEUE_NUM; i++)
 		k_thread_create(&qthread[i], qstack[i], STACK_SIZE,
-				(k_thread_entry_t)queue_thread,
+				queue_thread,
 				(void *)&sender[i], (void *)&receiver[i],
 				(void *)&i, K_PRIO_PREEMPT(11), 0, K_NO_WAIT);
 
 	/* Wait until all queues are not processed */
-	while (queues_remain > 0)
+	while (queues_remain > 0) {
 		k_sleep(K_MSEC(1));
+	}
 
 	/* Capture final time stamp */
 	stop_time = k_cycle_get_32();
@@ -180,20 +202,23 @@ void main(void)
 			tmp = tmp->next;
 			count++;
 		}
-		if (receiver[i].count == SIZE_OF_QUEUE && count == SIZE_OF_QUEUE)
+		if (receiver[i].count == SIZE_OF_QUEUE && count == SIZE_OF_QUEUE) {
 			correct++;
+		}
 	}
-	if (correct == QUEUE_NUM)
+	if (correct == QUEUE_NUM) {
 		printk("RESULT: OK\n"
 			"Application ran successfully.\n"
 			"All %d headers were processed in %d msec\n",
 			SIZE_OF_QUEUE*QUEUE_NUM,
 			nanoseconds_spent / 1000 / 1000);
-	else
+	} else {
 		printk("RESULT: FAIL\n"
 			"Application failed.\n"
 			"The amount of packets in receiver queue "
 			"is less than expected.\n");
+	}
 
 	k_sleep(K_MSEC(10));
+	return 0;
 }

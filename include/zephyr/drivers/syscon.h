@@ -19,6 +19,8 @@
  * @{
  */
 
+#include <errno.h>
+
 #include <zephyr/types.h>
 #include <zephyr/device.h>
 
@@ -158,6 +160,6 @@ static inline int z_impl_syscon_get_size(const struct device *dev, size_t *size)
 }
 #endif
 
-#include <syscalls/syscon.h>
+#include <zephyr/syscalls/syscon.h>
 
 #endif /* ZEPHYR_INCLUDE_DRIVERS_SYSCON_H_ */

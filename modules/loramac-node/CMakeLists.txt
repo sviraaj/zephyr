@@ -30,6 +30,8 @@ if(${CONFIG_HAS_SEMTECH_LORAMAC})
   zephyr_library_include_directories(
     ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac
     ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region
+    # required for FUOTA FragDecoder.h
+    ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/apps/LoRaMac/common/LmHandler/packages
   )
 endif()
 
@@ -51,6 +53,10 @@ zephyr_library_sources_ifdef(CONFIG_HAS_SEMTECH_LORAMAC
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/LoRaMacCrypto.c
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/LoRaMacParser.c
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/LoRaMacSerializer.c
+)
+
+zephyr_library_sources_ifdef(CONFIG_LORAWAN_FRAG_TRANSPORT_DECODER_SEMTECH
+  ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/apps/LoRaMac/common/LmHandler/packages/FragDecoder.c
 )
 
 zephyr_library_sources_ifdef(CONFIG_HAS_SEMTECH_LORAMAC
@@ -78,7 +84,12 @@ zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_AS923
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionAS923.c
 )
 zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_CN470
+  ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionBaseUS.c
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionCN470.c
+  ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionCN470A20.c
+  ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionCN470A26.c
+  ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionCN470B20.c
+  ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionCN470B26.c
 )
 zephyr_library_sources_ifdef(CONFIG_LORAMAC_REGION_KR920
   ${ZEPHYR_LORAMAC_NODE_MODULE_DIR}/src/mac/region/RegionKR920.c

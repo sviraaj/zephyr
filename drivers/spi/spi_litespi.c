@@ -11,6 +11,7 @@
 LOG_MODULE_REGISTER(spi_litespi);
 #include "spi_litespi.h"
 #include <stdbool.h>
+#include <soc.h>
 
 /* Helper Functions */
 static int spi_config(const struct spi_config *config, uint16_t *control)
@@ -121,15 +122,10 @@ static void spi_litespi_xfer(const struct device *dev,
 			ctx->rx_buf[i] = read_data;
 		}
 	}
-	spi_context_complete(ctx, 0);
+	spi_context_complete(ctx, dev, 0);
 }
 
 /* API Functions */
-
-static int spi_litespi_init(const struct device *dev)
-{
-	return 0;
-}
 
 static int spi_litespi_transceive(const struct device *dev,
 				  const struct spi_config *config,
@@ -165,7 +161,7 @@ static int spi_litespi_release(const struct device *dev,
 }
 
 /* Device Instantiation */
-static struct spi_driver_api spi_litespi_api = {
+static const struct spi_driver_api spi_litespi_api = {
 	.transceive = spi_litespi_transceive,
 #ifdef CONFIG_SPI_ASYNC
 	.transceive_async = spi_litespi_transceive_async,
@@ -182,7 +178,7 @@ static struct spi_driver_api spi_litespi_api = {
 		.base = DT_INST_REG_ADDR_BY_NAME(n, control), \
 	}; \
 	DEVICE_DT_INST_DEFINE(n, \
-			spi_litespi_init, \
+			NULL, \
 			NULL, \
 			&spi_litespi_data_##n, \
 			&spi_litespi_cfg_##n, \

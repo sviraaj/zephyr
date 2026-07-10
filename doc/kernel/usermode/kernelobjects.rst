@@ -210,7 +210,7 @@ Some objects will be implicitly initialized at boot:
   is run by the kernel early in the boot process.
 
 If a kernel object is initialized with a private static initializer, the object
-must have :c:func:`z_object_init` called on it at some point by a supervisor
+must have :c:func:`k_object_init` called on it at some point by a supervisor
 thread, otherwise the kernel will consider the object uninitialized if accessed
 by a user thread. This is very uncommon, typically only for kernel objects that
 are embedded within some larger struct and initialized statically.
@@ -228,7 +228,7 @@ are embedded within some larger struct and initialized statically.
     };
 
     ...
-    z_object_init(&my_foo.sem);
+    k_object_init(&my_foo.sem);
     ...
 
 
@@ -242,7 +242,7 @@ for creating core kernel objects and new driver subsystems.
 Creating New Core Kernel Objects
 ================================
 
-* In ``scripts/gen_kobject_list.py``, add the name of the struct to the
+* In ``scripts/build/gen_kobject_list.py``, add the name of the struct to the
   :py:data:`kobjects` list.
 
 Instances of the new struct should now be tracked.
@@ -253,7 +253,7 @@ Creating New Driver Subsystem Kernel Objects
 All driver instances are :c:struct:`device`. They are differentiated by
 what API struct they are set to.
 
-* In ``scripts/gen_kobject_list.py``, add the name of the API struct for the
+* In ``scripts/build/gen_kobject_list.py``, add the name of the API struct for the
   new subsystem to the :py:data:`subsystems` list.
 
 Driver instances of the new subsystem should now be tracked.

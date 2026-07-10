@@ -5,17 +5,12 @@
 
 menuconfig IEEE802154_NRF5
 	bool "nRF52 series IEEE 802.15.4 Driver"
-	depends on NETWORKING
+	default y
+	depends on DT_HAS_NORDIC_NRF_IEEE802154_ENABLED
 	select NRF_802154_RADIO_DRIVER if HAS_HW_NRF_RADIO_IEEE802154
 	select NRF_802154_SER_HOST if !HAS_HW_NRF_RADIO_IEEE802154
 
 if IEEE802154_NRF5
-
-config IEEE802154_NRF5_DRV_NAME
-	string "nRF52 IEEE 802.15.4 Driver's name"
-	default "IEEE802154_nrf5"
-	help
-	  This option sets the driver name
 
 config IEEE802154_NRF5_RX_STACK_SIZE
 	int "Driver's internal RX thread stack size"
@@ -77,7 +72,7 @@ config IEEE802154_NRF5_FCS_IN_LENGTH
 
 config IEEE802154_NRF5_DELAY_TRX_ACC
 	int "Clock accuracy for delayed operations"
-	default CLOCK_CONTROL_NRF_ACCURACY if CLOCK_CONTROL_NRF_ACCURACY < 255
+	default CLOCK_CONTROL_NRF_ACCURACY if (CLOCK_CONTROL_NRF && (CLOCK_CONTROL_NRF_ACCURACY < 255))
 	default 255
 	help
 	  Accuracy of the clock used for scheduling radio delayed operations (delayed transmission
@@ -92,5 +87,11 @@ config IEEE802154_NRF5_LOG_RX_FAILURES
 	  This options enables logging the reason of frame reception failure.
 	  It can be helpful for the network traffic analyze but it generates also
 	  a lot of log records in a stress environment.
+
+config IEEE802154_NRF5_MULTIPLE_CCA
+	bool "Support for multiple CCA attempts before transmission"
+	help
+	  When this option is enabled the OpenThread capability
+	  IEEE802154_OPENTHREAD_HW_MULTIPLE_CCA is supported by the ieee802154_nrf5.
 
 endif

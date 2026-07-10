@@ -20,22 +20,19 @@ LOG_MODULE_REGISTER(net_lwm2m_link_format, CONFIG_LWM2M_LOG_LEVEL);
 /*
  * TODO: to implement a way for clients to specify alternate path
  * via Kconfig (LwM2M specification 8.2.2 Alternate Path)
- *
- * For now, in order to inform server we support JSON format, we have to
- * report 'ct=11543' to the server. '</>' is required in order to append
- * content attribute. And resource type attribute is appended because of
- * Eclipse wakaama will reject the registration when 'rt="oma.lwm2m"' is
- * missing.
  */
 
-
+/*
+ * In order to inform the server about the configured LwM2M content format, we have
+ * to report 'ct=' with the content type value to the server. The root path '</>'
+ * is required in order to append the content type attribute.
+ */
 #if defined(CONFIG_LWM2M_RW_SENML_CBOR_SUPPORT)
 #define REG_PREFACE		"</>;ct=" STRINGIFY(LWM2M_FORMAT_APP_SENML_CBOR)
 #elif defined(CONFIG_LWM2M_RW_SENML_JSON_SUPPORT)
 #define REG_PREFACE		"</>;ct=" STRINGIFY(LWM2M_FORMAT_APP_SEML_JSON)
 #elif defined(CONFIG_LWM2M_RW_JSON_SUPPORT)
-#define REG_PREFACE		"</>;rt=\"oma.lwm2m\"" \
-				";ct=" STRINGIFY(LWM2M_FORMAT_OMA_JSON)
+#define REG_PREFACE		"</>;ct=" STRINGIFY(LWM2M_FORMAT_OMA_JSON)
 #else
 #define REG_PREFACE		""
 #endif
@@ -265,13 +262,7 @@ static int put_corelink_ssid(struct lwm2m_output_context *out,
 	case LWM2M_OBJECT_SECURITY_ID: {
 		bool bootstrap_inst;
 
-		ret = snprintk(buf, buflen, "0/%d/1",
-			       path->obj_inst_id);
-		if (ret < 0 || ret >= buflen) {
-			return -ENOMEM;
-		}
-
-		ret = lwm2m_engine_get_bool(buf, &bootstrap_inst);
+		ret = lwm2m_get_bool(&LWM2M_OBJ(0, path->obj_inst_id, 1), &bootstrap_inst);
 		if (ret < 0) {
 			return ret;
 		}
@@ -283,13 +274,11 @@ static int put_corelink_ssid(struct lwm2m_output_context *out,
 			return 0;
 		}
 
-		ret = snprintk(buf, buflen, "0/%d/10",
-				path->obj_inst_id);
 		if (ret < 0 || ret >= buflen) {
 			return -ENOMEM;
 		}
 
-		ret = lwm2m_engine_get_u16(buf, &server_id);
+		ret = lwm2m_get_u16(&LWM2M_OBJ(0, path->obj_inst_id, 10), &server_id);
 		if (ret < 0) {
 			return ret;
 		}
@@ -298,12 +287,7 @@ static int put_corelink_ssid(struct lwm2m_output_context *out,
 	}
 
 	case LWM2M_OBJECT_SERVER_ID:
-		ret = snprintk(buf, buflen, "1/%d/0", path->obj_inst_id);
-		if (ret < 0 || ret >= buflen) {
-			return -ENOMEM;
-		}
-
-		ret = lwm2m_engine_get_u16(buf, &server_id);
+		ret = lwm2m_get_u16(&LWM2M_OBJ(1, path->obj_inst_id, 0), &server_id);
 		if (ret < 0) {
 			return ret;
 		}

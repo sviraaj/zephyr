@@ -12,8 +12,10 @@
  * and follows, with few exceptions, the USB Specification 2.0.
  */
 
-#include <version.h>
+#include <zephyr/version.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/math/ilog2.h>
+#include <zephyr/usb/class/usb_hub.h>
 
 #ifndef ZEPHYR_INCLUDE_USB_CH9_H_
 #define ZEPHYR_INCLUDE_USB_CH9_H_
@@ -23,11 +25,11 @@ extern "C" {
 #endif
 
 struct usb_req_type_field {
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#ifdef CONFIG_LITTLE_ENDIAN
 	uint8_t recipient : 5;
 	uint8_t type : 2;
 	uint8_t direction : 1;
-#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#else
 	uint8_t direction : 1;
 	uint8_t type : 2;
 	uint8_t recipient : 5;
@@ -75,7 +77,7 @@ struct usb_setup_packet {
  * @param setup Pointer to USB Setup packet
  * @return true If transfer direction is to host
  */
-static inline bool usb_reqtype_is_to_host(struct usb_setup_packet *setup)
+static inline bool usb_reqtype_is_to_host(const struct usb_setup_packet *setup)
 {
 	return setup->RequestType.direction == USB_REQTYPE_DIR_TO_HOST;
 }
@@ -86,7 +88,7 @@ static inline bool usb_reqtype_is_to_host(struct usb_setup_packet *setup)
  * @param setup Pointer to USB Setup packet
  * @return true If transfer direction is to device
  */
-static inline bool usb_reqtype_is_to_device(struct usb_setup_packet *setup)
+static inline bool usb_reqtype_is_to_device(const struct usb_setup_packet *setup)
 {
 	return setup->RequestType.direction == USB_REQTYPE_DIR_TO_DEVICE;
 }
@@ -162,6 +164,19 @@ struct usb_device_descriptor {
 	uint8_t bNumConfigurations;
 } __packed;
 
+/** USB Device Qualifier Descriptor defined in spec. Table 9-9 */
+struct usb_device_qualifier_descriptor {
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint16_t bcdUSB;
+	uint8_t bDeviceClass;
+	uint8_t bDeviceSubClass;
+	uint8_t bDeviceProtocol;
+	uint8_t bMaxPacketSize0;
+	uint8_t bNumConfigurations;
+	uint8_t bReserved;
+} __packed;
+
 /** USB Standard Configuration Descriptor defined in spec. Table 9-10 */
 struct usb_cfg_descriptor {
 	uint8_t bLength;
@@ -187,12 +202,29 @@ struct usb_if_descriptor {
 	uint8_t iInterface;
 } __packed;
 
+struct usb_ep_desc_bmattr {
+#ifdef CONFIG_LITTLE_ENDIAN
+	uint8_t transfer : 2;
+	uint8_t synch: 2;
+	uint8_t usage: 2;
+	uint8_t reserved: 2;
+#else
+	uint8_t reserved: 2;
+	uint8_t usage : 2;
+	uint8_t synch : 2;
+	uint8_t transfer : 2;
+#endif
+} __packed;
+
 /** USB Standard Endpoint Descriptor defined in spec. Table 9-13 */
 struct usb_ep_descriptor {
 	uint8_t bLength;
 	uint8_t bDescriptorType;
 	uint8_t bEndpointAddress;
-	uint8_t bmAttributes;
+	union {
+		uint8_t bmAttributes;
+		struct usb_ep_desc_bmattr Attributes;
+	};
 	uint16_t wMaxPacketSize;
 	uint8_t bInterval;
 } __packed;
@@ -236,6 +268,7 @@ struct usb_association_descriptor {
 /** USB Specification Release Numbers (bcdUSB Descriptor field) */
 #define USB_SRN_1_1			0x0110
 #define USB_SRN_2_0			0x0200
+#define USB_SRN_2_0_1			0x0201
 #define USB_SRN_2_1			0x0210
 
 #define USB_DEC_TO_BCD(dec)	((((dec) / 10) << 4) | ((dec) % 10))
@@ -250,12 +283,70 @@ struct usb_association_descriptor {
 /** Macro to obtain descriptor index from USB_SREQ_GET_DESCRIPTOR request */
 #define USB_GET_DESCRIPTOR_INDEX(wValue)	((uint8_t)(wValue))
 
-/** USB Control Endpoints OUT and IN Address */
-#define USB_CONTROL_EP_OUT		0
-#define USB_CONTROL_EP_IN		0x80
-
 /** USB Control Endpoints maximum packet size (MPS) */
-#define USB_CONTROL_EP_MPS		64
+#define USB_CONTROL_EP_MPS		64U
+
+/** USB endpoint direction mask */
+#define USB_EP_DIR_MASK			(uint8_t)BIT(7)
+
+/** USB IN endpoint direction */
+#define USB_EP_DIR_IN			(uint8_t)BIT(7)
+
+/** USB OUT endpoint direction */
+#define USB_EP_DIR_OUT			0U
+
+/*
+ * REVISE: this should actually be (ep) & 0x0F, but is causes
+ * many regressions in the current device support that are difficult
+ * to handle.
+ */
+/** Get endpoint index (number) from endpoint address */
+#define USB_EP_GET_IDX(ep)		((ep) & ~USB_EP_DIR_MASK)
+
+/** Get direction based on endpoint address */
+#define USB_EP_GET_DIR(ep)		((ep) & USB_EP_DIR_MASK)
+
+/** Get endpoint address from endpoint index and direction */
+#define USB_EP_GET_ADDR(idx, dir)	((idx) | ((dir) & USB_EP_DIR_MASK))
+
+/** True if the endpoint is an IN endpoint */
+#define USB_EP_DIR_IS_IN(ep)		(USB_EP_GET_DIR(ep) == USB_EP_DIR_IN)
+
+/** True if the endpoint is an OUT endpoint */
+#define USB_EP_DIR_IS_OUT(ep)		(USB_EP_GET_DIR(ep) == USB_EP_DIR_OUT)
+
+/** USB Control Endpoints OUT address */
+#define USB_CONTROL_EP_OUT		(USB_EP_DIR_OUT | 0U)
+
+/** USB Control Endpoints IN address */
+#define USB_CONTROL_EP_IN		(USB_EP_DIR_IN | 0U)
+
+/** USB endpoint transfer type mask */
+#define USB_EP_TRANSFER_TYPE_MASK	0x3U
+
+/** USB endpoint transfer type control */
+#define USB_EP_TYPE_CONTROL		0U
+
+/** USB endpoint transfer type isochronous */
+#define USB_EP_TYPE_ISO			1U
+
+/** USB endpoint transfer type bulk */
+#define USB_EP_TYPE_BULK		2U
+
+/** USB endpoint transfer type interrupt */
+#define USB_EP_TYPE_INTERRUPT		3U
+
+/** Calculate full speed interrupt endpoint bInterval from a value in microseconds */
+#define USB_FS_INT_EP_INTERVAL(us)	CLAMP(((us) / 1000U), 1U, 255U)
+
+/** Calculate high speed interrupt endpoint bInterval from a value in microseconds */
+#define USB_HS_INT_EP_INTERVAL(us)	CLAMP((ilog2((us) / 125U) + 1U), 1U, 16U)
+
+/** Calculate high speed isochronous endpoint bInterval from a value in microseconds */
+#define USB_FS_ISO_EP_INTERVAL(us)	CLAMP(((us) / 1000U), 1U, 16U)
+
+/** Calculate high speed isochronous endpoint bInterval from a value in microseconds */
+#define USB_HS_ISO_EP_INTERVAL(us)	CLAMP((ilog2((us) / 125U) + 1U), 1U, 16U)
 
 #ifdef __cplusplus
 }

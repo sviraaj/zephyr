@@ -6,16 +6,16 @@
 
 #define DT_DRV_COMPAT ti_bq40zxx
 
-#include <drivers/i2c.h>
+#include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/gpio.h>
-#include <zephyr.h>
-#include <device.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
 #include <zephyr/drivers/i2c/i2c_recovery_stm32.h>
-#include <init.h>
-#include <drivers/sensor.h>
-#include <sys/__assert.h>
+#include <zephyr/init.h>
+#include <zephyr/drivers/sensor.h>
+#include <zephyr/sys/__assert.h>
 #include <string.h>
-#include <sys/byteorder.h>
+#include <zephyr/sys/byteorder.h>
 
 #include "bq40zxx.h"
 
@@ -911,7 +911,7 @@ static const struct sensor_driver_api bq40zxx_battery_driver_api = {
 	static struct bq40zxx_data bq40zxx_driver_##index;                     \
 									       \
 	static const struct bq40zxx_config bq40zxx_config_##index = {          \
-		.bus_name = DT_INST_BUS_LABEL(index),                          \
+		.bus_name = DT_PROP(DT_INST_BUS(index), label),                \
 		.design_voltage = DT_INST_PROP(index, design_voltage),         \
 		.design_capacity = DT_INST_PROP(index, design_capacity),       \
 		.taper_current = DT_INST_PROP(index, taper_current),           \

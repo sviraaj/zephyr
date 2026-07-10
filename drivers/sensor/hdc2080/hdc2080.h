@@ -8,7 +8,7 @@
 #define ZEPHYR_DRIVERS_SENSOR_HDC2080_HDC2080_H_
 
 #include <zephyr/types.h>
-#include <device.h>
+#include <zephyr/device.h>
 
 
 #define HDC2080_CHIP_ID        0x07D0

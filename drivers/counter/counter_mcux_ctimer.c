@@ -10,6 +10,8 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/dt-bindings/clock/mcux_lpc_syscon_clock.h>
+#include <zephyr/irq.h>
+
 LOG_MODULE_REGISTER(mcux_ctimer, CONFIG_COUNTER_LOG_LEVEL);
 
 #ifdef CONFIG_COUNTER_MCUX_CTIMER_RESERVE_CHANNEL_FOR_SETTOP
@@ -250,8 +252,12 @@ static int mcux_lpc_ctimer_init(const struct device *dev)
 {
 	const struct mcux_lpc_ctimer_config *config = dev->config;
 	struct mcux_lpc_ctimer_data *data = dev->data;
-
 	ctimer_config_t ctimer_config;
+
+	if (!device_is_ready(config->clock_dev)) {
+		LOG_ERR("clock control device not ready");
+		return -ENODEV;
+	}
 
 	for (uint8_t chan = 0; chan < NUM_CHANNELS; chan++) {
 		data->channels[chan].alarm_callback = NULL;
@@ -294,7 +300,7 @@ static const struct counter_driver_api mcux_ctimer_driver_api = {
 		.base = (CTIMER_Type *)DT_INST_REG_ADDR(id),		\
 		.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(id)),	\
 		.clock_subsys =				\
-		(clock_control_subsys_t)(DT_INST_CLOCKS_CELL(id, name) + MCUX_CTIMER_CLK_OFFSET),\
+		(clock_control_subsys_t)(DT_INST_CLOCKS_CELL(id, name)),\
 		.mode = DT_INST_PROP(id, mode),						\
 		.input = DT_INST_PROP(id, input),					\
 		.prescale = DT_INST_PROP(id, prescale),				\

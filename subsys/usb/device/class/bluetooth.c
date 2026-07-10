@@ -21,9 +21,8 @@
 #include <zephyr/drivers/bluetooth/hci_driver.h>
 #include <zephyr/sys/atomic.h>
 
-#define LOG_LEVEL CONFIG_USB_DEVICE_LOG_LEVEL
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(usb_bluetooth);
+LOG_MODULE_REGISTER(usb_bluetooth, CONFIG_USB_DEVICE_LOG_LEVEL);
 
 #define USB_RF_SUBCLASS			0x01
 #define USB_BLUETOOTH_PROTOCOL		0x01
@@ -123,8 +122,12 @@ static struct usb_ep_cfg_data bluetooth_ep_data[] = {
 	},
 };
 
-static void hci_tx_thread(void)
+static void hci_tx_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	LOG_DBG("Start USB Bluetooth thread");
 
 	while (true) {
@@ -175,8 +178,12 @@ static void hci_tx_thread(void)
 	}
 }
 
-static void hci_rx_thread(void)
+static void hci_rx_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	while (true) {
 		struct net_buf *buf;
 		int err;
@@ -297,7 +304,7 @@ static void acl_read_cb(uint8_t ep, int size, void *priv)
 
 restart_out_transfer:
 	usb_transfer(bluetooth_ep_data[HCI_OUT_EP_IDX].ep_addr, ep_out_buf,
-		     sizeof(ep_out_buf), USB_TRANS_READ | USB_TRANS_NO_ZLP,
+		     sizeof(ep_out_buf), USB_TRANS_READ,
 		     acl_read_cb, NULL);
 }
 
@@ -341,11 +348,6 @@ static void bluetooth_status_cb(struct usb_cfg_data *cfg,
 		tmp = atomic_clear(&suspended);
 		if (tmp) {
 			LOG_DBG("Device resumed from suspend");
-			if (configured) {
-				/* Start reading */
-				acl_read_cb(bluetooth_ep_data[HCI_OUT_EP_IDX].ep_addr,
-					    0, NULL);
-			}
 		} else {
 			LOG_DBG("Spurious resume event");
 		}
@@ -455,7 +457,7 @@ USBD_DEFINE_CFG_DATA(bluetooth_config) = {
 	.endpoint = bluetooth_ep_data,
 };
 
-static int bluetooth_init(const struct device *dev)
+static int bluetooth_init(void)
 {
 	int ret;
 
@@ -473,14 +475,14 @@ static int bluetooth_init(const struct device *dev)
 
 	k_thread_create(&rx_thread_data, rx_thread_stack,
 			K_KERNEL_STACK_SIZEOF(rx_thread_stack),
-			(k_thread_entry_t)hci_rx_thread, NULL, NULL, NULL,
+			hci_rx_thread, NULL, NULL, NULL,
 			K_PRIO_COOP(8), 0, K_NO_WAIT);
 
 	k_thread_name_set(&rx_thread_data, "usb_bt_rx");
 
 	k_thread_create(&tx_thread_data, tx_thread_stack,
 			K_KERNEL_STACK_SIZEOF(tx_thread_stack),
-			(k_thread_entry_t)hci_tx_thread, NULL, NULL, NULL,
+			hci_tx_thread, NULL, NULL, NULL,
 			K_PRIO_COOP(8), 0, K_NO_WAIT);
 
 	k_thread_name_set(&tx_thread_data, "usb_bt_tx");

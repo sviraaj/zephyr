@@ -7,7 +7,7 @@
 #ifndef ZEPHYR_DRIVERS_SENSOR_BATTERY_BQ40ZXX_H_
 #define ZEPHYR_DRIVERS_SENSOR_BATTERY_BQ40ZXX_H_
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(bq40zxx, CONFIG_SENSOR_LOG_LEVEL);
 
 /*** General Constant ***/

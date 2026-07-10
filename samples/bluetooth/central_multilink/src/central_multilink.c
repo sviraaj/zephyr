@@ -10,7 +10,7 @@
 #include <zephyr/types.h>
 #include <stddef.h>
 #include <errno.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
@@ -61,7 +61,8 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 
 	/* We're only interested in connectable events */
 	if (type != BT_GAP_ADV_TYPE_ADV_IND &&
-	    type != BT_GAP_ADV_TYPE_ADV_DIRECT_IND) {
+	    type != BT_GAP_ADV_TYPE_ADV_DIRECT_IND &&
+	    type != BT_GAP_ADV_TYPE_EXT_ADV) {
 		return;
 	}
 
@@ -69,7 +70,7 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 	printk("Device found: %s (RSSI %d)\n", addr_str, rssi);
 
 	/* connect only to devices in close proximity */
-	if (rssi < -35) {
+	if (rssi < -50) {
 		return;
 	}
 
@@ -89,7 +90,7 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 static void start_scan(void)
 {
 	struct bt_le_scan_param scan_param = {
-		.type       = BT_HCI_LE_SCAN_PASSIVE,
+		.type       = BT_LE_SCAN_TYPE_PASSIVE,
 		.options    = BT_LE_SCAN_OPT_NONE,
 		.interval   = SCAN_INTERVAL,
 		.window     = SCAN_WINDOW,

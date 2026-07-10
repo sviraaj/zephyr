@@ -5,17 +5,14 @@
  */
 
 /dts-v1/;
-//#include <st/h7/stm32h743Xg.dtsi>
-//#include <st/h7/stm32h743zgtx-pinctrl.dtsi>
-
 #include <st/h7/stm32h723Xg.dtsi>
 #include <st/h7/stm32h723zgtx-pinctrl.dtsi>
 
 //#include "arduino_r3_connector.dtsi"
 
 / {
-	model = "STMicroelectronics STM32H743ZI-ZB_TV board";
-	compatible = "st,stm32h743zi-zb_tv";
+	model = "ZedBlox ZB_TV H723ZI board";
+	compatible = "zedblox,zb-tv-h723zi";
 
 	chosen {
 		zephyr,console = &uart5;
@@ -26,6 +23,7 @@
 		zephyr,dtcm = &dtcm;
         zephyr,display = &ltdc;
 		zephyr,code-partition = &slot0_partition;
+		zephyr,entropy = &rng; // Ensure this points to your hardware RNG node
 	};
 
 	leds {
@@ -162,14 +160,14 @@
         //i2c2_scl_pf1 &i2c2_sda_pf0
         sda-gpios = <&gpiof 0 (GPIO_OPEN_DRAIN)>;
         scl-gpios = <&gpiof 1 (GPIO_OPEN_DRAIN)>;
-        label = "GPIO_I2C_0";
+        #label = "GPIO_I2C_0";
         #address-cells = <1>;
         #size-cells = <0>;
 
         bq40zxx: bq40zxx@b {
             compatible = "ti,bq40zxx";
             reg = <0x0b>;
-            label = "BQ40ZXX";
+            #label = "BQ40ZXX";
             design-voltage = <11100>;
             design-capacity = <16400>;
             taper-current = <130>;
@@ -191,7 +189,7 @@ zephyr_udc0: &usbotg_hs {
 &zephyr_udc0 {
 	cdc_acm_uart0: cdc_acm_uart0 {
 		compatible = "zephyr,cdc-acm-uart";
-		label = "CDC_ACM_0";
+		#label = "CDC_ACM_0";
 	};
 };
 */
@@ -215,6 +213,10 @@ zephyr_udc0: &usbotg_hs {
 
 &clk_hsi{
     hsi-div = <1>;
+	status = "okay";
+};
+
+&clk_hsi48 {
 	status = "okay";
 };
 
@@ -253,6 +255,7 @@ zephyr_udc0: &usbotg_hs {
 	pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
     pinctrl-names = "default";
     // cts - pa11, rts - pa12
+	interrupts = <37 1>; 
 	current-speed = <115200>;
     hw-flow-control;
 	status = "okay";
@@ -320,62 +323,63 @@ zephyr_udc0: &usbotg_hs {
     };
 };
 
-
 &i2c1 {
-	pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb7>;
+    pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb7>;
     pinctrl-names = "default";
-	status = "okay";
-	clock-frequency = <I2C_BITRATE_STANDARD>;
+    status = "okay";
+    clock-frequency = <I2C_BITRATE_STANDARD>;
 
     ti_tmp116_int: ti_tmp116@48 {
-		compatible = "ti,tmp116";
-		reg = <0x48>;
-		label = "TMP116_INT";
-		#address-cells = <1>;
-		#size-cells = <0>;
+        compatible = "ti,tmp116";
+		status = "okay";
+        reg = <0x48>;
+        label = "TMP116_INT";
+        /* These define how the children (the eeprom) describe their address */
+        #address-cells = <1>;
+        #size-cells = <0>;
 
-		eeprom: ti_tmp116_eeprom@0 {
-			compatible = "ti,tmp116-eeprom";
-			reg = <0x0>;
-			label = "TMP116_EEPROM";
-			read-only;
+        eeprom: ti_tmp116_eeprom@0 {
+            compatible = "ti,tmp116-eeprom";
+            /* reg now matches #address-cells (1) + #size-cells (0) = 1 cell total */
+            reg = <0x0>; 
+            label = "TMP116_EEPROM";
+            read-only;
         };
-	};
-};
-
-&i2c2 {
-	pinctrl-0 = <&i2c2_scl_pf1 &i2c2_sda_pf0>;
-    pinctrl-names = "default";
-	status = "okay";
-	clock-frequency = <I2C_BITRATE_STANDARD>;
-    bq40zxx: bq40zxx@b {
-        compatible = "ti,bq40zxx";
-        reg = <0x0b>;
-        label = "BQ40ZXX";
-        design-voltage = <11100>;
-        design-capacity = <16400>;
-        taper-current = <130>;
-        terminate-voltage = <9000>;
     };
 };
-
-&i2c3 {
-	pinctrl-0 = <&i2c3_scl_pa8 &i2c3_sda_pc9>;
-    pinctrl-names = "default";
+&i2c2 {
+	pinctrl-0 = <&i2c2_scl_pf1 &i2c2_sda_pf0>;
+	pinctrl-names = "default";
 	status = "okay";
-	clock-frequency = <I2C_BITRATE_FAST>;
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	label = "I2C_2";
+
+	bq40zxx: bq40zxx@b {
+		compatible = "ti,bq40zxx";
+		reg = <0x0b>;
+		label = "BQ40ZXX";
+		design-voltage = <11100>;
+		design-capacity = <16400>;
+		taper-current = <130>;
+		terminate-voltage = <9000>;
+	};
 };
 
 &i2c4 {
 	pinctrl-0 = <&i2c4_scl_pf14 &i2c4_sda_pf15>;
-    pinctrl-names = "default";
+
+
+
+	pinctrl-names = "default";
 	status = "okay";
 	clock-frequency = <I2C_BITRATE_FAST>;
-    icm20600: icm20600@68 {
-        compatible = "invensense,icm20xxx";
-        reg = <0x68>;
-        label = "ICM20600";
-    };
+
+	icm20600: icm20600@68 {
+		compatible = "invensense,icm20xxx";
+		status = "okay";
+		reg = <0x68>;
+		label = "ICM20600";
+	};
 };
 
 &timers12 {
@@ -390,11 +394,17 @@ zephyr_udc0: &usbotg_hs {
 
 &adc1 {
     pinctrl-0 = <&adc1_inp16_pa0>;
+	st,adc-clock-source = <1>;
+    st,adc-prescaler = <4>;
     pinctrl-names = "default";
 	status = "okay";
 };
 
 &rng {
+	/delete-property/ health-test-magic;
+	/delete-property/ health-test-config;
+	clocks = <&rcc STM32_CLOCK_BUS_AHB2 0x00000040>,
+		 <&rcc STM32_SRC_HSI48 RNG_SEL(0)>;
 	status = "okay";
 };
 
@@ -466,27 +476,27 @@ zephyr_udc0: &usbotg_hs {
 		};
 
 		/* backup slot: 384KB */
-		slot1_partition: partition@100000 {
-			label = "image-1";
-			reg = <0x00080000 DT_SIZE_K(384)>;
-		};
+			slot1_partition: partition@80000 {
+				label = "image-1";
+				reg = <0x00080000 DT_SIZE_K(384)>;
+			};
 
 		/* swap slot: 128KB */
-		scratch_partition: partition@160000 {
-			label = "image-scratch";
-			reg = <0x000E0000 DT_SIZE_K(128)>;
-		};
+			scratch_partition: partition@e0000 {
+				label = "image-scratch";
+				reg = <0x000E0000 DT_SIZE_K(128)>;
+			};
 
 		/* storage: 128KB for settings
 		storage_partition: partition@20000 {
-			label = "storage";
+			#label = "storage";
 			reg = <0x00020000 0x00020000>;
 		};
         */
 
         /* Storage partition will be used by nvs settings */
 		//settings_partition: partition@f8000 {
-		//	label = "settings_store";
+		//	#label = "settings_store";
 		//	reg = <0x000e0000 0x00020000>;
 		//};
 	};
@@ -583,17 +593,17 @@ zephyr_udc0: &usbotg_hs {
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		/* Storage partition will be used by FCB if enabled. */
+			/* Storage partition will be used by FCB if enabled. */
 		ext_storage_partition: partition@0 {
-			label = "ext_storage";
-			reg = <0x00000000 0x00400000>;
-		};
+				label = "ext_storage";
+				reg = <0x00000000 0x00400000>;
+			};
 
-		/* Storage partition will be used by filesystem if enabled. */
+			/* Storage partition will be used by filesystem if enabled. */
 		fs_partition: partition@400000 {
-			label = "fs_storage";
-			reg = <0x00400000 0x003E0000>;
-		};
+				label = "fs_storage";
+				reg = <0x00400000 0x003E0000>;
+			};
 
 		settings_partition: partition@7e0000 {
 			label = "settings_store";

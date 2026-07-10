@@ -32,7 +32,7 @@ For example, using the :ref:`qemu_cortex_m3` board to build :ref:`hello_world`:
 
    # --cmake-only here just forces CMake to run, skipping the
    # build process to save time.
-   west build -b qemu_cortex_m3 -s samples/hello_world --cmake-only
+   west build -b qemu_cortex_m3 samples/hello_world --cmake-only
 
 You can change ``qemu_cortex_m3`` to match your board.
 
@@ -42,11 +42,11 @@ CMake prints the input and output file locations like this:
 
    -- Found BOARD.dts: .../zephyr/boards/arm/qemu_cortex_m3/qemu_cortex_m3.dts
    -- Generated zephyr.dts: .../zephyr/build/zephyr/zephyr.dts
-   -- Generated devicetree_unfixed.h: .../zephyr/build/zephyr/include/generated/devicetree_unfixed.h
+   -- Generated devicetree_generated.h: .../zephyr/build/zephyr/include/generated/zephyr/devicetree_generated.h
 
 The :file:`zephyr.dts` file is the final devicetree in DTS format.
 
-The :file:`devicetree_unfixed.h` file is the corresponding generated header.
+The :file:`devicetree_generated.h` file is the corresponding generated header.
 
 See :ref:`devicetree-in-out-files` for details about these files.
 
@@ -104,7 +104,7 @@ device is to use :c:func:`DEVICE_DT_GET`:
 
 .. code-block:: c
 
-   const struct device *uart_dev = DEVICE_DT_GET(MY_SERIAL);
+   const struct device *const uart_dev = DEVICE_DT_GET(MY_SERIAL);
 
    if (!device_is_ready(uart_dev)) {
            /* Not ready, do not use */
@@ -122,20 +122,17 @@ that the device is ready to be used before passing it to any API functions.
 
 In some situations the device cannot be known at build-time, e.g., if it depends
 on user input like in a shell application. In this case you can get the
-``struct device`` by combining :c:func:`DT_LABEL` with
-:c:func:`device_get_binding`:
+``struct device`` by combining :c:func:`device_get_binding` with the device
+name:
 
 .. code-block:: c
 
-   const struct device *uart_dev = device_get_binding(DT_LABEL(MY_SERIAL));
+   const char *dev_name = /* TODO: insert device name from user */;
+   const struct device *uart_dev = device_get_binding(dev_name);
 
 You can then use ``uart_dev`` with :ref:`uart_api` API functions like
 :c:func:`uart_configure`. Similar code will work for other device types; just
 make sure you use the correct API for the device.
-
-There's no need to override the ``label`` property to something else: just make
-a node identifier and pass it to ``DT_LABEL`` to get the right string to pass
-to ``device_get_binding()``.
 
 If you're having trouble, see :ref:`dt-trouble`. The first thing to check is
 that the node has ``status = "okay"``, like this:
@@ -145,14 +142,16 @@ that the node has ``status = "okay"``, like this:
    #define MY_SERIAL DT_NODELABEL(my_serial)
 
    #if DT_NODE_HAS_STATUS(MY_SERIAL, okay)
-   const struct device *uart_dev = DEVICE_DT_GET(MY_SERIAL);
+   const struct device *const uart_dev = DEVICE_DT_GET(MY_SERIAL);
    #else
    #error "Node is disabled"
    #endif
 
 If you see the ``#error`` output, make sure to enable the node in your
 devicetree. In some situations your code will compile but it will fail to link
-with a message similar to::
+with a message similar to:
+
+.. code-block:: none
 
    ...undefined reference to `__device_dts_ord_N'
    collect2: error: ld returned 1 exit status
@@ -225,26 +224,44 @@ Set devicetree overlays
 Devicetree overlays are explained in :ref:`devicetree-intro`. The CMake
 variable :makevar:`DTC_OVERLAY_FILE` contains a space- or semicolon-separated
 list of overlay files to use. If :makevar:`DTC_OVERLAY_FILE` specifies multiple
-files, they are included in that order by the C preprocessor.
+files, they are included in that order by the C preprocessor.  A file in a
+Zephyr module can be referred to by escaping the Zephyr module dir variable
+like ``\${ZEPHYR_<module>_MODULE_DIR}/<path-to>/dts.overlay``
+when setting the DTC_OVERLAY_FILE variable.
 
 You can set :makevar:`DTC_OVERLAY_FILE` to contain exactly the files you want
 to use. Here is an :ref:`example <west-building-dtc-overlay-file>` using
-``using west build``.
+``west build``.
 
 If you don't set :makevar:`DTC_OVERLAY_FILE`, the build system will follow
-these steps, looking for files in your application source directory to use
-as devicetree overlays:
+these steps, looking for files in your application configuration directory to
+use as devicetree overlays:
 
-#. If the file :file:`boards/<BOARD>.overlay` exists, it will be used.
+#. If the file :file:`socs/<SOC>_<BOARD_QUALIFIERS>.overlay` exists, it will be used.
+#. If the file :file:`boards/<BOARD>.overlay` exists, it will be used in addition to the above.
 #. If the current board has :ref:`multiple revisions <porting_board_revisions>`
-   and :file:`boards/<BOARD>_<revision>.overlay` exists, it will be used.
-   This file will be used in addition to :file:`boards/<BOARD>.overlay`
-   if both exist.
+   and :file:`boards/<BOARD>_<revision>.overlay` exists, it will be used in addition to the above.
 #. If one or more files have been found in the previous steps, the build system
    stops looking and just uses those files.
 #. Otherwise, if :file:`<BOARD>.overlay` exists, it will be used, and the build
    system will stop looking for more files.
 #. Otherwise, if :file:`app.overlay` exists, it will be used.
+
+Extra devicetree overlays may be provided using ``EXTRA_DTC_OVERLAY_FILE`` which
+will still allow the build system to automatically use devicetree overlays
+described in the above steps.
+
+The build system appends overlays specified in ``EXTRA_DTC_OVERLAY_FILE``
+to the overlays in ``DTC_OVERLAY_FILE`` when processing devicetree overlays.
+This means that changes made via ``EXTRA_DTC_OVERLAY_FILE`` have higher
+precedence than those made via ``DTC_OVERLAY_FILE``.
+
+All configuration files will be taken from the application's configuration
+directory except for files with an absolute path that are given with the
+``DTC_OVERLAY_FILE`` or ``EXTRA_DTC_OVERLAY_FILE`` argument.
+
+See :ref:`Application Configuration Directory <application-configuration-directory>`
+on how the application configuration directory is defined.
 
 Using :ref:`shields` will also add devicetree overlay files.
 
@@ -283,6 +300,7 @@ For example, if your BOARD.dts contains this node:
 These are equivalent ways to override the ``current-speed`` value in an
 overlay:
 
+.. Disable syntax highlighting as this construct does not seem supported by pygments
 .. code-block:: none
 
    /* Option 1 */
@@ -300,7 +318,7 @@ We'll use the ``&serial0`` style for the rest of these examples.
 You can add aliases to your devicetree using overlays: an alias is just a
 property of the ``/aliases`` node. For example:
 
-.. code-block:: none
+.. code-block:: devicetree
 
    / {
    	aliases {
@@ -310,7 +328,7 @@ property of the ``/aliases`` node. For example:
 
 Chosen nodes work the same way. For example:
 
-.. code-block:: none
+.. code-block:: devicetree
 
    / {
    	chosen {
@@ -321,7 +339,7 @@ Chosen nodes work the same way. For example:
 To delete a property (in addition to deleting properties in general, this is
 how to set a boolean property to false if it's true in BOARD.dts):
 
-.. code-block:: none
+.. code-block:: devicetree
 
    &serial0 {
    	/delete-property/ some-unwanted-property;
@@ -330,7 +348,7 @@ how to set a boolean property to false if it's true in BOARD.dts):
 You can add subnodes using overlays. For example, to configure a SPI or I2C
 child device on an existing bus node, do something like this:
 
-.. code-block:: none
+.. code-block:: devicetree
 
    /* SPI device example */
    &spi1 {
@@ -614,6 +632,6 @@ Applications that depend on board-specific devices
 
 One way to allow application code to run unmodified on multiple boards is by
 supporting a devicetree alias to specify the hardware specific portions, as is
-done in the :ref:`blinky-sample`. The application can then be configured in
+done in the :zephyr:code-sample:`blinky` sample. The application can then be configured in
 :ref:`BOARD.dts <devicetree-in-out-files>` files or via :ref:`devicetree
 overlays <use-dt-overlays>`.

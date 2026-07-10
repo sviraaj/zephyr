@@ -463,10 +463,8 @@ static void gptp_mi_pss_store_last_pss(int port)
 	struct gptp_pss_send_state *state;
 	struct gptp_mi_port_sync_sync *pss_ptr;
 	struct gptp_md_sync_info *sync_info;
-	struct gptp_port_ds *port_ds;
 
 	state = &GPTP_PORT_STATE(port)->pss_send;
-	port_ds = GPTP_PORT_DS(port);
 	pss_ptr = state->pss_sync_ptr;
 	sync_info = &pss_ptr->sync_info;
 
@@ -489,11 +487,9 @@ static void gptp_mi_pss_send_md_sync_send(int port)
 {
 	struct gptp_pss_send_state *state;
 	struct gptp_mi_port_sync_sync *pss_ptr;
-	struct gptp_port_ds *port_ds;
 	struct gptp_sync_send_state *sync_send;
 
 	state = &GPTP_PORT_STATE(port)->pss_send;
-	port_ds = GPTP_PORT_DS(port);
 	pss_ptr = state->pss_sync_ptr;
 	sync_send = &GPTP_PORT_STATE(port)->sync_send;
 
@@ -563,6 +559,15 @@ static void gptp_mi_pss_send_state_machine(int port)
 		/* Start 0.5 * syncInterval timeout timer. */
 		k_timer_start(&state->half_sync_itv_timer, duration,
 			      K_NO_WAIT);
+
+		/* sourcePortIdentity is set to the portIdentity of this
+		 * PTP Port (see ch. 10.2.12.2.1 and ch 8.5.2).
+		 */
+		memcpy(&state->pss_sync_ptr->sync_info.src_port_id.clk_id,
+			GPTP_DEFAULT_DS()->clk_id,
+			GPTP_CLOCK_ID_LEN);
+		state->pss_sync_ptr->sync_info.src_port_id.port_number = port;
+
 
 		gptp_mi_pss_send_md_sync_send(port);
 
@@ -744,7 +749,7 @@ static void gptp_update_local_port_clock(void)
 	int64_t second_diff;
 	const struct device *clk;
 	struct net_ptp_time tm;
-	int key;
+	unsigned int key;
 
 	state = &GPTP_STATE()->clk_slave_sync;
 	global_ds = GPTP_GLOBAL_DS();
@@ -955,12 +960,17 @@ static void gptp_mi_set_ps_sync_cmss(void)
 	sync_info->precise_orig_ts.second = current_time / NSEC_PER_SEC;
 	sync_info->precise_orig_ts.nanosecond = current_time % NSEC_PER_SEC;
 
-	/* TODO calculate correction field properly, rate_ratio is also set to
-	 * zero instead of being copied from global_ds as it affects the final
-	 * value of FUP correction field.
+	/* TODO calculate rate ratio and correction field properly.
+	 * Whenever time aware system is the grand master clock, we currently
+	 * make the following shortcuts:
+	 * - assuming that clock source is the local clock,
+	 *   rate_ratio is set to 1.0 instead of being copied from global_ds.
+	 * - considering that precise origin timestamp is directly inherited
+	 *   from sync egress timestamp in gptp_md_follow_up_prepare(),
+	 *   follow_up_correction_field is set to 0.
 	 */
 	sync_info->follow_up_correction_field = 0;
-	sync_info->rate_ratio = 0;
+	sync_info->rate_ratio = 1.0;
 
 	memcpy(&sync_info->src_port_id.clk_id,
 	       GPTP_DEFAULT_DS()->clk_id,
@@ -1001,11 +1011,9 @@ static inline void gptp_mi_tx_ps_sync_cmss(void)
 static void gptp_mi_clk_master_sync_snd_state_machine(void)
 {
 	struct gptp_clk_master_sync_snd_state *state;
-	struct gptp_global_ds *global_ds;
 	uint64_t current_time;
 
 	state = &GPTP_STATE()->clk_master_sync_send;
-	global_ds = GPTP_GLOBAL_DS();
 
 	switch (state->state) {
 	case GPTP_CMS_SND_INITIALIZING:
@@ -1312,10 +1320,8 @@ static enum gptp_received_info compare_priority_vectors(
 {
 	struct gptp_hdr *hdr;
 	struct gptp_announce *announce;
-	struct gptp_port_bmca_data *bmca_data;
 	int rsi_cmp, spi_cmp, port_cmp;
 
-	bmca_data = GPTP_PORT_BMCA_DATA(port);
 	hdr = GPTP_HDR(pkt);
 	announce = GPTP_ANNOUNCE(pkt);
 
@@ -1709,7 +1715,7 @@ static int compute_best_vector(void)
 		}
 
 		global_ds->gm_priority.steps_removed =
-			htons(ntohs(best_vector->steps_removed) + 1);
+			ntohs(best_vector->steps_removed) + 1;
 
 		if (&global_ds->gm_priority.src_port_id !=
 		    &best_vector->src_port_id) {
@@ -2013,7 +2019,22 @@ void gptp_mi_state_machines(void)
 	gptp_mi_port_role_selection_state_machine();
 	gptp_mi_clk_master_sync_offset_state_machine();
 #if defined(CONFIG_NET_GPTP_GM_CAPABLE)
-	gptp_mi_clk_master_sync_snd_state_machine();
+	/*
+	 * Only call ClockMasterSyncSend state machine in case a Grand Master clock
+	 * is present and is this time aware system.
+	 * This check is not described by IEEE802.1AS. Instead, according to
+	 * 10.2.9.3, the SiteSyncSync state machine shall not take into account
+	 * information from ClockMasterSyncSend in case this time aware system is
+	 * not grand-master capable. Current implementation of ClockMasterSyncSend
+	 * state machine send sync indication to the PortSync entities, instead of
+	 * sending it to the SiteSyncSync entity. And the SiteSyncSync state machine
+	 * does not make sanity check.
+	 */
+	if (memcmp(GPTP_GLOBAL_DS()->gm_priority.root_system_id.grand_master_id,
+			   GPTP_DEFAULT_DS()->clk_id, GPTP_CLOCK_ID_LEN) == 0 &&
+			   GPTP_GLOBAL_DS()->gm_present) {
+		gptp_mi_clk_master_sync_snd_state_machine();
+	}
 #endif
 	gptp_mi_clk_master_sync_rcv_state_machine();
 }

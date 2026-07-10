@@ -6,11 +6,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/linker/sections.h>
 #include <zephyr/pm/device.h>
-#include <ztest.h>
-#include <zephyr/random/rand32.h>
+#include <zephyr/ztest.h>
+#include <zephyr/random/random.h>
 
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/dummy.h>
@@ -66,7 +66,7 @@ static uint8_t *fake_dev_get_mac(struct fake_dev_context *ctx)
 		ctx->mac_addr[2] = 0x5E;
 		ctx->mac_addr[3] = 0x00;
 		ctx->mac_addr[4] = 0x53;
-		ctx->mac_addr[5] = sys_rand32_get();
+		ctx->mac_addr[5] = sys_rand8_get();
 	}
 
 	return ctx->mac_addr;
@@ -83,13 +83,6 @@ static void fake_dev_iface_init(struct net_if *iface)
 	ctx->iface = iface;
 }
 
-int fake_dev_init(const struct device *dev)
-{
-	ARG_UNUSED(dev);
-
-	return 0;
-}
-
 struct fake_dev_context fake_dev_context_data;
 
 static struct dummy_api fake_dev_if_api = {
@@ -103,12 +96,12 @@ static struct dummy_api fake_dev_if_api = {
 PM_DEVICE_DEFINE(fake_dev, fake_dev_pm_action);
 
 NET_DEVICE_INIT(fake_dev, "fake_dev",
-		fake_dev_init, PM_DEVICE_GET(fake_dev),
+		NULL, PM_DEVICE_GET(fake_dev),
 		&fake_dev_context_data, NULL,
 		CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
 		&fake_dev_if_api, _ETH_L2_LAYER, _ETH_L2_CTX_TYPE, 127);
 
-void test_setup(void)
+void *test_setup(void)
 {
 	struct net_if *iface;
 	struct in_addr in4addr_my = { { { 192, 168, 0, 2 } } };
@@ -120,9 +113,10 @@ void test_setup(void)
 
 	ifaddr = net_if_ipv4_addr_add(iface, &in4addr_my, NET_ADDR_MANUAL, 0);
 	zassert_not_null(ifaddr, "Could not add iface address");
+	return NULL;
 }
 
-void test_pm(void)
+ZTEST(test_net_pm_test_suite, test_pm)
 {
 	struct net_if *iface =
 		net_if_get_first_by_type(&NET_L2_GET_NAME(DUMMY));
@@ -134,16 +128,16 @@ void test_pm(void)
 
 	addr4.sin_family = AF_INET;
 	addr4.sin_port = htons(12345);
-	inet_pton(AF_INET, "192.168.0.1", &addr4.sin_addr);
+	zsock_inet_pton(AF_INET, "192.168.0.1", &addr4.sin_addr);
 
-	sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	sock = zsock_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	zassert_true(sock >= 0, "Could not open socket");
 
 	zassert_false(net_if_is_suspended(iface), "net iface is not suspended");
 
 	/* Let's send some data, it should go through */
-	ret = sendto(sock, data, ARRAY_SIZE(data), 0,
-		     (struct sockaddr *)&addr4, sizeof(struct sockaddr_in));
+	ret = zsock_sendto(sock, data, ARRAY_SIZE(data), 0,
+			   (struct sockaddr *)&addr4, sizeof(struct sockaddr_in));
 	zassert_true(ret > 0, "Could not send data");
 
 	/* Let's make sure net stack's thread gets ran, or setting PM state
@@ -163,8 +157,8 @@ void test_pm(void)
 	zassert_true(net_if_is_suspended(iface), "net iface is not suspended");
 
 	/* Let's send some data, it should fail relevantly */
-	ret = sendto(sock, data, ARRAY_SIZE(data), 0,
-		     (struct sockaddr *)&addr4, sizeof(struct sockaddr_in));
+	ret = zsock_sendto(sock, data, ARRAY_SIZE(data), 0,
+			   (struct sockaddr *)&addr4, sizeof(struct sockaddr_in));
 	zassert_true(ret < 0, "Could send data");
 
 	ret = pm_device_action_run(dev, PM_DEVICE_ACTION_RESUME);
@@ -176,17 +170,11 @@ void test_pm(void)
 	zassert_true(ret == -EALREADY, "Could change state");
 
 	/* Let's send some data, it should go through */
-	ret = sendto(sock, data, ARRAY_SIZE(data), 0,
-		     (struct sockaddr *)&addr4, sizeof(struct sockaddr_in));
+	ret = zsock_sendto(sock, data, ARRAY_SIZE(data), 0,
+			   (struct sockaddr *)&addr4, sizeof(struct sockaddr_in));
 	zassert_true(ret > 0, "Could not send data");
 
-	close(sock);
+	zsock_close(sock);
 }
 
-void test_main(void)
-{
-	ztest_test_suite(test_net_pm,
-			 ztest_unit_test(test_setup),
-			 ztest_unit_test(test_pm));
-	ztest_run_test_suite(test_net_pm);
-}
+ZTEST_SUITE(test_net_pm_test_suite, NULL, test_setup, NULL, NULL, NULL);

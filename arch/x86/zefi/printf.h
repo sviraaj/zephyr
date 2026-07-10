@@ -5,6 +5,7 @@
  */
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 /* Tiny, but not-as-primitive-as-it-looks implementation of something
  * like s/n/printf().  Handles %d, %x, %p, %c and %s only, allows a
@@ -24,7 +25,7 @@ static void (*z_putchar)(int c);
 
 static void pc(struct _pfr *r, int c)
 {
-	if (r->buf) {
+	if (r->buf != NULL) {
 		if (r->idx <= r->len) {
 			r->buf[r->idx] = c;
 		}
@@ -44,14 +45,18 @@ static void prdec(struct _pfr *r, long v)
 	char digs[11 * sizeof(long)/4];
 	int i = sizeof(digs) - 1;
 
-	digs[i--] = 0;
+	digs[i] = 0;
+	--i;
 	while (v || i == 9) {
-		digs[i--] = '0' + (v % 10);
+		digs[i] = '0' + (v % 10);
+		--i;
 		v /= 10;
 	}
 
-	while (digs[++i]) {
+	++i;
+	while (digs[i] != '\0') {
 		pc(r, digs[i]);
+		++i;
 	}
 }
 
@@ -64,7 +69,7 @@ static void endrec(struct _pfr *r)
 
 static int vpf(struct _pfr *r, const char *f, va_list ap)
 {
-	for (/**/; *f; f++) {
+	for (/**/; *f != '\0'; f++) {
 		bool islong = false;
 
 		if (*f != '%') {
@@ -100,8 +105,10 @@ static int vpf(struct _pfr *r, const char *f, va_list ap)
 		case 's': {
 			char *s = va_arg(ap, char *);
 
-			while (*s)
-				pc(r, *s++);
+			while (*s != '\0') {
+				pc(r, *s);
+				++s;
+			}
 			break;
 		}
 		case 'p':
@@ -116,8 +123,9 @@ static int vpf(struct _pfr *r, const char *f, va_list ap)
 				int d = (v >> (i*4)) & 0xf;
 
 				sig += !!d;
-				if (sig || i == 0)
+				if (sig || i == 0) {
 					pc(r, "0123456789abcdef"[d]);
+				}
 			}
 			break;
 		}
@@ -141,7 +149,7 @@ static int vpf(struct _pfr *r, const char *f, va_list ap)
 
 static inline int snprintf(char *buf, unsigned long len, const char *f, ...)
 {
-	int ret = 0;
+	int ret;
 	struct _pfr r = { .buf = buf, .len = len };
 
 	CALL_VPF(&r);
@@ -150,7 +158,7 @@ static inline int snprintf(char *buf, unsigned long len, const char *f, ...)
 
 static inline int sprintf(char *buf, const char *f, ...)
 {
-	int ret = 0;
+	int ret;
 	struct _pfr r = { .buf = buf, .len = 0x7fffffff };
 
 	CALL_VPF(&r);
@@ -159,7 +167,7 @@ static inline int sprintf(char *buf, const char *f, ...)
 
 static inline int printf(const char *f, ...)
 {
-	int ret = 0;
+	int ret;
 	struct _pfr r = {0};
 
 	CALL_VPF(&r);

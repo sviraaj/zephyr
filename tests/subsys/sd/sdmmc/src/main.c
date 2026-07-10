@@ -4,17 +4,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sd/sdmmc.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/disk.h>
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 
 #define SECTOR_COUNT 32
 #define SECTOR_SIZE 512 /* subsystem should set all cards to 512 byte blocks */
 #define BUF_SIZE SECTOR_SIZE * SECTOR_COUNT
-const struct device *sdhc_dev;
+static const struct device *const sdhc_dev = DEVICE_DT_GET(DT_ALIAS(sdhc0));
 static struct sd_card card;
 static uint8_t buf[BUF_SIZE] __aligned(CONFIG_SDHC_BUFFER_ALIGNMENT);
 static uint8_t check_buf[BUF_SIZE] __aligned(CONFIG_SDHC_BUFFER_ALIGNMENT);
@@ -24,13 +24,15 @@ static uint32_t sector_count;
 #define SDMMC_UNALIGN_OFFSET 1
 
 
-/* Verify that SD stack can initialize an SD card */
-static void test_init(void)
+/*
+ * Verify that SD stack can initialize an SD card
+ * This test must run first, to ensure the card is initialized.
+ */
+ZTEST(sd_stack, test_0_init)
 {
 	int ret;
 
-	sdhc_dev = device_get_binding(CONFIG_SDHC_LABEL);
-	zassert_not_null(sdhc_dev, "Could not get SD host controller dev");
+	zassert_true(device_is_ready(sdhc_dev), "SDHC device is not ready");
 
 	ret = sd_is_card_present(sdhc_dev);
 	zassert_equal(ret, 1, "SD card not present in slot");
@@ -40,7 +42,7 @@ static void test_init(void)
 }
 
 /* Verify that SD stack returns valid IOCTL values */
-static void test_ioctl(void)
+ZTEST(sd_stack, test_ioctl)
 {
 	int ret;
 
@@ -55,7 +57,7 @@ static void test_ioctl(void)
 
 
 /* Verify that SD stack can read from an SD card */
-static void test_read(void)
+ZTEST(sd_stack, test_read)
 {
 	int ret;
 	int block_addr = 0;
@@ -91,7 +93,7 @@ static void test_read(void)
 }
 
 /* Verify that SD stack can write to an SD card */
-static void test_write(void)
+ZTEST(sd_stack, test_write)
 {
 	int ret;
 	int block_addr = 0;
@@ -127,7 +129,7 @@ static void test_write(void)
 }
 
 /* Test reads and writes interleaved, to verify data is making it on disk */
-static void test_rw(void)
+ZTEST(sd_stack, test_rw)
 {
 	int ret;
 	int block_addr = 0;
@@ -177,7 +179,7 @@ static void test_rw(void)
 }
 
 /* Simply dump the card configuration. */
-void test_card_config(void)
+ZTEST(sd_stack, test_card_config)
 {
 	switch (card.card_voltage) {
 	case SD_VOL_1_2_V:
@@ -198,23 +200,41 @@ void test_card_config(void)
 	zassert_equal(card.status, CARD_INITIALIZED, "Card status is not OK");
 	switch (card.card_speed) {
 	case SD_TIMING_SDR12:
-		TC_PRINT("Card timing: SDR12\n");
+		if (card.flags & SD_1800MV_FLAG) {
+			TC_PRINT("Card timing: SDR12\n");
+		} else {
+			/* Card uses non UHS mode timing */
+			TC_PRINT("Card timing: Legacy\n");
+		}
 		break;
 	case SD_TIMING_SDR25:
-		TC_PRINT("Card timing: SDR25\n");
+		if (card.flags & SD_1800MV_FLAG) {
+			TC_PRINT("Card timing: SDR25\n");
+		} else {
+			/* Card uses non UHS mode timing */
+			TC_PRINT("Card timing: High Speed\n");
+		}
 		break;
 	case SD_TIMING_SDR50:
 		TC_PRINT("Card timing: SDR50\n");
+		zassert_true(card.flags & SD_1800MV_FLAG,
+			     "Card must support UHS mode for this timing");
 		break;
 	case SD_TIMING_SDR104:
 		TC_PRINT("Card timing: SDR104\n");
+		zassert_true(card.flags & SD_1800MV_FLAG,
+			     "Card must support UHS mode for this timing");
 		break;
 	case SD_TIMING_DDR50:
 		TC_PRINT("Card timing: DDR50\n");
+		zassert_true(card.flags & SD_1800MV_FLAG,
+			     "Card must support UHS mode for this timing");
 		break;
 	default:
 		zassert_unreachable("Card timing is not known value");
 	}
+	zassert_not_equal(card.bus_io.clock, 0, "Bus should have nonzero clock");
+	TC_PRINT("Bus Frequency: %d Hz\n", card.bus_io.clock);
 	switch (card.type) {
 	case CARD_SDIO:
 		TC_PRINT("Card type: SDIO\n");
@@ -241,17 +261,4 @@ void test_card_config(void)
 	}
 }
 
-
-void test_main(void)
-{
-	ztest_test_suite(sd_stack_test,
-		ztest_unit_test(test_init),
-		ztest_unit_test(test_ioctl),
-		ztest_unit_test(test_read),
-		ztest_unit_test(test_write),
-		ztest_unit_test(test_rw),
-		ztest_unit_test(test_card_config)
-	);
-
-	ztest_run_test_suite(sd_stack_test);
-}
+ZTEST_SUITE(sd_stack, NULL, NULL, NULL, NULL, NULL);

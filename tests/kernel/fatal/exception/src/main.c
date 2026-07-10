@@ -4,18 +4,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
-#include <ztest.h>
-#include <tc_util.h>
+#include <zephyr/kernel.h>
+#include <zephyr/ztest.h>
+#include <zephyr/tc_util.h>
 #include <zephyr/kernel_structs.h>
 #include <zephyr/irq_offload.h>
 #include <kswap.h>
 #include <assert.h>
 
 #if defined(CONFIG_USERSPACE)
-#include <zephyr/sys/mem_manage.h>
-#include <zephyr/syscall_handler.h>
+#include <zephyr/kernel/mm.h>
+#include <zephyr/internal/syscall_handler.h>
 #include "test_syscalls.h"
+#endif
+
+#if defined(CONFIG_DEMAND_PAGING)
+#include <zephyr/kernel/mm/demand_paging.h>
 #endif
 
 #if defined(CONFIG_X86) && defined(CONFIG_X86_MMU)
@@ -46,23 +50,26 @@ volatile int rv;
 
 static ZTEST_DMEM volatile int expected_reason = -1;
 
-void k_sys_fatal_error_handler(unsigned int reason, const z_arch_esf_t *pEsf)
+void k_sys_fatal_error_handler(unsigned int reason, const struct arch_esf *pEsf)
 {
 	TC_PRINT("Caught system error -- reason %d\n", reason);
 
 	if (expected_reason == -1) {
 		printk("Was not expecting a crash\n");
+		TC_END_REPORT(TC_FAIL);
 		k_fatal_halt(reason);
 	}
 
 	if (k_current_get() != &alt_thread) {
 		printk("Wrong thread crashed\n");
+		TC_END_REPORT(TC_FAIL);
 		k_fatal_halt(reason);
 	}
 
 	if (reason != expected_reason) {
 		printk("Wrong crash type got %d expected %d\n", reason,
 		       expected_reason);
+		TC_END_REPORT(TC_FAIL);
 		k_fatal_halt(reason);
 	}
 
@@ -79,9 +86,12 @@ void entry_cpu_exception(void *p1, void *p2, void *p3)
 	__asm__ volatile ("trap");
 #elif defined(CONFIG_ARC)
 	__asm__ volatile ("swi");
+#elif defined(CONFIG_RISCV)
+	/* Illegal instruction on RISCV. */
+	__asm__ volatile (".word 0x77777777");
 #else
-	/* Triggers usage fault on ARM, illegal instruction on RISCV
-	 * and xtensa, TLB exception (instruction fetch) on MIPS.
+	/* Triggers usage fault on ARM, illegal instruction on
+	 * xtensa, TLB exception (instruction fetch) on MIPS.
 	 */
 	{
 		volatile long illegal = 0;
@@ -181,10 +191,21 @@ __no_optimization void blow_up_stack(void)
 #else
 /* stack sentinel doesn't catch it in time before it trashes the entire kernel
  */
+
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Winfinite-recursion"
+#endif
+
 __no_optimization int stack_smasher(int val)
 {
 	return stack_smasher(val * 2) + stack_smasher(val * 3);
 }
+
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 void blow_up_stack(void)
 {
@@ -204,7 +225,7 @@ static inline void z_vrfy_blow_up_priv_stack(void)
 {
 	z_impl_blow_up_priv_stack();
 }
-#include <syscalls/blow_up_priv_stack_mrsh.c>
+#include <zephyr/syscalls/blow_up_priv_stack_mrsh.c>
 
 #endif /* CONFIG_USERSPACE */
 #endif /* CONFIG_STACK_SENTINEL */
@@ -284,7 +305,7 @@ void check_stack_overflow(k_thread_entry_t handler, uint32_t flags)
  *
  * @ingroup kernel_common_tests
  */
-void test_fatal(void)
+ZTEST(fatal_exception, test_fatal)
 {
 	rv = TC_PASS;
 
@@ -426,8 +447,7 @@ void test_fatal(void)
 #endif /* !CONFIG_ARCH_POSIX */
 }
 
-/*test case main entry*/
-void test_main(void)
+static void *fatal_setup(void)
 {
 #if defined(CONFIG_DEMAND_PAGING) && \
 	!defined(CONFIG_LINKER_GENERIC_SECTIONS_PRESENT_AT_BOOT)
@@ -445,7 +465,7 @@ void test_main(void)
 
 	obj_size = K_THREAD_STACK_SIZEOF(overflow_stack);
 #if defined(CONFIG_USERSPACE)
-	obj_size = Z_THREAD_STACK_SIZE_ADJUST(obj_size);
+	obj_size = K_THREAD_STACK_LEN(obj_size);
 #endif
 
 	k_mem_region_align(&pin_addr, &pin_size,
@@ -457,7 +477,7 @@ void test_main(void)
 
 	obj_size = K_THREAD_STACK_SIZEOF(alt_stack);
 #if defined(CONFIG_USERSPACE)
-	obj_size = Z_THREAD_STACK_SIZE_ADJUST(obj_size);
+	obj_size = K_THREAD_STACK_LEN(obj_size);
 #endif
 
 	k_mem_region_align(&pin_addr, &pin_size,
@@ -477,7 +497,7 @@ void test_main(void)
 	* && !CONFIG_LINKER_GENERIC_SECTIONS_PRESENT_AT_BOOT
 	*/
 
-	ztest_test_suite(fatal,
-			ztest_unit_test(test_fatal));
-	ztest_run_test_suite(fatal);
+	return NULL;
 }
+
+ZTEST_SUITE(fatal_exception, NULL, fatal_setup, NULL, NULL, NULL);

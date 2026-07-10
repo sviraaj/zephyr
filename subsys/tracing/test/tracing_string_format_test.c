@@ -6,7 +6,7 @@
 
 #define DISABLE_SYSCALL_TRACING
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <tracing_test.h>
 #include <tracing_test_syscall.h>
 #include <zephyr/tracing/tracing_format.h>
@@ -316,7 +316,8 @@ void sys_trace_k_thread_sched_set_priority(struct k_thread *thread, int prio)
 void sys_trace_k_timer_start(struct k_timer *timer, k_timeout_t duration,
 			     k_timeout_t period)
 {
-	TRACING_STRING("%s: %p, duration: %d, period: %d\n", __func__, timer, duration, period);
+	TRACING_STRING("%s: %p, duration: %d, period: %d\n", __func__, timer,
+		(uint32_t)duration.ticks, (uint32_t)period.ticks);
 }
 
 void sys_trace_k_timer_init(struct k_timer *timer, k_timer_expiry_t expiry_fn,
@@ -356,6 +357,16 @@ void sys_trace_k_heap_alloc_enter(struct k_heap *h, size_t bytes, k_timeout_t ti
 }
 
 void sys_trace_k_heap_free(struct k_heap *h, void *mem)
+{
+	TRACING_STRING("%s: %p\n", __func__, h);
+}
+
+void sys_trace_k_heap_realloc_enter(struct k_heap *h, void *ptr, size_t bytes, k_timeout_t timeout)
+{
+	TRACING_STRING("%s: %p\n", __func__, h);
+}
+void sys_trace_k_heap_realloc_exit(struct k_heap *h, void *ptr, size_t bytes, k_timeout_t timeout,
+				   void *ret)
 {
 	TRACING_STRING("%s: %p\n", __func__, h);
 }
@@ -473,12 +484,12 @@ void sys_trace_k_mem_slab_alloc_exit(struct k_mem_slab *slab, void **mem, k_time
 	TRACING_STRING("%s: %p\n", __func__, slab);
 }
 
-void sys_trace_k_mem_slab_free_enter(struct k_mem_slab *slab, void **mem)
+void sys_trace_k_mem_slab_free_enter(struct k_mem_slab *slab, void *mem)
 {
 	TRACING_STRING("%s: %p\n", __func__, slab);
 }
 
-void sys_trace_k_mem_slab_free_exit(struct k_mem_slab *slab, void **mem)
+void sys_trace_k_mem_slab_free_exit(struct k_mem_slab *slab, void *mem)
 {
 	TRACING_STRING("%s: %p\n", __func__, slab);
 }

@@ -6,21 +6,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel.h>
-#include <drivers/sensor.h>
-#include <init.h>
-#include <drivers/gpio.h>
-#include <sys/byteorder.h>
-#include <sys/__assert.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/sensor.h>
+#include <zephyr/init.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/__assert.h>
 
 #define DT_DRV_COMPAT ti_hdc2080
 
 #define HDC2080_BUS_I2C DT_ANY_INST_ON_BUS_STATUS_OKAY(i2c)
 
 #if HDC2080_BUS_I2C
-#include <drivers/i2c.h>
+#include <zephyr/drivers/i2c.h>
 #endif
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 
 #include "hdc2080.h"
 

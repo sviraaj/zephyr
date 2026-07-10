@@ -13,14 +13,14 @@ extern "C" {
 
 #include <sys/types.h>
 #include <string.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/net/net_pkt.h>
 
 #define tp_dbg(fmt, args...) printk("%s: " fmt "\n", __func__, ## args)
 #define tp_err(fmt, args...) do {				\
 	printk("%s: Error: " fmt "\n", __func__, ## args);	\
 	k_oops();						\
-} while (0)
+} while (false)
 
 #define tp_assert(cond, fmt, args...) do {			\
 	if ((cond) == false) {					\
@@ -28,7 +28,7 @@ extern "C" {
 			__func__, #cond, ## args);		\
 		k_oops();					\
 	}							\
-} while (0)
+} while (false)
 
 #define is(_a, _b) (strcmp((_a), (_b)) == 0)
 #define ip_get(_x) ((struct net_ipv4_hdr *) net_pkt_ip_data((_x)))

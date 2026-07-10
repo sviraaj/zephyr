@@ -18,8 +18,8 @@ config MODEM_QUECTEL_BG95_NAME
 	default "MODEM_QUECTEL_BG95"
 
 config MODEM_QUECTEL_EG95
-    bool "EG95 driver"
-    default n
+	bool "EG95 driver"
+	default n
 
 config MODEM_QUECTEL_BG95_RX_STACK_SIZE
 	int "Stack size for the bg95 rda modem driver RX thread"
@@ -58,10 +58,10 @@ config MODEM_SOCKET_MAX_HST_LEN
 
 config MODEM_MAXIMUM_TR_RC_SIZE
 	int "Maximum uart send or recv buf"
-    default 4096
-    help
-        This setting indicated the maximum buffer size used for transmit
-        and receive buffers in HTTP tranfers.
+	default 4096
+	help
+	  This setting indicated the maximum buffer size used for transmit
+	  and receive buffers in HTTP tranfers.
 
 config MODEM_QUECTEL_BG95_APN
 	string "APN for establishing network connection"

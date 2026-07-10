@@ -6,6 +6,8 @@
 menuconfig LORAWAN
 	bool "LoRaWAN support [EXPERIMENTAL]"
 	depends on LORA
+	depends on SYSTEM_WORKQUEUE_STACK_SIZE >= 2048
+	select REQUIRES_FULL_LIBC
 	select HAS_SEMTECH_LORAMAC
 	select HAS_SEMTECH_SOFT_SE
 	select EXPERIMENTAL
@@ -18,6 +20,16 @@ module = LORAWAN
 module-str = lorawan
 source "subsys/logging/Kconfig.template.log_config"
 
+config LORAWAN_EMUL
+	bool "LoRaWAN Emulator"
+	help
+	  The emulator can be used for unit testing of LoRaWAN services.
+	  It provides interfaces to send arbitrary messages to the LoRaWAN
+	  stack and receive the response through callbacks without using
+	  actual LoRa hardware.
+
+	  See include/zephyr/lorawan/emul.h for the emulator API.
+
 config LORAWAN_SYSTEM_MAX_RX_ERROR
 	int "LoRaWAN System Max Rx Error"
 	default 20
@@ -25,14 +37,12 @@ config LORAWAN_SYSTEM_MAX_RX_ERROR
 	  System Max Rx timing error value in ms to be used by LoRaWAN stack
 	  for calculating the RX1/RX2 window timing.
 
-choice LORAMAC_REGION
-	prompt "LoRaWAN Region Selection"
-	default LORAMAC_REGION_UNKNOWN
+config LORAWAN_PUBLIC_NETWORK
+	bool "LoRaWAN Public Network"
+	default y
 	help
-	  Select the LoRaWAN region.
-
-config LORAMAC_REGION_UNKNOWN
-	bool "Unknown region"
+	  Enable this option to use a public LoRaWAN network.
+	  Disable for private LoRaWAN networks.
 
 config LORAMAC_REGION_AS923
 	bool "Asia 923MHz Frequency band"
@@ -64,8 +74,8 @@ config LORAMAC_REGION_US915
 config LORAMAC_REGION_RU864
 	bool "Russia 864MHz Frequency band"
 
-endchoice
-
 rsource "nvm/Kconfig"
+
+rsource "services/Kconfig"
 
 endif # LORAWAN

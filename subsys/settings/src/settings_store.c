@@ -13,7 +13,7 @@
 #include <sys/types.h>
 #include <errno.h>
 #include <zephyr/kernel.h>
-
+#include <zephyr/sys/iterable_sections.h>
 #include <zephyr/settings/settings.h>
 #include "settings_priv.h"
 
@@ -117,6 +117,11 @@ int settings_delete(const char *name)
 
 int settings_save(void)
 {
+	return settings_save_subtree(NULL);
+}
+
+int settings_save_subtree(const char *subtree)
+{
 	struct settings_store *cs;
 	int rc;
 	int rc2;
@@ -132,6 +137,9 @@ int settings_save(void)
 	rc = 0;
 
 	STRUCT_SECTION_FOREACH(settings_handler_static, ch) {
+		if (subtree && !settings_name_steq(ch->name, subtree, NULL)) {
+			continue;
+		}
 		if (ch->h_export) {
 			rc2 = ch->h_export(settings_save_one);
 			if (!rc) {
@@ -143,6 +151,9 @@ int settings_save(void)
 #if defined(CONFIG_SETTINGS_DYNAMIC_HANDLERS)
 	struct settings_handler *ch;
 	SYS_SLIST_FOR_EACH_CONTAINER(&settings_handlers, ch, node) {
+		if (subtree && !settings_name_steq(ch->name, subtree, NULL)) {
+			continue;
+		}
 		if (ch->h_export) {
 			rc2 = ch->h_export(settings_save_one);
 			if (!rc) {
@@ -156,6 +167,21 @@ int settings_save(void)
 		cs->cs_itf->csi_save_end(cs);
 	}
 	return rc;
+}
+
+int settings_storage_get(void **storage)
+{
+	struct settings_store *cs = settings_save_dst;
+
+	if (!cs) {
+		return -ENOENT;
+	}
+
+	if (cs->cs_itf->csi_storage_get) {
+		*storage = cs->cs_itf->csi_storage_get(cs);
+	}
+
+	return 0;
 }
 
 void settings_store_init(void)

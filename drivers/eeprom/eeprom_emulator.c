@@ -59,7 +59,7 @@
 
 #include <zephyr/drivers/eeprom.h>
 #include <zephyr/drivers/flash.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #define LOG_LEVEL CONFIG_EEPROM_LOG_LEVEL
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(eeprom_emulator);
@@ -550,7 +550,7 @@ static int eeprom_emu_read(const struct device *dev, off_t address, void *data,
 	}
 
 	/* Handle normal case */
-	LOG_DBG("EEPROM read at [0x%tx] length[%d]", (ptrdiff_t)address, len);
+	LOG_DBG("EEPROM read at [0x%tx] length[%zu]", (ptrdiff_t)address, len);
 	k_mutex_lock(&dev_data->lock, K_FOREVER);
 
 	/* read from rambuffer if possible */
@@ -606,7 +606,7 @@ static int eeprom_emu_write(const struct device *dev, off_t address,
 	}
 
 	/* Handle normal case */
-	LOG_DBG("EEPROM write at [0x%tx] length[%d]", (ptrdiff_t)address, len);
+	LOG_DBG("EEPROM write at [0x%tx] length[%zu]", (ptrdiff_t)address, len);
 
 	k_mutex_lock(&dev_data->lock, K_FOREVER);
 
@@ -642,7 +642,7 @@ static int eeprom_emu_init(const struct device *dev)
 	struct eeprom_emu_data *dev_data = dev->data;
 	off_t offset;
 	uint8_t buf[dev_config->flash_cbs];
-	int rc;
+	int rc = 0;
 
 	k_mutex_init(&dev_data->lock);
 	if (!device_is_ready(dev_config->flash_dev)) {
@@ -733,7 +733,7 @@ static const struct eeprom_driver_api eeprom_emu_api = {
 		(DT_GPARENT(part)), (DT_PARENT(part))), write_block_size)
 
 #define PART_CBS(part, size) (PART_WBS(part) < 4) ? \
-	((size > (2^16)) ? 8 : 4) : PART_WBS(part)
+	((size > KB(64)) ? 8 : 4) : PART_WBS(part)
 
 #define PART_DEV_ID(part) \
 	COND_CODE_1(DT_NODE_HAS_COMPAT(DT_GPARENT(part), soc_nv_flash), \
@@ -741,9 +741,6 @@ static const struct eeprom_driver_api eeprom_emu_api = {
 
 #define PART_DEV(part) \
 	DEVICE_DT_GET(PART_DEV_ID(part))
-
-#define PART_DEV_NAME(part) \
-	DT_PROP(PART_DEV_ID(part), label)
 
 #define RECALC_SIZE(size, cbs) \
 	(size % cbs) ? ((size + cbs - 1) & ~(cbs - 1)) : size

@@ -6,12 +6,14 @@
 
 #include <string.h>
 #include <zephyr/drivers/i2s.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/byteorder.h>
 #include <soc.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/__assert.h>
 #include "i2s_litex.h"
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 
 LOG_MODULE_REGISTER(i2s_litex);
 
@@ -586,7 +588,7 @@ static void i2s_litex_isr_tx(void *arg)
 			 stream->cfg.word_size, stream->cfg.channels);
 	i2s_clear_pending_irq(cfg->base);
 
-	k_mem_slab_free(stream->cfg.mem_slab, &stream->mem_block);
+	k_mem_slab_free(stream->cfg.mem_slab, stream->mem_block);
 }
 
 static const struct i2s_driver_api i2s_litex_driver_api = {

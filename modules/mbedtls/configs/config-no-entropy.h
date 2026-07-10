@@ -62,6 +62,7 @@
 /* System support */
 #define MBEDTLS_HAVE_ASM
 #define MBEDTLS_HAVE_TIME
+#define MBEDTLS_PLATFORM_MS_TIME_ALT
 
 /* mbed TLS feature support */
 #define MBEDTLS_CIPHER_MODE_CBC
@@ -103,6 +104,7 @@
 #define MBEDTLS_RSA_C
 #define MBEDTLS_SHA224_C
 #define MBEDTLS_SHA256_C
+#define MBEDTLS_SHA384_C
 #define MBEDTLS_SHA512_C
 #define MBEDTLS_VERSION_C
 #define MBEDTLS_X509_USE_C

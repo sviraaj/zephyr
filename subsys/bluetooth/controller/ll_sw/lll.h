@@ -15,16 +15,16 @@
 #define TICKER_USER_ID_THREAD   MAYFLY_CALL_ID_PROGRAM
 
 #define EVENT_PIPELINE_MAX 7
-#if defined(CONFIG_BT_CTLR_LOW_LAT_ULL)
-#define EVENT_DONE_LINK_CNT 0
-#else
-#define EVENT_DONE_LINK_CNT 1
-#endif /* CONFIG_BT_CTLR_LOW_LAT_ULL */
 
 #define ADV_INT_UNIT_US      625U
 #define SCAN_INT_UNIT_US     625U
 #define CONN_INT_UNIT_US     1250U
+#define ISO_INT_UNIT_US      CONN_INT_UNIT_US
 #define PERIODIC_INT_UNIT_US 1250U
+
+/* Timeout for Host to accept/reject cis create request */
+/* See BTCore5.3, 4.E.6.7 - Default value 0x1f40 * 625us */
+#define DEFAULT_CONNECTION_ACCEPT_TIMEOUT_US (5 * USEC_PER_SEC)
 
 /* Intervals after which connection or sync establishment is considered lost */
 #define CONN_ESTAB_COUNTDOWN 6U
@@ -144,6 +144,8 @@ enum {
 #else /* !CONFIG_BT_MAX_CONN */
 #define BT_CTLR_ADV_ISO_STREAM_HANDLE_BASE 0
 #endif /* !CONFIG_BT_MAX_CONN */
+#define LL_BIS_ADV_HANDLE_FROM_IDX(stream_handle) \
+	((stream_handle) + (BT_CTLR_ADV_ISO_STREAM_HANDLE_BASE))
 #else /* !CONFIG_BT_CTLR_ADV_ISO */
 #define BT_CTLR_ADV_ISO_STREAM_MAX 0
 #endif /* CONFIG_BT_CTLR_ADV_ISO */
@@ -160,6 +162,8 @@ enum {
 #else /* !CONFIG_BT_MAX_CONN */
 #define BT_CTLR_SYNC_ISO_STREAM_HANDLE_BASE 0
 #endif /* !CONFIG_BT_MAX_CONN */
+#define LL_BIS_SYNC_HANDLE_FROM_IDX(stream_handle) \
+	((stream_handle) + (BT_CTLR_SYNC_ISO_STREAM_HANDLE_BASE))
 #else /* !CONFIG_BT_CTLR_SYNC_ISO */
 #define BT_CTLR_SYNC_ISO_STREAM_MAX 0
 #endif /* !CONFIG_BT_CTLR_SYNC_ISO */
@@ -177,6 +181,9 @@ enum {
 #else /* !CONFIG_BT_CTLR_ADV_ISO && !CONFIG_BT_CTLR_SYNC_ISO */
 #define BT_CTLR_CONN_ISO_STREAM_HANDLE_BASE (CONFIG_BT_MAX_CONN)
 #endif /* !CONFIG_BT_CTLR_ADV_ISO && !CONFIG_BT_CTLR_SYNC_ISO */
+#define LL_CIS_HANDLE_BASE (BT_CTLR_CONN_ISO_STREAM_HANDLE_BASE)
+#define LL_CIS_IDX_FROM_HANDLE(handle) \
+	((handle) - LL_CIS_HANDLE_BASE)
 #endif /* CONFIG_BT_CTLR_CONN_ISO */
 
 #define TICKER_ID_ULL_BASE ((TICKER_ID_LLL_PREEMPT) + 1)
@@ -299,11 +306,16 @@ enum node_rx_type {
 	NODE_RX_TYPE_SCAN_INDICATION,
 	NODE_RX_TYPE_CIS_REQUEST,
 	NODE_RX_TYPE_CIS_ESTABLISHED,
+	NODE_RX_TYPE_REQ_PEER_SCA_COMPLETE,
 	NODE_RX_TYPE_MESH_ADV_CPLT,
 	NODE_RX_TYPE_MESH_REPORT,
 	NODE_RX_TYPE_SYNC_IQ_SAMPLE_REPORT,
 	NODE_RX_TYPE_CONN_IQ_SAMPLE_REPORT,
 	NODE_RX_TYPE_DTM_IQ_SAMPLE_REPORT,
+	NODE_RX_TYPE_IQ_SAMPLE_REPORT_ULL_RELEASE,
+	NODE_RX_TYPE_IQ_SAMPLE_REPORT_LLL_RELEASE,
+	/* Signals retention (ie non-release) of rx node */
+	NODE_RX_TYPE_RETAIN,
 
 #if defined(CONFIG_BT_CTLR_USER_EXT)
 	/* No entries shall be added after the NODE_RX_TYPE_USER_START/END */
@@ -397,11 +409,19 @@ struct node_rx_hdr {
 		memq_link_t *link;    /* Supply memq_link from ULL to LLL */
 		uint8_t     ack_last; /* Tx ack queue index at this node rx */
 	};
-
 	enum node_rx_type type;
 	uint8_t           user_meta; /* User metadata */
 	uint16_t          handle;    /* State/Role instance handle */
+};
 
+
+/* Template node rx type with memory aligned offset to PDU buffer.
+ * NOTE: offset to memory aligned pdu buffer location is used to reference
+ *       node rx type specific information, like, terminate or sync lost reason
+ *       from a dedicated node rx structure storage location.
+ */
+struct node_rx_pdu {
+	struct node_rx_hdr hdr;
 	union {
 		struct node_rx_ftr rx_ftr;
 #if defined(CONFIG_BT_CTLR_SYNC_ISO) || defined(CONFIG_BT_CTLR_CONN_ISO)
@@ -411,15 +431,6 @@ struct node_rx_hdr {
 		lll_rx_pdu_meta_t  rx_pdu_meta;
 #endif /* CONFIG_BT_CTLR_RX_PDU_META */
 	};
-};
-
-/* Template node rx type with memory aligned offset to PDU buffer.
- * NOTE: offset to memory aligned pdu buffer location is used to reference
- *       node rx type specific information, like, terminate or sync lost reason
- *       from a dedicated node rx structure storage location.
- */
-struct node_rx_pdu {
-	struct node_rx_hdr hdr;
 	union {
 		uint8_t    pdu[0] __aligned(4);
 	};
@@ -484,18 +495,34 @@ struct event_done_extra {
 #endif /* CONFIG_BT_CTLR_JIT_SCHEDULING */
 	union {
 		struct {
-			uint16_t trx_cnt;
-			uint8_t  crc_valid:1;
+			union {
+#if defined(CONFIG_BT_CTLR_CONN_ISO)
+				uint32_t trx_performed_bitmask;
+#endif /* CONFIG_BT_CTLR_CONN_ISO */
+
+				struct {
+					uint16_t trx_cnt;
+					uint8_t  crc_valid:1;
+#if defined(CONFIG_BT_CTLR_SYNC_ISO)
+					uint8_t  estab_failed:1;
+#endif /* CONFIG_BT_CTLR_SYNC_ISO */
 #if defined(CONFIG_BT_CTLR_SYNC_PERIODIC_CTE_TYPE_FILTERING) && \
 	defined(CONFIG_BT_CTLR_CTEINLINE_SUPPORT)
-			/* Used to inform ULL that periodic advertising sync scan should be
-			 * terminated.
-			 */
-			uint8_t  sync_term:1;
-#endif /* CONFIG_BT_CTLR_SYNC_PERIODIC_CTE_TYPE_FILTERING && CONFIG_BT_CTLR_CTEINLINE_SUPPORT */
+					/* Used to inform ULL that periodic
+					 * advertising sync scan should be
+					 * terminated.
+					 */
+					uint8_t  sync_term:1;
+#endif /* CONFIG_BT_CTLR_SYNC_PERIODIC_CTE_TYPE_FILTERING && \
+	* CONFIG_BT_CTLR_CTEINLINE_SUPPORT
+	*/
+				};
+			};
+
 #if defined(CONFIG_BT_CTLR_LE_ENC)
 			uint8_t  mic_state;
 #endif /* CONFIG_BT_CTLR_LE_ENC */
+
 #if defined(CONFIG_BT_PERIPHERAL) || defined(CONFIG_BT_CTLR_SYNC_PERIODIC)
 			union {
 				struct event_done_extra_drift drift;
@@ -537,6 +564,7 @@ struct node_tx_iso;
 void lll_done_score(void *param, uint8_t result);
 
 int lll_init(void);
+int lll_deinit(void);
 int lll_reset(void);
 void lll_resume(void *param);
 void lll_disable(void *param);
@@ -567,13 +595,13 @@ void *ull_pdu_rx_alloc(void);
 void *ull_iso_pdu_rx_alloc_peek(uint8_t count);
 void *ull_iso_pdu_rx_alloc(void);
 void ull_rx_put(memq_link_t *link, void *rx);
-void ull_rx_put_done(memq_link_t *link, void *done);
 void ull_rx_sched(void);
-void ull_rx_sched_done(void);
+void ull_rx_put_sched(memq_link_t *link, void *rx);
 void ull_iso_rx_put(memq_link_t *link, void *rx);
 void ull_iso_rx_sched(void);
 void *ull_iso_tx_ack_dequeue(void);
 void ull_iso_lll_ack_enqueue(uint16_t handle, struct node_tx_iso *tx);
+void ull_iso_lll_event_prepare(uint16_t handle, uint64_t event_count);
 struct event_done_extra *ull_event_done_extra_get(void);
 struct event_done_extra *ull_done_extra_type_set(uint8_t type);
 void *ull_event_done(void *param);

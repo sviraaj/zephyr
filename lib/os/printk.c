@@ -17,9 +17,10 @@
 #include <stdarg.h>
 #include <zephyr/toolchain.h>
 #include <zephyr/linker/sections.h>
-#include <zephyr/syscall_handler.h>
+#include <zephyr/internal/syscall_handler.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/cbprintf.h>
+#include <zephyr/llext/symbol.h>
 #include <sys/types.h>
 
 /* Option present only when CONFIG_USERSPACE enabled. */
@@ -51,7 +52,7 @@ __attribute__((weak)) int arch_printk_char_out(int c)
 }
 /* LCOV_EXCL_STOP */
 
-int (*_char_out)(int) = arch_printk_char_out;
+int (*_char_out)(int c) = arch_printk_char_out;
 
 /**
  * @brief Install the character output routine for printk
@@ -60,7 +61,7 @@ int (*_char_out)(int) = arch_printk_char_out;
  * routine that outputs one ASCII character at a time.
  * @param fn putc routine to install
  */
-void __printk_hook_install(int (*fn)(int))
+void __printk_hook_install(int (*fn)(int c))
 {
 	_char_out = fn;
 }
@@ -79,7 +80,9 @@ void *__printk_get_hook(void)
 }
 
 struct buf_out_context {
-	int count;
+#ifdef CONFIG_PICOLIBC
+	FILE file;
+#endif
 	unsigned int buf_count;
 	char buf[CONFIG_PRINTK_BUFFER_SIZE];
 };
@@ -94,8 +97,8 @@ static int buf_char_out(int c, void *ctx_p)
 {
 	struct buf_out_context *ctx = ctx_p;
 
-	ctx->count++;
-	ctx->buf[ctx->buf_count++] = c;
+	ctx->buf[ctx->buf_count] = c;
+	++ctx->buf_count;
 	if (ctx->buf_count == CONFIG_PRINTK_BUFFER_SIZE) {
 		buf_flush(ctx);
 	}
@@ -103,15 +106,9 @@ static int buf_char_out(int c, void *ctx_p)
 	return c;
 }
 
-struct out_context {
-	int count;
-};
-
 static int char_out(int c, void *ctx_p)
 {
-	struct out_context *ctx = ctx_p;
-
-	ctx->count++;
+	ARG_UNUSED(ctx_p);
 	return _char_out(c);
 }
 
@@ -123,26 +120,42 @@ void vprintk(const char *fmt, va_list ap)
 	}
 
 	if (k_is_user_context()) {
-		struct buf_out_context ctx = { 0 };
+		struct buf_out_context ctx = {
+#ifdef CONFIG_PICOLIBC
+			.file = FDEV_SETUP_STREAM((int(*)(char, FILE *))buf_char_out,
+						  NULL, NULL, _FDEV_SETUP_WRITE),
+#else
+			0
+#endif
+		};
 
+#ifdef CONFIG_PICOLIBC
+		(void) vfprintf(&ctx.file, fmt, ap);
+#else
 		cbvprintf(buf_char_out, &ctx, fmt, ap);
-
+#endif
 		if (ctx.buf_count) {
 			buf_flush(&ctx);
 		}
 	} else {
-		struct out_context ctx = { 0 };
 #ifdef CONFIG_PRINTK_SYNC
 		k_spinlock_key_t key = k_spin_lock(&lock);
 #endif
 
-		cbvprintf(char_out, &ctx, fmt, ap);
+#ifdef CONFIG_PICOLIBC
+		FILE console = FDEV_SETUP_STREAM((int(*)(char, FILE *))char_out,
+						 NULL, NULL, _FDEV_SETUP_WRITE);
+		(void) vfprintf(&console, fmt, ap);
+#else
+		cbvprintf(char_out, NULL, fmt, ap);
+#endif
 
 #ifdef CONFIG_PRINTK_SYNC
 		k_spin_unlock(&lock, key);
 #endif
 	}
 }
+EXPORT_SYMBOL(vprintk);
 
 void z_impl_k_str_out(char *c, size_t n)
 {
@@ -163,10 +176,10 @@ void z_impl_k_str_out(char *c, size_t n)
 #ifdef CONFIG_USERSPACE
 static inline void z_vrfy_k_str_out(char *c, size_t n)
 {
-	Z_OOPS(Z_SYSCALL_MEMORY_READ(c, n));
+	K_OOPS(K_SYSCALL_MEMORY_READ(c, n));
 	z_impl_k_str_out((char *)c, n);
 }
-#include <syscalls/k_str_out_mrsh.c>
+#include <zephyr/syscalls/k_str_out_mrsh.c>
 #endif /* CONFIG_USERSPACE */
 
 /**
@@ -200,7 +213,10 @@ void printk(const char *fmt, ...)
 
 	va_end(ap);
 }
+EXPORT_SYMBOL(printk);
 #endif /* defined(CONFIG_PRINTK) */
+
+#ifndef CONFIG_PICOLIBC
 
 struct str_context {
 	char *str;
@@ -210,16 +226,17 @@ struct str_context {
 
 static int str_out(int c, struct str_context *ctx)
 {
-	if (ctx->str == NULL || ctx->count >= ctx->max) {
-		ctx->count++;
+	if ((ctx->str == NULL) || (ctx->count >= ctx->max)) {
+		++ctx->count;
 		return c;
 	}
 
-	if (ctx->count == ctx->max - 1) {
-		ctx->str[ctx->count++] = '\0';
+	if (ctx->count == (ctx->max - 1)) {
+		ctx->str[ctx->count] = '\0';
 	} else {
-		ctx->str[ctx->count++] = c;
+		ctx->str[ctx->count] = c;
 	}
+	++ctx->count;
 
 	return c;
 }
@@ -248,3 +265,5 @@ int vsnprintk(char *str, size_t size, const char *fmt, va_list ap)
 
 	return ctx.count;
 }
+
+#endif

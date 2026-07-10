@@ -1,0 +1,2553 @@
+diff --git a/.gitmodules b/.gitmodules
+new file mode 100644
+index 00000000000..bf19c0cfd22
+--- /dev/null
++++ b/.gitmodules
+@@ -0,0 +1,15 @@
++[submodule "zbacrux_unit_testing"]
++	path = zbacrux_unit_testing
++	url = git@github.com:sviraaj/zbacrux_unit_testing.git
++[submodule "zb_tv_h743"]
++	path = zb_tv_h743
++	url = git@github.com:zedblox/zb_tv_h743_v2.1_app.git
++[submodule "zb_ap_bv_l151c8"]
++	path = zb_ap_bv_l151c8
++	url = git@github.com:zedblox/zb_bv_v1.0_l151c8_app.git
++[submodule "zb_actipod_app"]
++	path = zb_actipod_app
++	url = git@github.com:sviraaj/zb_actipod_app.git
++[submodule "zbacrux_setup"]
++	path = zbacrux_setup
++	url = git@github.com:sviraaj/zbacrux_setup.git
+diff --git a/Makefile b/Makefile
+new file mode 100644
+index 00000000000..d81d117e1ab
+--- /dev/null
++++ b/Makefile
+@@ -0,0 +1,28 @@
++.PHONY: all clean
++
++SHELL := /bin/bash
++BOARD_NAME ?= zb_tv_h743zi
++
++all: zmcuboot zzb_actipod_app
++
++zmcuboot:
++	west build -b zb_tv_h743zi ../bootloader/mcuboot/boot/zephyr -d build/$(BOARD_NAME)/mcuboot
++	export BOARD_NAME=zb_tv_h743zi;west flash --build-dir build/$(BOARD_NAME)/mcuboot --hex-file build/$(BOARD_NAME)/mcuboot/zephyr/zephyr.hex
++
++zzbacrux_setup:
++	west build -b $(BOARD_NAME) zbacrux_setup -d build/$(BOARD_NAME)/zbacrux_setup
++	/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0 --align 32 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zbacrux_setup/zephyr/zephyr.hex /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zbacrux_setup/zephyr/zephyr.signed.hex
++	/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0 --align 32 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zbacrux_setup/zephyr/zephyr.bin /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zbacrux_setup/zephyr/zephyr.signed.bin
++	export BOARD_NAME=$(BOARD_NAME);west flash --build-dir build/$(BOARD_NAME)/zbacrux_setup --hex-file build/$(BOARD_NAME)/zbacrux_setup/zephyr/zephyr.signed.hex
++
++zzb_actipod_app_15L:
++	west build -b zb_tv_h743zi zb_actipod_app -d build/$(BOARD_NAME)/zb_actipod_app -DCONFIG_APP_SYS_VERSION=\"v10000\" -DCONFIG_ACTIPOD_15L=y
++	/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0  --align 32 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zb_actipod_app/zephyr/zephyr.hex /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zb_actipod_app/zephyr/zephyr.signed.hex
++	/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0  --align 32 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zb_actipod_app/zephyr/zephyr.bin /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zb_actipod_app/zephyr/zephyr.signed.bin
++	export BOARD_NAME=zb_tv_h743zi;west flash --build-dir build/$(BOARD_NAME)/zb_actipod_app --hex-file build/$(BOARD_NAME)/zb_actipod_app/zephyr/zephyr.signed.hex
++
++zzb_actipod_app_4L:
++	west build -b zb_tv_h743zi zb_actipod_app -d build/$(BOARD_NAME)/zb_actipod_app -DCONFIG_APP_SYS_VERSION=\"v10000\" -DCONFIG_ACTIPOD_4L=y
++	/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0  --align 32 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zb_actipod_app/zephyr/zephyr.hex /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zb_actipod_app/zephyr/zephyr.signed.hex
++	/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0  --align 32 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zb_actipod_app/zephyr/zephyr.bin /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zb_actipod_app/zephyr/zephyr.signed.bin
++	export BOARD_NAME=zb_tv_h743zi;west flash --build-dir build/$(BOARD_NAME)/zb_actipod_app --hex-file build/$(BOARD_NAME)/zb_actipod_app/zephyr/zephyr.signed.hex
+diff --git a/boards/arm/stm32f072b_disco/support/openocd.cfg b/boards/arm/stm32f072b_disco/support/openocd.cfg
+index 3d63fb59648..10d2ceff239 100644
+--- a/boards/arm/stm32f072b_disco/support/openocd.cfg
++++ b/boards/arm/stm32f072b_disco/support/openocd.cfg
+@@ -1,12 +1,21 @@
+-source [find board/stm32f0discovery.cfg]
+-
+-$_TARGETNAME configure -event gdb-attach {
+-	echo "Debugger attaching: halting execution"
+-	reset halt
+-	gdb_breakpoint_override hard
+-}
+-
+-$_TARGETNAME configure -event gdb-detach {
+-	echo "Debugger detaching: resuming execution"
+-	resume
+-}
++source [find interface/stlink-dap.cfg]
++transport select "dapdirect_swd"
++
++set WORKAREASIZE 0x8000
++set CHIPNAME STM32H7B3LIHxQ
++set BOARDNAME STM32H7B3I_DK
++
++# Enable debug when in low power modes
++set ENABLE_LOW_POWER 1
++
++# Stop Watchdog counters when halt
++set STOP_WATCHDOG 1
++
++# Reset configuration
++# use hardware reset, connect under reset
++# connect_assert_srst needed if low power mode application running (WFI...)
++reset_config srst_only srst_nogate connect_assert_srst
++set CONNECT_UNDER_RESET 1
++set CORE_RESET 0
++
++source [find target/stm32h7x.cfg]
+diff --git a/boards/arm/stm32f746g_disco/stm32f746g_disco.dts b/boards/arm/stm32f746g_disco/stm32f746g_disco.dts
+index 9d5d063b9f0..942317e1f78 100644
+--- a/boards/arm/stm32f746g_disco/stm32f746g_disco.dts
++++ b/boards/arm/stm32f746g_disco/stm32f746g_disco.dts
+@@ -7,6 +7,7 @@
+ /dts-v1/;
+ #include <st/f7/stm32f746Xg.dtsi>
+ #include <st/f7/stm32f746nghx-pinctrl.dtsi>
++#include <dt-bindings/display/stm32_ltdc.h>
+ #include "arduino_r3_connector.dtsi"
+ 
+ / {
+diff --git a/drivers/flash/flash_stm32h7x.c b/drivers/flash/flash_stm32h7x.c
+index c8356460101..e5eef89a520 100644
+--- a/drivers/flash/flash_stm32h7x.c
++++ b/drivers/flash/flash_stm32h7x.c
+@@ -240,7 +240,6 @@ static struct flash_stm32_sector_t get_sector(const struct device *dev,
+ static int erase_sector(const struct device *dev, int offset)
+ {
+ 	int rc;
+-	uint32_t tmp;
+ 	struct flash_stm32_sector_t sector = get_sector(dev, offset);
+ 
+ 	if (sector.bank == 0) {
+@@ -264,7 +263,7 @@ static int erase_sector(const struct device *dev, int offset)
+ 		| ((sector.sector_index << FLASH_CR_SNB_Pos) & FLASH_CR_SNB));
+ 	*(sector.cr) |= FLASH_CR_START;
+ 	/* flush the register write */
+-	tmp = *(sector.cr);
++	__DSB();
+ 
+ 	rc = flash_stm32_wait_flash_idle(dev);
+ 	*(sector.cr) &= ~(FLASH_CR_SER | FLASH_CR_SNB);
+@@ -315,7 +314,6 @@ static int write_ndwords(const struct device *dev,
+ {
+ 	volatile uint64_t *flash = (uint64_t *)(offset
+ 						+ CONFIG_FLASH_BASE_ADDRESS);
+-	uint32_t tmp;
+ 	int rc;
+ 	int i;
+ 	struct flash_stm32_sector_t sector = get_sector(dev, offset);
+@@ -347,11 +345,15 @@ static int write_ndwords(const struct device *dev,
+ 	*(sector.cr) |= FLASH_CR_PG;
+ 
+ 	/* Flush the register write */
+-	tmp = *(sector.cr);
++	__DSB();
+ 
+ 	/* Perform the data write operation at the desired memory address */
+ 	for (i = 0; i < n; ++i) {
+ 		flash[i] = data[i];
++
++		/* Flush the data write */
++		__DSB();
++
+ 		wait_write_queue(dev, offset);
+ 	}
+ 
+diff --git a/drivers/flash/spi_nor.c b/drivers/flash/spi_nor.c
+index 3bd1cb362b6..5200e831c9f 100644
+--- a/drivers/flash/spi_nor.c
++++ b/drivers/flash/spi_nor.c
+@@ -15,6 +15,7 @@
+ #include <zephyr/init.h>
+ #include <string.h>
+ #include <zephyr/logging/log.h>
++#include <zephyr/sys_clock.h>
+ 
+ #include "spi_nor.h"
+ #include "jesd216.h"
+@@ -44,10 +45,6 @@ LOG_MODULE_REGISTER(spi_nor, CONFIG_FLASH_LOG_LEVEL);
+ 
+ #define SPI_NOR_MAX_ADDR_WIDTH 4
+ 
+-#ifndef NSEC_PER_MSEC
+-#define NSEC_PER_MSEC (NSEC_PER_USEC * USEC_PER_MSEC)
+-#endif
+-
+ #if DT_INST_NODE_HAS_PROP(0, t_enter_dpd)
+ #define T_DP_MS ceiling_fraction(DT_INST_PROP(0, t_enter_dpd), NSEC_PER_MSEC)
+ #else /* T_ENTER_DPD */
+@@ -880,7 +877,7 @@ static int spi_nor_process_sfdp(const struct device *dev)
+ 	} u;
+ 	const struct jesd216_sfdp_header *hp = &u.sfdp;
+ 
+-	rc = read_sfdp(dev, 0, u.raw, sizeof(u.raw));
++	rc = spi_nor_sfdp_read(dev, 0, u.raw, sizeof(u.raw));
+ 	if (rc != 0) {
+ 		LOG_ERR("SFDP read failed: %d", rc);
+ 		return rc;
+@@ -913,7 +910,7 @@ static int spi_nor_process_sfdp(const struct device *dev)
+ 			} u;
+ 			const struct jesd216_bfp *bfp = &u.bfp;
+ 
+-			rc = read_sfdp(dev, jesd216_param_addr(php), u.dw, sizeof(u.dw));
++			rc = spi_nor_sfdp_read(dev, jesd216_param_addr(php), u.dw, sizeof(u.dw));
+ 			if (rc == 0) {
+ 				rc = spi_nor_process_bfp(dev, php, bfp);
+ 			}
+diff --git a/drivers/i2c/CMakeLists.txt b/drivers/i2c/CMakeLists.txt
+index 4349e0ef8a9..f9e2f460c2f 100644
+--- a/drivers/i2c/CMakeLists.txt
++++ b/drivers/i2c/CMakeLists.txt
+@@ -3,6 +3,7 @@
+ zephyr_library()
+ 
+ zephyr_library_sources(i2c_common.c)
++zephyr_library_sources(i2c_recovery_stm32.c)
+ zephyr_library_sources_ifdef(CONFIG_I2C_SHELL		i2c_shell.c)
+ zephyr_library_sources_ifdef(CONFIG_I2C_BITBANG		i2c_bitbang.c)
+ zephyr_library_sources_ifdef(CONFIG_I2C_TELINK_B91		i2c_b91.c)
+diff --git a/drivers/i2c/i2c_ll_stm32.c b/drivers/i2c/i2c_ll_stm32.c
+index 8fd742bf587..09cd675f0fe 100644
+--- a/drivers/i2c/i2c_ll_stm32.c
++++ b/drivers/i2c/i2c_ll_stm32.c
+@@ -55,6 +55,8 @@ int i2c_stm32_runtime_configure(const struct device *dev, uint32_t config)
+ 	k_sem_take(&data->bus_mutex, K_FOREVER);
+ 	LL_I2C_Disable(i2c);
+ 	LL_I2C_SetMode(i2c, LL_I2C_MODE_I2C);
++    /* FIXME */
++    LL_I2C_EnableClockStretching(i2c);
+ 	ret = stm32_i2c_configure_timing(dev, clock);
+ 	k_sem_give(&data->bus_mutex);
+ 
+diff --git a/drivers/i2c/i2c_recovery_stm32.c b/drivers/i2c/i2c_recovery_stm32.c
+new file mode 100644
+index 00000000000..2fcc9505768
+--- /dev/null
++++ b/drivers/i2c/i2c_recovery_stm32.c
+@@ -0,0 +1,77 @@
++
++#include <soc.h>
++#include <stm32_ll_i2c.h>
++#include <stm32_ll_bus.h>
++#include <stm32_ll_rcc.h>
++#include <stm32_ll_gpio.h>
++#include <zephyr/kernel.h>
++#include <zephyr/drivers/gpio.h>
++#include <zephyr/drivers/i2c/i2c_recovery_stm32.h>
++
++
++void i2c_recovery_stm32(I2C_TypeDef *i2c, 
++                                 GPIO_TypeDef *port,
++                                 uint32_t scl_pin, 
++                                 uint32_t sda_pin,
++                                 const struct gpio_dt_spec *scl_dt,
++                                 const struct gpio_dt_spec *sda_dt)
++{
++    // --- STEP 0: CAPTURE STATE ---
++    uint32_t timing_backup = i2c->TIMINGR;
++    uint32_t cr1_backup = i2c->CR1;
++
++    if (timing_backup == 0) return;
++
++    // --- STEP 1: PERIPHERAL SHUTDOWN & RCC RESET ---
++    LL_I2C_Disable(i2c);
++    k_busy_wait(100);
++
++    /* SMART RCC RESET: Identify which I2C we are resetting */
++    if (i2c == I2C1) {
++        LL_APB1_GRP1_ForceReset(LL_APB1_GRP1_PERIPH_I2C1);
++        k_busy_wait(500);
++        LL_APB1_GRP1_ReleaseReset(LL_APB1_GRP1_PERIPH_I2C1);
++    } 
++    else if (i2c == I2C2) {
++        LL_APB1_GRP1_ForceReset(LL_APB1_GRP1_PERIPH_I2C2);
++        k_busy_wait(500);
++        LL_APB1_GRP1_ReleaseReset(LL_APB1_GRP1_PERIPH_I2C2);
++    }
++    k_busy_wait(500);
++
++    // --- STEP 2: GPIO TAKEOVER ---
++    LL_GPIO_SetPinMode(port, scl_pin, LL_GPIO_MODE_OUTPUT);
++    LL_GPIO_SetPinMode(port, sda_pin, LL_GPIO_MODE_OUTPUT);
++    LL_GPIO_SetPinOutputType(port, scl_pin, LL_GPIO_OUTPUT_OPENDRAIN);
++    LL_GPIO_SetPinOutputType(port, sda_pin, LL_GPIO_OUTPUT_OPENDRAIN);
++    LL_GPIO_SetPinPull(port, scl_pin, LL_GPIO_PULL_UP);
++    LL_GPIO_SetPinPull(port, sda_pin, LL_GPIO_PULL_UP);
++    k_busy_wait(100);
++
++    // --- STEP 3 & 4: PULSE SWEEP ---
++    for (int i = 0; i < 80; i++) {
++        gpio_pin_set_dt(scl_dt, 0);
++        k_busy_wait(20);
++        gpio_pin_set_dt(scl_dt, 1);
++        k_busy_wait(20);
++    }
++
++    // --- STEP 5: MANUAL STOP ---
++    gpio_pin_set_dt(scl_dt, 0); k_busy_wait(10);
++    gpio_pin_set_dt(sda_dt, 0); k_busy_wait(10);
++    gpio_pin_set_dt(scl_dt, 1); k_busy_wait(10);
++    gpio_pin_set_dt(sda_dt, 1); k_busy_wait(10);
++
++    // --- STEP 6: RESTORE MUX & ENGINE ---
++    LL_GPIO_SetAFPin_0_7(port, sda_pin, LL_GPIO_AF_4);
++    LL_GPIO_SetAFPin_0_7(port, scl_pin, LL_GPIO_AF_4);
++    LL_GPIO_SetPinMode(port, sda_pin, LL_GPIO_MODE_ALTERNATE);
++    LL_GPIO_SetPinMode(port, scl_pin, LL_GPIO_MODE_ALTERNATE);
++
++    i2c->TIMINGR = timing_backup; 
++    i2c->CR1 = (cr1_backup & ~I2C_CR1_PE); 
++    k_busy_wait(100);
++    
++    LL_I2C_Enable(i2c);
++    i2c->ICR = 0xFFFFFFFF;
++}
+diff --git a/drivers/modem/CMakeLists.txt b/drivers/modem/CMakeLists.txt
+index b65e9d3ecec..2845e9d6f10 100644
+--- a/drivers/modem/CMakeLists.txt
++++ b/drivers/modem/CMakeLists.txt
+@@ -25,6 +25,11 @@ if(CONFIG_MODEM_QUECTEL_BG9X)
+ 	zephyr_library_sources(quectel-bg9x.c)
+ endif()
+ 
++if(CONFIG_MODEM_QUECTEL_BG95)
++	zephyr_library_include_directories(${ZEPHYR_BASE}/subsys/net/ip)
++	zephyr_library_sources(quectel-bg95.c)
++endif()
++
+ if(CONFIG_MODEM_WNCM14A2A)
+ 	zephyr_library_include_directories(${ZEPHYR_BASE}/subsys/net/ip)
+ 	zephyr_library_sources(wncm14a2a.c)
+diff --git a/drivers/modem/Kconfig b/drivers/modem/Kconfig
+index c80f19528d6..46a45e2ccc0 100644
+--- a/drivers/modem/Kconfig
++++ b/drivers/modem/Kconfig
+@@ -186,6 +186,7 @@ config MODEM_CELL_INFO
+ 
+ source "drivers/modem/Kconfig.ublox-sara-r4"
+ source "drivers/modem/Kconfig.quectel-bg9x"
++source "drivers/modem/Kconfig.quectel-bg95"
+ source "drivers/modem/Kconfig.wncm14a2a"
+ source "drivers/modem/Kconfig.gsm"
+ 
+diff --git a/drivers/modem/Kconfig.a9grda b/drivers/modem/Kconfig.a9grda
+new file mode 100644
+index 00000000000..2a221eccef7
+--- /dev/null
++++ b/drivers/modem/Kconfig.a9grda
+@@ -0,0 +1,66 @@
++config MODEM_A9GRDA
++	bool "Enable A9G RDA modem driver"
++	select MODEM_CONTEXT
++	select MODEM_CMD_HANDLER
++	select MODEM_IFACE_UART
++	select MODEM_SOCKET
++	select NET_OFFLOAD
++	select NET_SOCKETS_OFFLOAD
++	imply GPIO
++	help
++	  Choose this setting to enable a9g rda modem
++	  driver.
++
++if MODEM_A9GRDA
++
++config MODEM_A9GRDA_NAME
++	string "Driver name"
++	default "MODEM_A9G"
++
++config MODEM_A9GRDA_RX_STACK_SIZE
++	int "Stack size for the a9g rda modem driver RX thread"
++	default 1028
++	help
++	  This stack is used by the a9g rda RX thread.
++
++config MODEM_A9GRDA_RX_WORKQ_STACK_SIZE
++	int "Stack size for the a9g rda modem driver work queue"
++	default 2048
++	help
++	  This stack is used by the work queue to pass off net_pkt data
++	  to the rest of the network stack, letting the rx thread continue
++	  processing data.
++
++config MODEM_SOCKET_MAX_HST_LEN
++	int "Socket maximum host url length"
++	default 128
++	help
++	  This stack is used by the work queue to pass off net_pkt data
++	  to the rest of the network stack, letting the rx thread continue
++	  processing data.
++
++config MODEM_MAXIMUM_TR_RC_SIZE
++	int "Maximum uart send or recv buf"
++    default 2048
++    help
++        This setting indicated the maximum buffer size used for transmit
++        and receive buffers in HTTP tranfers.
++
++config MODEM_A9GRDA_APN
++	string "APN for establishing network connection"
++	default "airtelgprs.com"
++	help
++	  This setting is used in the AT+CGDCONT command to set the APN name
++	  for the network connection context.  This value is specific to
++	  the network provider and may need to be changed.
++
++config MODEM_A9GRDA_INIT_PRIORITY
++	int "a9g rda driver init priority"
++	default 80
++	help
++	  a9g rda device driver initialization priority.
++	  Do not mess with it unless you know what you are doing.
++	  Note that the priority needs to be lower than the net stack
++	  so that it can start before the networking sub-system.
++
++endif # MODEM_A9G
+diff --git a/drivers/modem/Kconfig.quectel-bg95 b/drivers/modem/Kconfig.quectel-bg95
+new file mode 100644
+index 00000000000..13a632e70b7
+--- /dev/null
++++ b/drivers/modem/Kconfig.quectel-bg95
+@@ -0,0 +1,83 @@
++config MODEM_QUECTEL_BG95
++	bool "Enable QUECTEL BG95 modem driver"
++	select MODEM_CONTEXT
++	select MODEM_CMD_HANDLER
++	select MODEM_IFACE_UART
++	select MODEM_SOCKET
++	select NET_OFFLOAD
++	select NET_SOCKETS_OFFLOAD
++	imply GPIO
++	help
++	  Choose this setting to enable bg95 quectel modem
++	  driver.
++
++if MODEM_QUECTEL_BG95
++
++config MODEM_QUECTEL_BG95_NAME
++	string "Driver name"
++	default "MODEM_QUECTEL_BG95"
++
++config MODEM_QUECTEL_EG95
++    bool "EG95 driver"
++    default n
++
++config MODEM_QUECTEL_BG95_RX_STACK_SIZE
++	int "Stack size for the bg95 rda modem driver RX thread"
++	default 4096
++	help
++	  This stack is used by the bg95 rda RX thread.
++
++config MODEM_QUECTEL_BG95_APP_RESET
++	bool "Modem reset is delayed to the app call"
++	default n
++	help
++	  This setting is used to delay the modem reset call and
++	  leave it upto the app to call it before using modem
++	  functions, instead of the driver calling the reset.
++	  This allows the app to boot up quickly without modem
++	  delay and gives flexibility to the app to call it
++	  whenever it needs modem functionality. NOTE: modem reset
++	  has to be called before using any modem functions in the
++	  app.
++ 
++config MODEM_QUECTEL_BG95_RX_WORKQ_STACK_SIZE
++	int "Stack size for the bg95 rda modem driver work queue"
++	default 4096
++	help
++	  This stack is used by the work queue to pass off net_pkt data
++	  to the rest of the network stack, letting the rx thread continue
++	  processing data.
++
++config MODEM_SOCKET_MAX_HST_LEN
++	int "Socket maximum host url length"
++	default 128
++	help
++	  This stack is used by the work queue to pass off net_pkt data
++	  to the rest of the network stack, letting the rx thread continue
++	  processing data.
++
++config MODEM_MAXIMUM_TR_RC_SIZE
++	int "Maximum uart send or recv buf"
++    default 4096
++    help
++        This setting indicated the maximum buffer size used for transmit
++        and receive buffers in HTTP tranfers.
++
++config MODEM_QUECTEL_BG95_APN
++	string "APN for establishing network connection"
++	default "airteliot.com"
++	help
++	  This setting is used in the AT+CGDCONT command to set the APN name
++	  for the network connection context.  This value is specific to
++	  the network provider and may need to be changed.
++
++config MODEM_QUECTEL_BG95_INIT_PRIORITY
++	int "bg95 rda driver init priority"
++	default 85
++	help
++	  bg95 device driver initialization priority.
++	  Do not mess with it unless you know what you are doing.
++	  Note that the priority needs to be lower than the net stack
++	  so that it can start before the networking sub-system.
++
++endif # MODEM_QUECTEL_BG95
+diff --git a/drivers/modem/hl7800.c b/drivers/modem/hl7800.c
+index 350717cb4fc..7a47d118782 100644
+--- a/drivers/modem/hl7800.c
++++ b/drivers/modem/hl7800.c
+@@ -1219,7 +1219,7 @@ int32_t mdm_hl7800_get_functionality(void)
+ int32_t mdm_hl7800_set_functionality(enum mdm_hl7800_functionality mode)
+ {
+ 	int ret;
+-	char buf[sizeof("AT+CFUN=0,0")] = { 0 };
++	char buf[sizeof("AT+CFUN=###,0")] = { 0 };
+ 
+ 	hl7800_lock();
+ 	wakeup_hl7800();
+@@ -3818,7 +3818,7 @@ done:
+ 
+ static int delete_socket(struct hl7800_socket *sock, enum net_sock_type type, uint8_t id)
+ {
+-	char cmd[sizeof("AT+KUDPCLOSE=##")];
++	char cmd[sizeof("AT+KUDPCLOSE=###")];
+ 
+ 	if (type == SOCK_STREAM) {
+ 		snprintk(cmd, sizeof(cmd), "AT+KTCPDEL=%d", id);
+@@ -4094,7 +4094,7 @@ done:
+ 
+ static int start_socket_rx(struct hl7800_socket *sock, uint16_t rx_size)
+ {
+-	char sendbuf[sizeof("AT+KTCPRCV=##,####")];
++	char sendbuf[sizeof("AT+KTCPRCV=+#########,#####")];
+ 
+ 	if ((sock->socket_id <= 0) || (sock->rx_size <= 0)) {
+ 		LOG_WRN("Cannot start socket RX, ID: %d rx size: %d",
+diff --git a/drivers/modem/modem_cmd_handler.c b/drivers/modem/modem_cmd_handler.c
+index d86a2941854..7bba1704828 100644
+--- a/drivers/modem/modem_cmd_handler.c
++++ b/drivers/modem/modem_cmd_handler.c
+@@ -324,6 +324,14 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data)
+ 	int ret;
+ 	uint16_t offset, len;
+ 
++    /* call extra data processing task and wait for it to finish */
++    if (data->process_data != NULL)
++    {
++        size_t sz = net_buf_frags_len(data->rx_buf);
++        size_t processed_len = data->process_data((void*) data, sz);
++        data->rx_buf = net_buf_skip(data->rx_buf, processed_len);
++    }
++
+ 	/* process all of the data in the net_buf */
+ 	while (data->rx_buf && data->rx_buf->len) {
+ 		skipcrlf(data);
+@@ -338,7 +346,7 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data)
+ 				/* Wait for more data */
+ 				break;
+ 			} else if (ret > 0) {
+-				LOG_DBG("match direct cmd [%s] (ret:%d)",
++				LOG_INF("match direct cmd [%s] (ret:%d)",
+ 					, ret);
+ 				data->rx_buf = net_buf_skip(data->rx_buf, ret);
+ 			}
+@@ -368,9 +376,10 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data)
+ 				data->match_buf_len - 1, match_len);
+ 		}
+ 
+-#if defined(CONFIG_MODEM_CONTEXT_VERBOSE_DEBUG)
+-		LOG_HEXDUMP_DBG(data->match_buf, match_len, "RECV");
+-#endif
++//#if defined(CONFIG_MODEM_CONTEXT_VERBOSE_DEBUG)
++        LOG_INF("Going to print hex value of data->match_buf Line : %d",__LINE__);
++		LOG_HEXDUMP_INF(data->match_buf, match_len, "RECV");
++//#endif
+ 
+ 		k_sem_take(&data->sem_parse_lock, K_FOREVER);
+ 
+@@ -379,7 +388,8 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data)
+ 			LOG_DBG("match cmd [%s] (len:%zu)",
+ 				, match_len);
+ 
+-			ret = process_cmd(cmd, match_len, data);
++			//ret = process_cmd(cmd, match_len, data);
++			ret = process_cmd(cmd, len, data);
+ 			if (ret == -EAGAIN) {
+ 				k_sem_give(&data->sem_parse_lock);
+ 				break;
+@@ -388,6 +398,14 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data)
+ 					, match_len, ret);
+ 			}
+ 
++            /* break if extra processing required */
++            if (data->process_data != NULL)
++            {
++                data->rx_buf = net_buf_skip(data->rx_buf, match_len);
++				k_sem_give(&data->sem_parse_lock);
++                break;
++            }
++
+ 			/*
+ 			 * make sure we didn't run out of data during
+ 			 * command processing
+@@ -515,20 +533,20 @@ int modem_cmd_send_ext(struct modem_iface *iface,
+ 		}
+ 	}
+ 
+-#if defined(CONFIG_MODEM_CONTEXT_VERBOSE_DEBUG)
+-	LOG_HEXDUMP_DBG(buf, strlen(buf), "SENT DATA");
++//#if defined(CONFIG_MODEM_CONTEXT_VERBOSE_DEBUG)
++	LOG_HEXDUMP_INF(buf, strlen(buf), "SENT DATA");
+ 
+ 	if (data->eol_len > 0) {
+ 		if (data->eol[0] != '\r') {
+ 			/* Print the EOL only if it is not \r, otherwise there
+ 			 * is just too much printing.
+ 			 */
+-			LOG_HEXDUMP_DBG(data->eol, data->eol_len, "SENT EOL");
++			LOG_HEXDUMP_INF(data->eol, data->eol_len, "SENT EOL");
+ 		}
+ 	} else {
+ 		LOG_DBG("EOL not set!!!");
+ 	}
+-#endif
++//#endif
+ 	if (sem) {
+ 		k_sem_reset(sem);
+ 	}
+diff --git a/drivers/modem/modem_cmd_handler.h b/drivers/modem/modem_cmd_handler.h
+index 237b53713ec..2306836e6a0 100644
+--- a/drivers/modem/modem_cmd_handler.h
++++ b/drivers/modem/modem_cmd_handler.h
+@@ -100,6 +100,9 @@ struct modem_cmd_handler_data {
+ 	const struct modem_cmd *cmds[CMD_MAX];
+ 	size_t cmds_len[CMD_MAX];
+ 
++	char *read_buf;
++	size_t read_buf_len;
++
+ 	char *match_buf;
+ 	size_t match_buf_len;
+ 
+@@ -118,6 +121,9 @@ struct modem_cmd_handler_data {
+ 	/* locks */
+ 	struct k_sem sem_tx_lock;
+ 	struct k_sem sem_parse_lock;
++
++    /* Process data fn ptr */
++    size_t (*process_data)(void *data, uint16_t len);
+ };
+ 
+ /**
+diff --git a/drivers/modem/modem_context.h b/drivers/modem/modem_context.h
+index 1aa8fa77749..f4657582310 100644
+--- a/drivers/modem/modem_context.h
++++ b/drivers/modem/modem_context.h
+@@ -62,6 +62,9 @@ struct modem_context {
+ 	char *data_model;
+ 	char *data_revision;
+ 	char *data_imei;
++	char *data_timeval;
++    char *data_cellinfo;
++    uint32_t data_sys_timeval;
+ #if defined(CONFIG_MODEM_SIM_NUMBERS)
+ 	char *data_imsi;
+ 	char *data_iccid;
+diff --git a/drivers/modem/modem_iface_uart.c b/drivers/modem/modem_iface_uart.c
+new file mode 100644
+index 00000000000..8b57cb3f30c
+--- /dev/null
++++ b/drivers/modem/modem_iface_uart.c
+@@ -0,0 +1,170 @@
++/** @file
++ * @brief interface for modem context
++ *
++ * UART-based modem interface implementation for modem context driver.
++ */
++
++/*
++ * Copyright (c) 2019 Foundries.io
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <logging/log.h>
++LOG_MODULE_REGISTER(modem_iface_uart, CONFIG_MODEM_LOG_LEVEL);
++
++#include <kernel.h>
++#include <drivers/uart.h>
++
++#include "modem_context.h"
++#include "modem_iface_uart.h"
++
++/**
++ * @brief  Drains UART.
++ *
++ * @note   Discards remaining data.
++ *
++ * @param  *iface: modem interface.
++ *
++ * @retval None.
++ */
++static void modem_iface_uart_flush(struct modem_iface *iface)
++{
++	u8_t c;
++
++	while (uart_fifo_read(iface->dev, &c, 1) > 0) {
++		continue;
++	}
++}
++
++/**
++ * @brief  Modem interface interrupt handler.
++ *
++ * @note   Fills interfaces ring buffer with received data.
++ *         When ring buffer is full the data is discarded.
++ *
++ * @param  *uart_dev: uart device.
++ *
++ * @retval None.
++ */
++static void modem_iface_uart_isr(struct device *uart_dev)
++{
++	struct modem_context *ctx;
++	struct modem_iface_uart_data *data;
++	int rx = 0, ret;
++
++	/* lookup the modem context */
++	ctx = modem_context_from_iface_dev(uart_dev);
++	if (!ctx || !ctx->iface.iface_data) {
++		return;
++	}
++
++	data = (struct modem_iface_uart_data *)(ctx->iface.iface_data);
++	/* get all of the data off UART as fast as we can */
++	while (uart_irq_update(ctx->iface.dev) &&
++	       uart_irq_rx_ready(ctx->iface.dev)) {
++		rx = uart_fifo_read(ctx->iface.dev,
++				    data->isr_buf, data->isr_buf_len);
++		if (rx <= 0) {
++			continue;
++		}
++
++		ret = ring_buf_put(&data->rx_rb, data->isr_buf, rx);
++		if (ret != rx) {
++			LOG_ERR("Rx buffer doesn't have enough space. "
++				"Bytes pending: %d, written: %d",
++				rx, ret);
++			modem_iface_uart_flush(&ctx->iface);
++			k_sem_give(&data->rx_sem);
++			break;
++		}
++
++		k_sem_give(&data->rx_sem);
++	}
++}
++
++static int modem_iface_uart_read(struct modem_iface *iface,
++				 u8_t *buf, size_t size, size_t *bytes_read)
++{
++	struct modem_iface_uart_data *data;
++
++	if (!iface || !iface->iface_data) {
++		return -EINVAL;
++	}
++
++	if (size == 0) {
++		*bytes_read = 0;
++		return 0;
++	}
++
++	data = (struct modem_iface_uart_data *)(iface->iface_data);
++	*bytes_read = ring_buf_get(&data->rx_rb, buf, size);
++
++	return 0;
++}
++
++static int modem_iface_uart_write(struct modem_iface *iface,
++				  const u8_t *buf, size_t size)
++{
++	if (!iface || !iface->iface_data) {
++		return -EINVAL;
++	}
++
++	if (size == 0) {
++		return 0;
++	}
++
++	do {
++		uart_poll_out(iface->dev, *buf++);
++	} while (--size);
++
++	return 0;
++}
++
++int modem_iface_uart_init_dev(struct modem_iface *iface,
++			      const char *dev_name)
++{
++	/* get UART device */
++	iface->dev = device_get_binding(dev_name);
++	if (!iface->dev) {
++		return -ENODEV;
++	}
++
++	uart_irq_rx_disable(iface->dev);
++	uart_irq_tx_disable(iface->dev);
++	modem_iface_uart_flush(iface);
++	uart_irq_callback_set(iface->dev, modem_iface_uart_isr);
++	uart_irq_rx_enable(iface->dev);
++
++	return 0;
++}
++
++int modem_iface_uart_init(struct modem_iface *iface,
++			  struct modem_iface_uart_data *data,
++			  const char *dev_name)
++{
++	int ret;
++
++	if (!iface || !data) {
++		return -EINVAL;
++	}
++
++	iface->iface_data = data;
++	iface->read = modem_iface_uart_read;
++	iface->write = modem_iface_uart_write;
++
++	ring_buf_init(&data->rx_rb, data->rx_rb_buf_len, data->rx_rb_buf);
++	k_sem_init(&data->rx_sem, 0, 1);
++
++	/* get UART device */
++	ret = modem_iface_uart_init_dev(iface, dev_name);
++	if (ret < 0) {
++		iface->iface_data = NULL;
++		iface->read = NULL;
++		iface->write = NULL;
++
++		return ret;
++	}
++
++	return 0;
++}
+diff --git a/drivers/modem/modem_socket.c b/drivers/modem/modem_socket.c
+index 4fb57b3d7ee..11272d749b8 100644
+--- a/drivers/modem/modem_socket.c
++++ b/drivers/modem/modem_socket.c
+@@ -15,6 +15,8 @@
+ 
+ #include "modem_socket.h"
+ 
++#define MAX_SOCKET_RECV_WAIT_SEC   300
++
+ /*
+  * Packet Size Support Functions
+  */
+@@ -386,13 +388,14 @@ int modem_socket_poll_update(struct modem_socket *sock, struct zsock_pollfd *pfd
+ 	return 0;
+ }
+ 
+-void modem_socket_wait_data(struct modem_socket_config *cfg, struct modem_socket *sock)
++int modem_socket_wait_data(struct modem_socket_config *cfg, struct modem_socket *sock)
+ {
+ 	k_sem_take(&cfg->sem_lock, K_FOREVER);
+ 	sock->is_waiting = true;
+ 	k_sem_give(&cfg->sem_lock);
+ 
+-	k_sem_take(&sock->sem_data_ready, K_FOREVER);
++	return k_sem_take(&sock->sem_data_ready,
++            K_SECONDS(MAX_SOCKET_RECV_WAIT_SEC));
+ }
+ 
+ void modem_socket_data_ready(struct modem_socket_config *cfg, struct modem_socket *sock)
+diff --git a/drivers/modem/modem_socket.h b/drivers/modem/modem_socket.h
+index 6701d99e4e6..66ad8799262 100644
+--- a/drivers/modem/modem_socket.h
++++ b/drivers/modem/modem_socket.h
+@@ -76,7 +76,7 @@ int modem_socket_poll_update(struct modem_socket *sock, struct zsock_pollfd *pfd
+ int modem_socket_poll_prepare(struct modem_socket_config *cfg, struct modem_socket *sock,
+ 			      struct zsock_pollfd *pfd, struct k_poll_event **pev,
+ 			      struct k_poll_event *pev_end);
+-void modem_socket_wait_data(struct modem_socket_config *cfg, struct modem_socket *sock);
++int modem_socket_wait_data(struct modem_socket_config *cfg, struct modem_socket *sock);
+ void modem_socket_data_ready(struct modem_socket_config *cfg, struct modem_socket *sock);
+ int modem_socket_init(struct modem_socket_config *cfg, const struct socket_op_vtable *vtable);
+ 
+diff --git a/drivers/modem/quectel-bg9x.c b/drivers/modem/quectel-bg9x.c
+index fa2988fa214..37674910471 100644
+--- a/drivers/modem/quectel-bg9x.c
++++ b/drivers/modem/quectel-bg9x.c
+@@ -132,7 +132,7 @@ static int on_cmd_sockread_common(int socket_fd,
+ 
+ 	/* check to make sure we have all of the data. */
+ 	if (net_buf_frags_len(data->rx_buf) < (socket_data_length + bytes_to_skip)) {
+-		LOG_DBG("Not enough data -- wait!");
++		LOG_INF("Not enough data -- wait!");
+ 		return -EAGAIN;
+ 	}
+ 
+@@ -467,7 +467,7 @@ static ssize_t send_socket_data(struct modem_socket *sock,
+ 	ret = k_sem_take(&mdata.sem_tx_ready, K_MSEC(5000));
+ 	if (ret < 0) {
+ 		/* Didn't get the data prompt - Exit. */
+-		LOG_DBG("Timeout waiting for tx");
++		LOG_INF("Timeout waiting for tx");
+ 		goto exit;
+ 	}
+ 
+@@ -479,13 +479,13 @@ static ssize_t send_socket_data(struct modem_socket *sock,
+ 	k_sem_reset(&mdata.sem_response);
+ 	ret = k_sem_take(&mdata.sem_response, timeout);
+ 	if (ret < 0) {
+-		LOG_DBG("No send response");
++		LOG_INF("No send response");
+ 		goto exit;
+ 	}
+ 
+ 	ret = modem_cmd_handler_get_error(&mdata.cmd_handler_data);
+ 	if (ret != 0) {
+-		LOG_DBG("Failed to send data");
++		LOG_INF("Failed to send data");
+ 	}
+ 
+ exit:
+@@ -568,7 +568,7 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
+ {
+ 	struct modem_socket *sock = (struct modem_socket *)obj;
+ 	char   sendbuf[sizeof("AT+QIRD=##,####")] = {0};
+-	int    ret;
++	int    ret, next_packet_size;
+ 	struct socket_read_data sock_data;
+ 
+ 	/* Modem command to read the data. */
+@@ -584,6 +584,11 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
+ 		return -1;
+ 	}
+ 
++    if (!(flags & ZSOCK_MSG_DONTWAIT)) {
++        modem_socket_wait_data(&mdata.socket_config, sock);
++    }
++    LOG_INF("QIRD LEN: %d\n", len);
++
+ 	snprintk(sendbuf, sizeof(sendbuf), "AT+QIRD=%d,%zd", sock->sock_fd, len);
+ 
+ 	/* Socket read settings */
+@@ -679,16 +684,20 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
+ 	uint16_t	    dst_port  = 0;
+ 	char		    *protocol = "TCP";
+ 	struct modem_cmd    cmd[]     = { MODEM_CMD("+QIOPEN: ", on_cmd_atcmdinfo_sockopen, 2U, ",") };
+-	char		    buf[sizeof("AT+QIOPEN=#,##,###,####.####.####.####,######")] = {0};
++	char		    buf[sizeof("AT+QIOPEN=#,#,'###','###',"
++				       "####.####.####.####.####.####.####.####,######,"
++				       "0,0")] = {0};
+ 	int		    ret;
+ 	char		    ip_str[NET_IPV6_ADDR_LEN];
+ 
++    LOG_INF("%s, %d", __func__, __LINE__);
+ 	if (sock->id < mdata.socket_config.base_socket_num - 1) {
+ 		LOG_ERR("Invalid socket_id(%d) from fd:%d",
+ 			sock->id, sock->sock_fd);
+ 		errno = EINVAL;
+ 		return -1;
+ 	}
++    LOG_INF("%s, %d", __func__, __LINE__);
+ 
+ 	if (sock->is_connected == true) {
+ 		LOG_ERR("Socket is already connected!! socket_id(%d), socket_fd:%d",
+@@ -696,6 +705,7 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
+ 		errno = EISCONN;
+ 		return -1;
+ 	}
++    LOG_INF("%s, %d", __func__, __LINE__);
+ 
+ 	/* Find the correct destination port. */
+ 	if (addr->sa_family == AF_INET6) {
+@@ -703,12 +713,14 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
+ 	} else if (addr->sa_family == AF_INET) {
+ 		dst_port = ntohs(net_sin(addr)->sin_port);
+ 	}
++    LOG_INF("%s, %d", __func__, __LINE__);
+ 
+ 	/* UDP is not supported. */
+ 	if (sock->ip_proto == IPPROTO_UDP) {
+ 		errno = ENOTSUP;
+ 		return -1;
+ 	}
++    LOG_INF("%s, %d", __func__, __LINE__);
+ 
+ 	k_sem_reset(&mdata.sem_sock_conn);
+ 
+@@ -720,6 +732,7 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
+ 		errno = -ret;
+ 		return -1;
+ 	}
++    LOG_INF("%s, %d", __func__, __LINE__);
+ 
+ 	/* Formulate the complete string. */
+ 	snprintk(buf, sizeof(buf), "AT+QIOPEN=%d,%d,\"%s\",\"%s\",%d,0,0", 1, sock->sock_fd, protocol,
+@@ -736,6 +749,7 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
+ 		errno = -ret;
+ 		return -1;
+ 	}
++    LOG_INF("%s, %d", __func__, __LINE__);
+ 
+ 	/* set command handlers */
+ 	ret = modem_cmd_handler_update_cmds(&mdata.cmd_handler_data,
+@@ -743,6 +757,7 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
+ 	if (ret < 0) {
+ 		goto exit;
+ 	}
++    LOG_INF("%s, %d", __func__, __LINE__);
+ 
+ 	/* Wait for QI+OPEN */
+ 	ret = k_sem_take(&mdata.sem_sock_conn, MDM_CMD_CONN_TIMEOUT);
+@@ -752,6 +767,7 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
+ 		socket_close(sock);
+ 		goto exit;
+ 	}
++    LOG_INF("%s, %d", __func__, __LINE__);
+ 
+ 	ret = modem_cmd_handler_get_error(&mdata.cmd_handler_data);
+ 	if (ret != 0) {
+@@ -759,12 +775,14 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
+ 		socket_close(sock);
+ 		goto exit;
+ 	}
++    LOG_INF("%s, %d", __func__, __LINE__);
+ 
+ 	/* Connected successfully. */
+ 	sock->is_connected = true;
+ 	errno = 0;
+ 	return 0;
+ 
++    LOG_INF("%s, %d", __func__, __LINE__);
+ exit:
+ 	(void) modem_cmd_handler_update_cmds(&mdata.cmd_handler_data,
+ 					     NULL, 0U, false);
+@@ -801,7 +819,7 @@ static ssize_t offload_sendmsg(void *obj, const struct msghdr *msg, int flags)
+ 	ssize_t sent = 0;
+ 	int rc;
+ 
+-	LOG_DBG("msg_iovlen:%zd flags:%d", msg->msg_iovlen, flags);
++	LOG_INF("msg_iovlen:%zd flags:%d", msg->msg_iovlen, flags);
+ 
+ 	for (int i = 0; i < msg->msg_iovlen; i++) {
+ 		const char *buf = msg->msg_iov[i].iov_base;
+@@ -885,15 +903,21 @@ static void pin_init(void)
+ 	 */
+ 
+ 	/* MDM_POWER -> 1 for 500-1000 msec. */
+-	modem_pin_write(&mctx, MDM_POWER, 1);
+-	k_sleep(K_MSEC(750));
++	modem_pin_write(&mctx, MDM_POWER, 0);
++	k_sleep(K_MSEC(2000));
+ 
+ 	/* MDM_POWER -> 0 and wait for ~2secs as UART remains in "inactive" state
+ 	 * for some time after the power signal is enabled.
+ 	 */
+-	modem_pin_write(&mctx, MDM_POWER, 0);
++	modem_pin_write(&mctx, MDM_POWER, 1);
+ 	k_sleep(K_SECONDS(2));
+ 
++	LOG_INF("MDM_RESET_PIN -> ASSERTED");
++	modem_pin_write(&mctx, MDM_RESET, 1);
++	k_sleep(K_SECONDS(1));
++	LOG_INF("MDM_RESET_PIN -> NOT_ASSERTED");
++	modem_pin_write(&mctx, MDM_RESET, 0);
++
+ 	LOG_INF("... Done!");
+ }
+ 
+@@ -912,8 +936,13 @@ static const struct modem_cmd unsol_cmds[] = {
+ /* Commands sent to the modem to set it up at boot time. */
+ static const struct setup_cmd setup_cmds[] = {
+ 	SETUP_CMD_NOHANDLE("ATE0"),
+-	SETUP_CMD_NOHANDLE("ATH"),
++	//SETUP_CMD_NOHANDLE("ATH"),
++    SETUP_CMD_NOHANDLE("AT+CFUN=0"),
+ 	SETUP_CMD_NOHANDLE("AT+CMEE=1"),
++    SETUP_CMD_NOHANDLE("AT+QCFG=\"nwscanmode\", 1"),
++    SETUP_CMD_NOHANDLE("AT+CFUN=1"),
++    SETUP_CMD_NOHANDLE("AT+CREG=2"),
++    SETUP_CMD_NOHANDLE("AT+IFC=2,2"),
+ 
+ 	/* Commands to read info from the modem (things like IMEI, Model etc). */
+ 	SETUP_CMD("AT+CGMI", "", on_cmd_atcmdinfo_manufacturer, 0U, ""),
+@@ -924,7 +953,7 @@ static const struct setup_cmd setup_cmds[] = {
+ 	SETUP_CMD("AT+CIMI", "", on_cmd_atcmdinfo_imsi, 0U, ""),
+ 	SETUP_CMD("AT+QCCID", "", on_cmd_atcmdinfo_iccid, 0U, ""),
+ #endif /* #if defined(CONFIG_MODEM_SIM_NUMBERS) */
+-	SETUP_CMD_NOHANDLE("AT+QICSGP=1,1,\"" MDM_APN "\",\"" MDM_USERNAME "\", \"" MDM_PASSWORD "\",1"),
++	SETUP_CMD_NOHANDLE("AT+QICSGP=1,1,\"" MDM_APN "\",\"" MDM_USERNAME "\",\"" MDM_PASSWORD "\",1"),
+ };
+ 
+ /* Func: modem_pdp_context_active
+@@ -995,6 +1024,7 @@ restart:
+ 		goto error;
+ 	}
+ 
++	k_sleep(K_SECONDS(20));
+ 	/* Run setup commands on the modem. */
+ 	ret = modem_cmd_handler_setup_cmds(&mctx.iface, &mctx.cmd_handler,
+ 					   setup_cmds, ARRAY_SIZE(setup_cmds),
+diff --git a/drivers/modem/ublox-sara-r4.c b/drivers/modem/ublox-sara-r4.c
+index e01616726b0..afd97e91f3c 100644
+--- a/drivers/modem/ublox-sara-r4.c
++++ b/drivers/modem/ublox-sara-r4.c
+@@ -316,7 +316,9 @@ static ssize_t send_socket_data(void *obj,
+ 				k_timeout_t timeout)
+ {
+ 	int ret;
+-	char send_buf[sizeof("AT+USO**=#,!###.###.###.###!,#####,####\r\n")];
++	char send_buf[sizeof("AT+USO**=###,"
++			     "!####.####.####.####.####.####.####.####!,"
++			     "#####,#########\r\n")];
+ 	uint16_t dst_port = 0U;
+ 	struct modem_socket *sock = (struct modem_socket *)obj;
+ 	const struct modem_cmd handler_cmds[] = {
+@@ -1545,7 +1547,7 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
+ {
+ 	struct modem_socket *sock = (struct modem_socket *)obj;
+ 	int ret;
+-	char buf[sizeof("AT+USOCO=#,!###.###.###.###!,#####,#\r")];
++	char buf[sizeof("AT+USOCO=###,!####.####.####.####.####.####.####.####!,#####,#\r")];
+ 	uint16_t dst_port = 0U;
+ 	char ip_str[NET_IPV6_ADDR_LEN];
+ 
+diff --git a/drivers/modem/wncm14a2a.c b/drivers/modem/wncm14a2a.c
+index cd847e0d0f3..c84415b3767 100644
+--- a/drivers/modem/wncm14a2a.c
++++ b/drivers/modem/wncm14a2a.c
+@@ -912,7 +912,7 @@ static void on_cmd_sockdataind(struct net_buf **buf, uint16_t len)
+ 	size_t out_len;
+ 	char *delim1, *delim2;
+ 	char value[sizeof("#,#,#####\r")];
+-	char sendbuf[sizeof("AT@SOCKREAD=#,#####\r")];
++	char sendbuf[sizeof("AT@SOCKREAD=-#####,-#####\r")];
+ 	struct wncm14a2a_socket *sock = NULL;
+ 
+ 	out_len = net_buf_linearize(value, sizeof(value) - 1, *buf, 0, len);
+@@ -1519,7 +1519,7 @@ static int offload_get(sa_family_t family,
+ 		       struct net_context **context)
+ {
+ 	int ret;
+-	char buf[sizeof("AT@SOCKCREAT=#,#\r")];
++	char buf[sizeof("AT@SOCKCREAT=###,#\r")];
+ 	struct wncm14a2a_socket *sock = NULL;
+ 
+ 	/* new socket */
+diff --git a/drivers/sensor/CMakeLists.txt b/drivers/sensor/CMakeLists.txt
+index d7990f0cad1..11246e2a4ef 100644
+--- a/drivers/sensor/CMakeLists.txt
++++ b/drivers/sensor/CMakeLists.txt
+@@ -18,6 +18,7 @@ add_subdirectory_ifdef(CONFIG_BMI270		bmi270)
+ add_subdirectory_ifdef(CONFIG_BMM150		bmm150)
+ add_subdirectory_ifdef(CONFIG_BMP388		bmp388)
+ add_subdirectory_ifdef(CONFIG_BQ274XX		bq274xx)
++add_subdirectory_ifdef(CONFIG_BQ40ZXX		bq40zxx)
+ add_subdirectory_ifdef(CONFIG_CCS811		ccs811)
+ add_subdirectory_ifdef(CONFIG_DHT			dht)
+ add_subdirectory_ifdef(CONFIG_DPS310		dps310)
+diff --git a/drivers/sensor/Kconfig b/drivers/sensor/Kconfig
+index ee05ce7ffce..8822267baca 100644
+--- a/drivers/sensor/Kconfig
++++ b/drivers/sensor/Kconfig
+@@ -246,6 +246,12 @@ source "drivers/sensor/nuvoton_adc_cmp_npcx/Kconfig"
+ 
+ source "drivers/sensor/ite_tach_it8xxx2/Kconfig"
+ 
++source "drivers/sensor/hdc2080/Kconfig"
++
++source "drivers/sensor/icm20600/Kconfig"
++
++source "drivers/sensor/bq40zxx/Kconfig"
++
+ source "drivers/sensor/ite_vcmp_it8xxx2/Kconfig"
+ 
+ endif # SENSOR
+diff --git a/drivers/sensor/tmp116/tmp116.c b/drivers/sensor/tmp116/tmp116.c
+index 80ffa8b53b8..fd9f3022198 100644
+--- a/drivers/sensor/tmp116/tmp116.c
++++ b/drivers/sensor/tmp116/tmp116.c
+@@ -15,6 +15,8 @@
+ #include <zephyr/sys/__assert.h>
+ #include <zephyr/logging/log.h>
+ #include <zephyr/kernel.h>
++#include <zephyr/drivers/i2c/i2c_recovery_stm32.h>
++
+ 
+ #include "tmp116.h"
+ 
+@@ -24,6 +26,11 @@
+ 
+ LOG_MODULE_REGISTER(TMP116, CONFIG_SENSOR_LOG_LEVEL);
+ 
++static const struct gpio_dt_spec rec_scl = GPIO_DT_SPEC_GET(DT_NODELABEL(scl_rec_i2c1), gpios);
++static const struct gpio_dt_spec rec_sda = GPIO_DT_SPEC_GET(DT_NODELABEL(sda_rec_i2c1), gpios);
++
++
++
+ static int tmp116_reg_read(const struct device *dev, uint8_t reg,
+ 			   uint16_t *val)
+ {
+@@ -31,7 +38,11 @@ static int tmp116_reg_read(const struct device *dev, uint8_t reg,
+ 
+ 	if (i2c_burst_read_dt(&cfg->bus, reg, (uint8_t *)val, 2)
+ 	    < 0) {
+-		return -EIO;
++		i2c_recovery_stm32(I2C1, GPIOB, LL_GPIO_PIN_6, LL_GPIO_PIN_7, &rec_scl, &rec_sda);
++		if (i2c_burst_read_dt(&cfg->bus, reg, (uint8_t *)val, 2)
++			< 0) {
++				return -EIO;
++		}
+ 	}
+ 
+ 	*val = sys_be16_to_cpu(*val);
+diff --git a/drivers/spi/spi_ll_stm32.c b/drivers/spi/spi_ll_stm32.c
+index 7e3ca9a9a3e..5a5c254d61a 100644
+--- a/drivers/spi/spi_ll_stm32.c
++++ b/drivers/spi/spi_ll_stm32.c
+@@ -291,6 +291,7 @@ static void spi_stm32_shift_m(SPI_TypeDef *spi, struct spi_stm32_data *data)
+ 		spi_context_update_tx(&data->ctx, 2, 1);
+ 	}
+ 
++
+ 	while (!ll_func_rx_is_not_empty(spi)) {
+ 		/* NOP */
+ 	}
+diff --git a/drivers/usb/device/usb_dc_stm32.c b/drivers/usb/device/usb_dc_stm32.c
+index 21f451619eb..76089c7adff 100644
+--- a/drivers/usb/device/usb_dc_stm32.c
++++ b/drivers/usb/device/usb_dc_stm32.c
+@@ -301,6 +301,7 @@ static int usb_dc_stm32_clock_enable(void)
+ 		return -EIO;
+ 	}
+ 
++#if !defined(CONFIG_SOC_SERIES_STM32H7X)
+ #if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_otghs)
+ #if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_usbphyc)
+ 	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_OTGHSULPI);
+@@ -310,6 +311,7 @@ static int usb_dc_stm32_clock_enable(void)
+ 	LL_AHB1_GRP1_DisableClock(LL_AHB1_GRP1_PERIPH_OTGHSULPI);
+ 	LL_AHB1_GRP1_DisableClockLowPower(LL_AHB1_GRP1_PERIPH_OTGHSULPI);
+ #endif
++#endif
+ #endif
+ 
+ 	return 0;
+diff --git a/dts/arm/st/h7/stm32h743Xg.dtsi b/dts/arm/st/h7/stm32h743Xg.dtsi
+new file mode 100644
+index 00000000000..709610527c2
+--- /dev/null
++++ b/dts/arm/st/h7/stm32h743Xg.dtsi
+@@ -0,0 +1,20 @@
++/*
++ * Copyright (c) 2020 Teslabs Engineering S.L.
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <mem.h>
++#include <st/h7/stm32h743.dtsi>
++
++/ {
++	soc {
++		flash-controller@52002000 {
++			flash0: flash@8000000 {
++				compatible = "soc-nv-flash";
++				label = "FLASH_STM32";
++				reg = <0x08000000 DT_SIZE_K(2048)>;
++			};
++		};
++	};
++};
+diff --git a/dts/arm/st/h7/stm32h7a3Xg.dtsi b/dts/arm/st/h7/stm32h7a3Xg.dtsi
+new file mode 100644
+index 00000000000..ce2a438197e
+--- /dev/null
++++ b/dts/arm/st/h7/stm32h7a3Xg.dtsi
+@@ -0,0 +1,19 @@
++/*
++ * Copyright (c) 2022 Byte-Lab grupa d.o.o.
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <mem.h>
++#include <st/h7/stm32h7a3.dtsi>
++/ {
++	soc {
++		flash-controller@52002000 {
++			flash0: flash@8000000 {
++				compatible = "soc-nv-flash";
++				label = "FLASH_STM32";
++				reg = <0x08000000 DT_SIZE_K(1024)>;
++			};
++		};
++	};
++};
+diff --git a/dts/arm/st/h7/stm32h7b0.dtsi b/dts/arm/st/h7/stm32h7b0.dtsi
+new file mode 100644
+index 00000000000..c103059a3e0
+--- /dev/null
++++ b/dts/arm/st/h7/stm32h7b0.dtsi
+@@ -0,0 +1,21 @@
++/*
++ * Copyright (c) 2021 Byte-Lab Grupa
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <mem.h>
++#include <st/h7/stm32h7b3.dtsi>
++
++/* STM32H7B0 differs from STM32H7B3 only in amount of flash */
++/ {
++	soc {
++		flash-controller@52002000 {
++			flash0: flash@8000000 {
++				compatible = "soc-nv-flash";
++				label = "FLASH_STM32";
++				reg = <0x08000000 DT_SIZE_K(128)>;
++			};
++		};
++	};
++};
+diff --git a/dts/bindings/modem/quectel,bg95.yaml b/dts/bindings/modem/quectel,bg95.yaml
+new file mode 100644
+index 00000000000..94ec710730c
+--- /dev/null
++++ b/dts/bindings/modem/quectel,bg95.yaml
+@@ -0,0 +1,27 @@
++# SPDX-License-Identifier: Apache-2.0
++
++description: quectel BG95 modem
++
++compatible: "quectel,bg95"
++
++include: uart-device.yaml
++
++properties:
++    label:
++      required: true
++
++    mdm-power-gpios:
++      type: phandle-array
++      required: true
++
++    mdm-reset-gpios:
++      type: phandle-array
++      required: true
++
++    mdm-dtr-gpios:
++      type: phandle-array
++      required: false
++
++    mdm-wdisable-gpios:
++      type: phandle-array
++      required: false
+diff --git a/dts/bindings/sensor/ti,bq40zxx.yaml b/dts/bindings/sensor/ti,bq40zxx.yaml
+new file mode 100644
+index 00000000000..460152b3cb9
+--- /dev/null
++++ b/dts/bindings/sensor/ti,bq40zxx.yaml
+@@ -0,0 +1,36 @@
++#
++# Copyright (c) 2020 ZedBlox
++#
++# SPDX-License-Identifier: Apache-2.0
++#
++
++description: Texas Instruments BQ40Zxx Fuel Gauge
++
++compatible: "ti,bq40zxx"
++
++include: i2c-device.yaml
++
++properties:
++    design-voltage:
++      type: int
++      required: false
++      description: Battery Design Volatge in (3300 - 4400)mV
++      default: 3700
++
++    design-capacity:
++      type: int
++      required: false
++      description: Battery Design Capacity in mAh
++      default: 4400
++
++    taper-current:
++      type: int
++      required: false
++      description: Battery Taper current in mAh
++      default: 45
++
++    terminate-voltage:
++      type: int
++      required: false
++      description: Battery Terminate Voltage in mV
++      default: 3000
+diff --git a/include/drivers/modem/quectel-bg95.h b/include/drivers/modem/quectel-bg95.h
+new file mode 100644
+index 00000000000..5363286e06b
+--- /dev/null
++++ b/include/drivers/modem/quectel-bg95.h
+@@ -0,0 +1,364 @@
++#ifndef __MDM_QUECTEL_BG95_H__
++#define __MDM_QUECTEL_BG95_H__
++
++#include <kernel.h>
++#include <ctype.h>
++#include <errno.h>
++#include <zephyr.h>
++#include <device.h>
++
++#include <net/net_if.h>
++#include <net/net_offload.h>
++#include <net/socket_offload.h>
++#include <net/http_parser.h>
++
++/* uncomment for File operations API */
++#define CONFIG_QUECTEL_BG95_FILE_OPS
++#define CONFIG_QUECTEL_BG95_DFOTA
++
++#define MDM_MANUFACTURER_LENGTH 10
++#define MDM_MODEL_LENGTH 16
++#define MDM_REVISION_LENGTH 64
++#define MDM_IMEI_LENGTH 16
++#define MDM_TIME_LENGTH 32
++#define MAX_CI_BUF_SIZE   (128U * 8U)
++
++struct usr_http_cfg {
++	char *url;
++	char *content_type;
++	char *content_body;
++	char *recv_buf;
++	size_t recv_buf_len;
++    char *resp_filename; 
++	uint8_t method;
++	uint16_t recv_read_len;
++	uint16_t timeout;
++};
++
++struct mdm_ctx {
++	/* modem data */
++	char data_manufacturer[MDM_MANUFACTURER_LENGTH];
++	char data_model[MDM_MODEL_LENGTH];
++	char data_revision[MDM_REVISION_LENGTH];
++	char data_imei[MDM_IMEI_LENGTH];
++	char data_timeval[MDM_TIME_LENGTH];
++    char data_cellinfo[MAX_CI_BUF_SIZE];
++    uint32_t data_sys_timeval;
++	int32_t   data_rssi;
++};
++
++struct usr_gps_cfg {
++	char *lat;
++	char *lon;
++    char* gps_data;
++    char* agps_filename;
++    char* utc_time;
++    int agps_status;
++};
++
++#ifdef CONFIG_QUECTEL_BG95_FILE_OPS
++typedef int (*m_fopen)(struct device *dev,
++                        const char *file);
++typedef int (*m_fread)(struct device *dev,
++                        int fd, uint8_t* buf, size_t len);
++typedef int (*m_fwrite)(struct device *dev,
++                        int fd, uint8_t* buf, size_t buf_len);
++typedef int (*m_fseek)(struct device *dev,
++                        int fd, size_t off);
++typedef int (*m_fclose)(struct device *dev,
++                        int fd);
++typedef int (*m_fstat)(struct device *dev,
++                        const char* fname, size_t* f_sz);
++typedef int (*m_fdel)(struct device *dev,
++                        const char* fname);
++#endif
++
++#ifdef CONFIG_QUECTEL_BG95_DFOTA
++typedef int (*m_dfota)(struct device *dev,
++                        const char* url);
++#endif
++
++typedef int (*mdm_get_clock)(struct device *dev,
++                        char *timeval);
++typedef int (*mdm_get_ntp_time)(struct device *dev);
++
++typedef int (*mdm_http_init)(struct device *dev,
++                        struct usr_http_cfg *cfg);
++typedef int (*mdm_http_execute)(struct device *dev,
++                        struct usr_http_cfg *cfg);
++typedef int (*mdm_http_term)(struct device *dev,
++                        struct usr_http_cfg *cfg);
++
++typedef int (*mdm_gps_init)(struct device *dev,
++                        struct usr_gps_cfg *cfg);
++typedef int (*mdm_gps_agps)(struct device *dev,
++                        struct usr_gps_cfg *cfg);
++typedef int (*mdm_gps_read)(struct device *dev,
++                        struct usr_gps_cfg *cfg);
++typedef int (*mdm_gps_close)(struct device *dev);
++
++typedef int (*mdm_get_ctx)(struct device *dev,
++                        struct mdm_ctx **ctx);
++
++typedef int (*mdm_get_cell_info)(struct device *dev,
++                        char **cell_info);
++
++typedef void (*mdm_reset)(void);
++
++struct modem_quectel_bg95_net_api {
++    /* Need to be at the top */
++	struct net_if_api net_api;
++
++	/* Driver specific extension api */
++    mdm_get_clock  get_clock;
++    mdm_get_ntp_time get_ntp_time;
++
++	mdm_http_init http_init;
++	mdm_http_execute http_execute;
++	mdm_http_term http_term;
++
++	mdm_gps_init gps_init;
++	mdm_gps_agps gps_agps;
++	mdm_gps_read gps_read;
++	mdm_gps_close gps_close;
++
++#ifdef CONFIG_QUECTEL_BG95_FILE_OPS
++    m_fopen fopen;
++    m_fread fread;
++    m_fwrite fwrite;
++    m_fseek fseek;
++    m_fclose fclose;
++    m_fstat fstat;
++    m_fdel fdel;
++#endif
++
++#ifdef CONFIG_QUECTEL_BG95_FILE_OPS
++    m_dfota dfota;
++#endif
++
++	mdm_get_ctx get_ctx;
++
++    mdm_get_cell_info get_cell_info;
++
++	mdm_reset reset;
++};
++
++/*
++enum http_method {
++	HTTP_GET = 0,
++	HTTP_POST,
++};
++*/
++
++#ifdef CONFIG_QUECTEL_BG95_FILE_OPS
++__syscall int mdm_fopen(struct device *dev,
++                const char *file);
++static inline int mdm_fopen(struct device *dev,
++        const char *file)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->fopen(dev, file);
++}
++
++__syscall int mdm_fread(struct device *dev,
++                int fd, uint8_t* buf, size_t len);
++static inline int mdm_fread(struct device *dev,
++        int fd, uint8_t* buf, size_t len)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->fread(dev, fd, buf, len);
++}
++
++__syscall int mdm_fwrite(struct device *dev,
++                int fd, uint8_t* buf, size_t buf_len);
++static inline int mdm_fwrite(struct device *dev,
++        int fd, uint8_t* buf, size_t buf_len)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->fwrite(dev, fd, buf, buf_len);
++}
++
++__syscall int mdm_fseek(struct device *dev,
++                int fd, size_t off);
++static inline int mdm_fseek(struct device *dev,
++        int fd, size_t off)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->fseek(dev, fd, off);
++}
++
++__syscall int mdm_fclose(struct device *dev,
++                int fd);
++static inline int mdm_fclose(struct device *dev,
++        int fd)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->fclose(dev, fd);
++}
++
++__syscall int mdm_fstat(struct device *dev,
++                const char *fname, size_t* f_sz);
++static inline int mdm_fstat(struct device *dev,
++        const char *fname, size_t* f_sz)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->fstat(dev, fname, f_sz);
++}
++
++__syscall int mdm_fdel(struct device *dev,
++                const char *fname);
++static inline int mdm_fdel(struct device *dev,
++        const char *fname)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->fdel(dev, fname);
++}
++
++#endif
++
++#ifdef CONFIG_QUECTEL_BG95_FILE_OPS
++__syscall int mdm_quectel_bg95_dfota(struct device *dev,
++				const char* url);
++
++static inline int mdm_quectel_bg95_dfota(struct device *dev,
++					   const char* url)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->dfota(dev, url);
++}
++#endif
++
++__syscall int mdm_quectel_bg95_get_ntp_time(struct device *dev);
++
++static inline int mdm_quectel_bg95_get_ntp_time(struct device *dev)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->get_ntp_time(dev);
++}
++
++__syscall int mdm_quectel_bg95_get_clock(struct device *dev,
++				char *timeval);
++
++static inline int mdm_quectel_bg95_get_clock(struct device *dev,
++					   char *timeval)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->get_clock(dev, timeval);
++}
++
++__syscall int mdm_quectel_bg95_http_init(struct device *dev,
++				struct usr_http_cfg *cfg);
++
++static inline int mdm_quectel_bg95_http_init(struct device *dev,
++					   struct usr_http_cfg *cfg)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->http_init(dev, cfg);
++}
++
++__syscall int mdm_quectel_bg95_http_execute(struct device *dev,
++				   struct usr_http_cfg *cfg);
++
++static inline int mdm_quectel_bg95_http_execute(struct device *dev,
++					      struct usr_http_cfg *cfg)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->http_execute(dev, cfg);
++}
++
++__syscall int mdm_quectel_bg95_http_term(struct device *dev,
++				struct usr_http_cfg *cfg);
++
++static inline int mdm_quectel_bg95_http_term(struct device *dev,
++					   struct usr_http_cfg *cfg)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->http_term(dev, cfg);
++}
++
++__syscall int mdm_quectel_bg95_gps_init(struct device *dev,
++				struct usr_gps_cfg *cfg);
++
++static inline int mdm_quectel_bg95_gps_init(struct device *dev,
++					   struct usr_gps_cfg *cfg)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->gps_init(dev, cfg);
++}
++
++__syscall int mdm_quectel_bg95_gps_agps(struct device *dev,
++				struct usr_gps_cfg *cfg);
++
++static inline int mdm_quectel_bg95_gps_agps(struct device *dev,
++					   struct usr_gps_cfg *cfg)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->gps_agps(dev, cfg);
++}
++
++__syscall int mdm_quectel_bg95_gps_read(struct device *dev,
++				struct usr_gps_cfg *cfg);
++
++static inline int mdm_quectel_bg95_gps_read(struct device *dev,
++					   struct usr_gps_cfg *cfg)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->gps_read(dev, cfg);
++}
++
++__syscall int mdm_quectel_bg95_gps_close(struct device *dev);
++
++static inline int mdm_quectel_bg95_gps_close(struct device *dev)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->gps_close(dev);
++}
++
++__syscall int mdm_quectel_bg95_get_ctx(struct device *dev,
++				struct mdm_ctx **ctx);
++
++static inline int mdm_quectel_bg95_get_ctx(struct device *dev,
++					   struct mdm_ctx **ctx)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->get_ctx(dev, ctx);
++}
++
++__syscall int mdm_quectel_bg95_get_cell_info(struct device *dev,
++				char **cell_info);
++
++static inline int mdm_quectel_bg95_get_cell_info(struct device *dev,
++					   char **cell_info)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->get_cell_info(dev, cell_info);
++}
++__syscall void mdm_quectel_bg95_reset(struct device *dev);
++
++static inline void mdm_quectel_bg95_reset(struct device *dev)
++{
++	const struct modem_quectel_bg95_net_api *api =
++        (const struct modem_quectel_bg95_net_api *) dev->api;
++	return api->reset();
++}
++
++#endif
+diff --git a/include/zephyr/drivers/i2c/i2c_recovery_stm32.h b/include/zephyr/drivers/i2c/i2c_recovery_stm32.h
+new file mode 100644
+index 00000000000..f58ba0e1aeb
+--- /dev/null
++++ b/include/zephyr/drivers/i2c/i2c_recovery_stm32.h
+@@ -0,0 +1,17 @@
++#ifndef I2C_RECOVERY_STM32_H
++#define I2C_RECOVERY_STM32_H
++
++#include <zephyr/device.h>
++#include <zephyr/drivers/gpio.h>
++#include <stm32_ll_i2c.h>
++#include <stm32_ll_gpio.h>
++#include <stm32_ll_bus.h>
++
++
++void i2c_recovery_stm32(I2C_TypeDef *i2c, 
++                                 GPIO_TypeDef *port,
++                                 uint32_t scl_pin, 
++                                 uint32_t sda_pin,
++                                 const struct gpio_dt_spec *scl_dt,
++                                 const struct gpio_dt_spec *sda_dt);
++#endif
+diff --git a/include/zephyr/drivers/sensor.h b/include/zephyr/drivers/sensor.h
+index b4bcacff8f1..7adf5bcee8d 100644
+--- a/include/zephyr/drivers/sensor.h
++++ b/include/zephyr/drivers/sensor.h
+@@ -139,17 +139,48 @@ enum sensor_channel {
+ 
+ 	/** Revolutions per minute, in RPM. */
+ 	SENSOR_CHAN_RPM,
+-
+ 	/** Voltage, in volts **/
+ 	SENSOR_CHAN_GAUGE_VOLTAGE,
+ 	/** Average current, in amps **/
+ 	SENSOR_CHAN_GAUGE_AVG_CURRENT,
+-	/** Standby current, in amps **/
++	/** Standy current, in amps **/
+ 	SENSOR_CHAN_GAUGE_STDBY_CURRENT,
+ 	/** Max load current, in amps **/
+ 	SENSOR_CHAN_GAUGE_MAX_LOAD_CURRENT,
+ 	/** Gauge temperature  **/
+ 	SENSOR_CHAN_GAUGE_TEMP,
++	/** Design voltage of cell in V (max voltage)*/
++	SENSOR_CHAN_GAUGE_DESIGN_VOLTAGE,
++	/** Desired voltage of cell in V (nominal voltage) */
++	SENSOR_CHAN_GAUGE_DESIRED_VOLTAGE,
++	/** Desired charging current in mA */
++	SENSOR_CHAN_GAUGE_DESIRED_CHARGING_CURRENT,
++	/** Time to full  **/
++	SENSOR_CHAN_GAUGE_TIME_TO_FULL,
++	/** Time to empty  **/
++	SENSOR_CHAN_GAUGE_TIME_TO_EMPTY,
++	/** Cycle count  **/
++	SENSOR_CHAN_GAUGE_CYCLE_COUNT,
++	/** Design capacity  **/
++	SENSOR_CHAN_GAUGE_DESIGN_CAPACITY,
++	/** Safety Alert  **/
++	SENSOR_CHAN_GAUGE_SAFETY_ALERT,
++	/** Safety Status  **/
++	SENSOR_CHAN_GAUGE_SAFETY_STATUS,
++	/** PF Alert  **/
++	SENSOR_CHAN_GAUGE_PF_ALERT,
++	/** PF Status  **/
++	SENSOR_CHAN_GAUGE_PF_STATUS,
++	/** Operation Status  **/
++	SENSOR_CHAN_GAUGE_OPERATING_STATUS,
++	/** Charging Status  **/
++	SENSOR_CHAN_GAUGE_CHARGING_STATUS,
++	/** Gauging Status  **/
++	SENSOR_CHAN_GAUGE_GAUGING_STATUS,
++	/** Manufacturing Status  **/
++	SENSOR_CHAN_GAUGE_MANUFACTURING_STATUS,
++	/** Gauge flags  **/
++	SENSOR_CHAN_GAUGE_FLAGS,
+ 	/** State of charge measurement in % **/
+ 	SENSOR_CHAN_GAUGE_STATE_OF_CHARGE,
+ 	/** Full Charge Capacity in mAh **/
+@@ -164,18 +195,7 @@ enum sensor_channel {
+ 	SENSOR_CHAN_GAUGE_AVG_POWER,
+ 	/** State of health measurement in % **/
+ 	SENSOR_CHAN_GAUGE_STATE_OF_HEALTH,
+-	/** Time to empty in minutes **/
+-	SENSOR_CHAN_GAUGE_TIME_TO_EMPTY,
+-	/** Time to full in minutes **/
+-	SENSOR_CHAN_GAUGE_TIME_TO_FULL,
+-	/** Cycle count (total number of charge/discharge cycles) **/
+-	SENSOR_CHAN_GAUGE_CYCLE_COUNT,
+-	/** Design voltage of cell in V (max voltage)*/
+-	SENSOR_CHAN_GAUGE_DESIGN_VOLTAGE,
+-	/** Desired voltage of cell in V (nominal voltage) */
+-	SENSOR_CHAN_GAUGE_DESIRED_VOLTAGE,
+-	/** Desired charging current in mA */
+-	SENSOR_CHAN_GAUGE_DESIRED_CHARGING_CURRENT,
++
+ 
+ 	/** All channels. */
+ 	SENSOR_CHAN_ALL,
+diff --git a/include/zephyr/fs/fcb.h b/include/zephyr/fs/fcb.h
+index d5e0953d486..221cadf032d 100644
+--- a/include/zephyr/fs/fcb.h
++++ b/include/zephyr/fs/fcb.h
+@@ -36,6 +36,7 @@ extern "C" {
+ 
+ #define FCB_MAX_LEN	(CHAR_MAX | CHAR_MAX << 7) /**< Max length of element */
+ 
++#define META_INFO_LEN    (4U)
+ /**
+  * @brief FCB entry info structure. This data structure describes the element
+  * location in the flash.
+diff --git a/samples/hello_world/prj.conf b/samples/hello_world/prj.conf
+index b2a4ba59104..57a261b8b4f 100644
+--- a/samples/hello_world/prj.conf
++++ b/samples/hello_world/prj.conf
+@@ -1 +1,4 @@
+ # nothing here
++CONFIG_LOG=y
++CONFIG_SERIAL=y
++CONFIG_UART_INTERRUPT_DRIVEN=y
+diff --git a/samples/hello_world/src/main.c b/samples/hello_world/src/main.c
+index 8676d8940bc..6b284233125 100644
+--- a/samples/hello_world/src/main.c
++++ b/samples/hello_world/src/main.c
+@@ -8,5 +8,8 @@
+ 
+ void main(void)
+ {
+-	printk("Hello World! %s\n", CONFIG_BOARD);
++    while (1) {
++	    printk("Hello World! %s\n", CONFIG_BOARD);
++        k_msleep(1000);
++    }
+ }
+diff --git a/samples/subsys/display/cfb/prj.conf b/samples/subsys/display/cfb/prj.conf
+index 79d9eef3735..069f1a9305a 100644
+--- a/samples/subsys/display/cfb/prj.conf
++++ b/samples/subsys/display/cfb/prj.conf
+@@ -8,3 +8,4 @@ CONFIG_LOG=y
+ 
+ CONFIG_CFB_LOG_LEVEL_DBG=y
+ CONFIG_CHARACTER_FRAMEBUFFER=y
++CONFIG_STM32_LTDC=y
+diff --git a/soc/arm/st_stm32/stm32h7/Kconfig.defconfig.stm32h7b0xx b/soc/arm/st_stm32/stm32h7/Kconfig.defconfig.stm32h7b0xx
+new file mode 100644
+index 00000000000..ce057594919
+--- /dev/null
++++ b/soc/arm/st_stm32/stm32h7/Kconfig.defconfig.stm32h7b0xx
+@@ -0,0 +1,15 @@
++# ST STM32H7B0X MCU configuration options
++
++# Copyright (c) 2022 Byte-Lab d.o.o.
++# SPDX-License-Identifier: Apache-2.0
++
++if SOC_STM32H7B0XX || SOC_STM32H7B0XXQ
++
++config SOC
++	default "stm32h7b0xxq" if SOC_STM32H7B0XXQ
++	default "stm32h7b0xx" if SOC_STM32H7B0XX
++
++config NUM_IRQS
++	default 155
++
++endif # SOC_STM32H7B0XX || SOC_STM32H7B0XXQ
+diff --git a/subsys/fb/cfb.c b/subsys/fb/cfb.c
+index 96bc0fdcfaa..b43d42b92c3 100644
+--- a/subsys/fb/cfb.c
++++ b/subsys/fb/cfb.c
+@@ -26,6 +26,7 @@ static inline uint8_t byte_reverse(uint8_t b)
+ struct char_framebuffer {
+ 	/** Pointer to a buffer in RAM */
+ 	uint8_t *buf;
++	uint8_t *bak_buf;
+ 
+ 	/** Size of the framebuffer */
+ 	uint32_t size;
+@@ -59,6 +60,9 @@ struct char_framebuffer {
+ 
+ 	/** Inverted */
+ 	bool inverted;
++
++	/** Rotate */
++	uint8_t rotate;
+ };
+ 
+ static struct char_framebuffer char_fb;
+@@ -203,6 +207,26 @@ static int cfb_invert(const struct char_framebuffer *fb)
+ 	return 0;
+ }
+ 
++static uint8_t bit_inv(uint8_t byte)
++{
++    return ((((byte >> 0) & 0x1) << 7) | (((byte >> 1) & 0x1) << 6) | (((byte >> 2) & 0x1) << 5) |
++            (((byte >> 3) & 0x1) << 4) | (((byte >> 4) & 0x1) << 3) | (((byte >> 5) & 0x1) << 2) |
++            (((byte >> 6) & 0x1) << 1) | (((byte >> 7) & 0x1) << 0));
++}
++
++static int cfb_rotate(const struct char_framebuffer *fb)
++{
++	for (size_t i = 0; i < fb->x_res * fb->y_res / 8U; i = i + (fb->y_res / 8U)) {
++        for (int j = 0; j < 8; j++) {
++            fb->bak_buf[fb->size - i - j - 1] = bit_inv(fb->buf[i + j]);
++        }
++    }
++
++    memcpy(fb->buf, fb->bak_buf, fb->size);
++
++	return 0;
++}
++
+ int cfb_framebuffer_clear(const struct device *dev, bool clear_display)
+ {
+ 	const struct char_framebuffer *fb = &char_fb;
+@@ -231,6 +255,7 @@ int cfb_framebuffer_invert(const struct device *dev)
+ 	}
+ 
+ 	fb->inverted = !fb->inverted;
++    fb->rotate = 1; // HACK FIXME: need separate api
+ 
+ 	return 0;
+ }
+@@ -254,6 +279,10 @@ int cfb_framebuffer_finalize(const struct device *dev)
+ 		cfb_invert(fb);
+ 	}
+ 
++    if (fb->rotate > 0) {
++        cfb_rotate(fb);
++    }
++
+ 	return api->write(dev, 0, 0, &desc, fb->buf);
+ }
+ 
+@@ -332,7 +361,7 @@ int cfb_framebuffer_init(const struct device *dev)
+ 	api->get_capabilities(dev, &cfg);
+ 
+ 	fb->numof_fonts = __font_entry_end - __font_entry_start;
+-	LOG_DBG("number of fonts %d", fb->numof_fonts);
++	LOG_INF("number of fonts %d", fb->numof_fonts);
+ 	if (!fb->numof_fonts) {
+ 		return -ENODEV;
+ 	}
+@@ -343,6 +372,7 @@ int cfb_framebuffer_init(const struct device *dev)
+ 	fb->pixel_format = cfg.current_pixel_format;
+ 	fb->screen_info = cfg.screen_info;
+ 	fb->buf = NULL;
++	fb->bak_buf = NULL;
+ 	fb->font_idx = 0U;
+ 	fb->kerning = 0;
+ 	fb->inverted = false;
+@@ -355,8 +385,13 @@ int cfb_framebuffer_init(const struct device *dev)
+ 	if (!fb->buf) {
+ 		return -ENOMEM;
+ 	}
++	fb->bak_buf = k_malloc(fb->size);
++	if (!fb->bak_buf) {
++		return -1;
++	}
+ 
+ 	memset(fb->buf, 0, fb->size);
++	memset(fb->bak_buf, 0, fb->size);
+ 
+ 	return 0;
+ }
+diff --git a/subsys/fs/fcb/fcb_append.c b/subsys/fs/fcb/fcb_append.c
+index 74f61387adc..b27eb71e381 100644
+--- a/subsys/fs/fcb/fcb_append.c
++++ b/subsys/fs/fcb/fcb_append.c
+@@ -62,6 +62,7 @@ fcb_append(struct fcb *fcb, uint16_t len, struct fcb_entry *append_loc)
+ 	struct flash_sector *sector;
+ 	struct fcb_entry *active;
+ 	int cnt;
++    int meta_info_len;
+ 	int rc;
+ 	uint8_t tmp_str[MAX(8, fcb->f_align)];
+ 
+@@ -69,6 +70,7 @@ fcb_append(struct fcb *fcb, uint16_t len, struct fcb_entry *append_loc)
+ 	if (cnt < 0) {
+ 		return cnt;
+ 	}
++    meta_info_len = fcb_len_in_flash(fcb, META_INFO_LEN);
+ 	cnt = fcb_len_in_flash(fcb, cnt);
+ 	len = fcb_len_in_flash(fcb, len) + fcb_len_in_flash(fcb, FCB_CRC_SZ);
+ 
+@@ -79,10 +81,10 @@ fcb_append(struct fcb *fcb, uint16_t len, struct fcb_entry *append_loc)
+ 		return -EINVAL;
+ 	}
+ 	active = &fcb->f_active;
+-	if (active->fe_elem_off + len + cnt > active->fe_sector->fs_size) {
++    if (active->fe_elem_off + len + meta_info_len + cnt > active->fe_sector->fs_size) {
+ 		sector = fcb_new_sector(fcb, fcb->f_scratch_cnt);
+ 		if (!sector || (sector->fs_size <
+-			fcb_len_in_flash(fcb, sizeof(struct fcb_disk_area)) + len + cnt)) {
++			fcb_len_in_flash(fcb, sizeof(struct fcb_disk_area)) + len + meta_info_len + cnt)) {
+ 			rc = -ENOSPC;
+ 			goto err;
+ 		}
+@@ -102,7 +104,7 @@ fcb_append(struct fcb *fcb, uint16_t len, struct fcb_entry *append_loc)
+ 	}
+ 	append_loc->fe_sector = active->fe_sector;
+ 	append_loc->fe_elem_off = active->fe_elem_off;
+-	append_loc->fe_data_off = active->fe_elem_off + cnt;
++    append_loc->fe_data_off = active->fe_elem_off + cnt + meta_info_len;
+ 
+ 	active->fe_elem_off = append_loc->fe_data_off + len;
+ 
+diff --git a/subsys/fs/fcb/fcb_elem_info.c b/subsys/fs/fcb/fcb_elem_info.c
+index 11d8c9cdd04..dfac535796a 100644
+--- a/subsys/fs/fcb/fcb_elem_info.c
++++ b/subsys/fs/fcb/fcb_elem_info.c
+@@ -38,7 +38,8 @@ fcb_elem_crc8(struct fcb *fcb, struct fcb_entry *loc, uint8_t *c8p)
+ 	if (cnt < 0) {
+ 		return cnt;
+ 	}
+-	loc->fe_data_off = loc->fe_elem_off + fcb_len_in_flash(fcb, cnt);
++	loc->fe_data_off = loc->fe_elem_off + fcb_len_in_flash(fcb, cnt) +
++        fcb_len_in_flash(fcb, META_INFO_LEN);
+ 	loc->fe_data_len = len;
+ 
+ 	crc8 = CRC8_CCITT_INITIAL_VALUE;
+diff --git a/subsys/fs/fcb/fcb_getnext.c b/subsys/fs/fcb/fcb_getnext.c
+index 875be86d450..6c0fcb30308 100644
+--- a/subsys/fs/fcb/fcb_getnext.c
++++ b/subsys/fs/fcb/fcb_getnext.c
+@@ -119,3 +119,35 @@ fcb_getnext(struct fcb *fcb, struct fcb_entry *loc)
+ 
+ 	return rc;
+ }
++
++int
++fcb_getmeta_off(struct fcb *fcb, struct fcb_entry *loc)
++{
++#if 0
++    int rc = 0;
++
++	if (loc->fe_sector == NULL) {
++		/*
++		 * Find the first one we have in flash.
++		 */
++		loc->fe_sector = fcb->f_oldest;
++	}
++	if (loc->fe_elem_off == 0U) {
++		/*
++		 * If offset is zero, we serve the first entry from the sector.
++		 */
++		loc->fe_elem_off = sizeof(struct fcb_disk_area);
++        rc = fcb_elem_info(fcb, loc);
++        if (rc != 0) {
++            return rc;
++        }
++    }
++#endif
++	return (loc->fe_sector->fs_off + loc->fe_data_off - fcb_len_in_flash(fcb, META_INFO_LEN));
++}
++
++int
++fcb_getmeta_len(struct fcb *fcb, struct fcb_entry *loc)
++{
++	return fcb_len_in_flash(fcb, META_INFO_LEN);
++}
+diff --git a/west.yml b/west.yml
+index 07ceac31f66..e4c35105ff2 100644
+--- a/west.yml
++++ b/west.yml
+@@ -16,97 +16,119 @@
+ 
+ manifest:
+   defaults:
+-    remote: upstream
++    remote: origin
+ 
+   remotes:
+     - name: upstream
+       url-base: https://github.com/zephyrproject-rtos
++    - name: origin
++      url-base: https://github.com/sviraaj
++    - name: zedblox
++      url-base: https://github.com/zedblox
+ 
+   #
+   # Please add items below based on alphabetical order
+   projects:
+     - name: canopennode
+       revision: 53d3415c14d60f8f4bfca54bfbc5d5a667d7e724
++      remote: upstream
+       path: modules/lib/canopennode
+     - name: chre
+       revision: 0edfe2c2ec656afb910cfab8ed59a5ffd59b87c8
++      remote: upstream
+       path: modules/lib/chre
+     - name: civetweb
+       revision: 094aeb41bb93e9199d24d665ee43e9e05d6d7b1c
++      remote: upstream
+       path: modules/lib/civetweb
+     - name: cmsis
+       revision: 5f86244bad4ad5a590e084f0e72ba7a1416c2edf
++      remote: upstream
+       path: modules/hal/cmsis
+       groups:
+         - hal
+     - name: edtt
+       revision: 1ea61a390d2bfcf3b2ecdba8f8b0b98dfdffbd11
++      remote: upstream
+       path: tools/edtt
+       groups:
+         - tools
+     - name: fatfs
+       revision: a30531af3a95a9a3ea7d771ea8a578ebfed45514
++      remote: upstream
+       path: modules/fs/fatfs
+       groups:
+         - fs
+     - name: fff
+       revision: 6ce5ba26486e93d5b7696a3e23f0585932c14b16
++      remote: upstream
+       path: modules/lib/fff
+       groups:
+         - ci
+     - name: hal_altera
+       revision: 0d225ddd314379b32355a00fb669eacf911e750d
++      remote: upstream
+       path: modules/hal/altera
+       groups:
+         - hal
+     - name: hal_atmel
+       revision: 78c5567c05b6b434dd7d98f49156319df4217bac
++      remote: upstream
+       path: modules/hal/atmel
+       groups:
+         - hal
+     - name: hal_espressif
+       revision: df85671c5d0405c0747c2939c8dfe808b7e4cf38
++      remote: upstream
+       path: modules/hal/espressif
+       west-commands: west/west-commands.yml
+       groups:
+         - hal
+     - name: hal_gigadevice
+       revision: 63a72ca90b7e0d7257211ddc5c79e8c0b940371b
++      remote: upstream
+       path: modules/hal/gigadevice
+       groups:
+         - hal
+     - name: hal_infineon
+       revision: 4af06965f57ba1e7d170e6a97d24c33785543a8c
++      remote: upstream
+       path: modules/hal/infineon
+       groups:
+         - hal
+     - name: hal_microchip
+       revision: 5d079f1683a00b801373bbbbf5d181d4e33b30d5
++      remote: upstream
+       path: modules/hal/microchip
+       groups:
+         - hal
+     - name: hal_nordic
+       revision: a85bb3676d61d1ae202088e0d3fec556056b2c9e
++      remote: upstream
+       path: modules/hal/nordic
+       groups:
+         - hal
+     - name: hal_nuvoton
+       revision: b4d31f33238713a568e23618845702fadd67386f
++      remote: upstream
+       path: modules/hal/nuvoton
+       groups:
+         - hal
+     - name: hal_nxp
+       revision: 2302a1e94f5bc00ce59db4e249b688ad2e959f58
++      remote: upstream
+       path: modules/hal/nxp
+       groups:
+         - hal
+     - name: hal_openisa
+       revision: 40d049f69c50b58ea20473bee14cf93f518bf262
++      remote: upstream
+       path: modules/hal/openisa
+       groups:
+         - hal
+     - name: hal_quicklogic
+       revision: b3a66fe6d04d87fd1533a5c8de51d0599fcd08d0
++      remote: upstream
+       path: modules/hal/quicklogic
+       repo-path: hal_quicklogic
+       groups:
+@@ -114,136 +136,168 @@ manifest:
+     - name: hal_rpi_pico
+       path: modules/hal/rpi_pico
+       revision: 191f5ba46fda49523cdaaef27583d1c875ba2c36
++      remote: upstream
+       groups:
+         - hal
+     - name: hal_silabs
+       revision: be39d4eebeddac6e18e9c0c3ba1b31ad1e82eaed
++      remote: upstream
+       path: modules/hal/silabs
+       groups:
+         - hal
+     - name: hal_st
+       revision: 52a522ca4a8a9ec1e9bb5bb514e1ab6f102863fe
++      remote: upstream
+       path: modules/hal/st
+       groups:
+         - hal
+     - name: hal_stm32
+-      revision: 51b373cd3455b8c2b9babbf6ff41918116a442ac
++      revision: 8a109ecde13d37b0b646d25fba04b8022cdbdd4e
++      remote: zedblox
+       path: modules/hal/stm32
+       groups:
+         - hal
+     - name: hal_telink
+       revision: ffcfd6282aa213f1dc0848dbca6279b098f6b143
++      remote: upstream
+       path: modules/hal/telink
+       groups:
+         - hal
+     - name: hal_ti
+       revision: 905a5d4134899630071f9383aadaaf266e8f8cd2
++      remote: upstream
+       path: modules/hal/ti
+       groups:
+         - hal
+     - name: hal_xtensa
+       revision: 0e577021bb66e644afd067cd9f7c71ab11b62b3d
++      remote: upstream
+       path: modules/hal/xtensa
+       groups:
+         - hal
+     - name: libmetal
+       revision: 850a3c3fd5bc655987021dc9106d8e8cd0f7e061
++      remote: upstream
+       path: modules/hal/libmetal
+       groups:
+         - hal
+     - name: liblc3codec
+       revision: 3951cf1b71ff3be086c9b9b595e473e12301337c
++      remote: upstream
+       path: modules/lib/liblc3codec
+     - name: littlefs
+       path: modules/fs/littlefs
+       groups:
+         - fs
+       revision: 652f2c5646e79b881e6f3099686ad3b7af9e216c
++      remote: upstream
+     - name: loramac-node
+       revision: 12019623bbad9eb54fe51066847a7cbd4b4eac57
++      remote: upstream
+       path: modules/lib/loramac-node
+     - name: lvgl
+       revision: df717ac87a9fd80246cc8df24554475e59bda21f
++      remote: upstream
+       path: modules/lib/gui/lvgl
+     - name: lz4
+       revision: 8e303c264fc21c2116dc612658003a22e933124d
++      remote: upstream
+       path: modules/lib/lz4
+     - name: mbedtls
+       revision: 7fed49c9b9f983ad6416986661ef637459723bcb
++      remote: upstream
+       path: modules/crypto/mbedtls
+       groups:
+         - crypto
+     - name: mcuboot
+-      revision: e58ea98aec6e5539c5f872a98059e461d0155bbb
++      revision: c1c4936c89347d447c8f2353b9dbb374df0a5e16
++      remote: origin
+       path: bootloader/mcuboot
+     - name: mipi-sys-t
+       path: modules/debug/mipi-sys-t
+       groups:
+         - debug
+       revision: a5163c1800a5243f8b05d84c942da008df4cb666
++      remote: upstream
+     - name: nanopb
+       revision: d148bd26718e4c10414f07a7eb1bd24c62e56c5d
++      remote: upstream
+       path: modules/lib/nanopb
+     - name: net-tools
+       revision: f49bd1354616fae4093bf36e5eaee43c51a55127
++      remote: upstream
+       path: tools/net-tools
+       groups:
+         - tools
+     - name: nrf_hw_models
+       revision: b8cea37dbdc8fc58cc14b4e19fa850877a9da520
++      remote: upstream
+       path: modules/bsim_hw_models/nrf_hw_models
+     - name: open-amp
+       revision: 8d53544871e1f300c478224faca6be8384ab0d04
++      remote: upstream
+       path: modules/lib/open-amp
+     - name: openthread
+       revision: e2a765599aa0379d0f72f0149a9cbafec070c12d
++      remote: upstream
+       path: modules/lib/openthread
+     - name: segger
+       revision: 3a52ab222133193802d3c3b4d21730b9b1f1d2f6
++      remote: upstream
+       path: modules/debug/segger
+       groups:
+         - debug
+     - name: sof
+       revision: 2efc3ea41c0074c6dab5f376fafaa26f52c25c75
++      remote: upstream
+       path: modules/audio/sof
+     - name: tflite-micro
+       revision: 9156d050927012da87079064db59d07f03b8baf6
++      remote: upstream
+       path: modules/lib/tflite-micro
+       repo-path: tflite-micro
+     - name: tinycbor
+       revision: 9e1f34bc08123aaad7666d3652aaa839e8178b3b
++      remote: upstream
+       path: modules/lib/tinycbor
+     - name: tinycrypt
+       revision: 3e9a49d2672ec01435ffbf0d788db6d95ef28de0
++      remote: upstream
+       path: modules/crypto/tinycrypt
+       groups:
+         - crypto
+     - name: TraceRecorderSource
+       revision: e8ca3b6a83d19b2fc4738a0d9607190436e5e452
++      remote: upstream
+       path: modules/debug/TraceRecorder
+       groups:
+         - debug
+     - name: trusted-firmware-m
+       revision: 7c53a6e76130a85303f83b15d868a92fdcd5f5be
++      remote: upstream
+       path: modules/tee/tf-m/trusted-firmware-m
+       groups:
+         - tee
+     - name: tf-m-tests
+       revision: c99a86b295c4887520da9d8402566d7f225c974e
++      remote: upstream
+       path: modules/tee/tf-m/tf-m-tests
+       groups:
+         - tee
+     - name: psa-arch-tests
+       revision: a81f9da287569f169d60026916952641b233faa8
++      remote: upstream
+       path: modules/tee/tf-m/psa-arch-tests
+       groups:
+         - tee
+     - name: zcbor
+       revision: 882c489a7d9fdfff31d27666914a78a9eb6976d7
++      remote: upstream
+       path: modules/lib/zcbor
+     - name: zscilib
+       path: modules/lib/zscilib
+       revision: fc979a8dcb74169c69b02835927bff8f070d6325
++      remote: upstream
+ 
+   group-filter:
+     - -ci
+diff --git a/zb_actipod_app b/zb_actipod_app
+new file mode 160000
+index 00000000000..ed149a5dd5e
+--- /dev/null
++++ b/zb_actipod_app
+@@ -0,0 +1 @@
++Subproject commit ed149a5dd5e16235ebb0e9ccdb14a62c201ad200
+diff --git a/zb_ap_bv_l151c8 b/zb_ap_bv_l151c8
+new file mode 160000
+index 00000000000..f042ce167ca
+--- /dev/null
++++ b/zb_ap_bv_l151c8
+@@ -0,0 +1 @@
++Subproject commit f042ce167cad1bad6067bd24e4e73d597a6ae983
+diff --git a/zb_tv_h743 b/zb_tv_h743
+new file mode 160000
+index 00000000000..d7b37973b97
+--- /dev/null
++++ b/zb_tv_h743
+@@ -0,0 +1 @@
++Subproject commit d7b37973b97745e353ac7d3c8501983c403a5265
+diff --git a/zbacrux_setup b/zbacrux_setup
+new file mode 160000
+index 00000000000..c398b23c2f3
+--- /dev/null
++++ b/zbacrux_setup
+@@ -0,0 +1 @@
++Subproject commit c398b23c2f38f3664d3ac667a6014d9f4715dcbf
+diff --git a/zbacrux_unit_testing b/zbacrux_unit_testing
+new file mode 160000
+index 00000000000..717a5bb9e38
+--- /dev/null
++++ b/zbacrux_unit_testing
+@@ -0,0 +1 @@
++Subproject commit 717a5bb9e38aae2a98345dad0be7ebbb214820fc
+diff --git a/zedblox_help.md b/zedblox_help.md
+new file mode 100644
+index 00000000000..0bf3db50466
+--- /dev/null
++++ b/zedblox_help.md
+@@ -0,0 +1,104 @@
++# OLD -- deprecated
++# Build mcuboot
++west build -b zb_tv_h743zi ../bootloader/mcuboot/boot/zephyr -d mcuboot
++export BOARD_NAME=zb_tv_h743zi;west flash --build-dir build/$BOARD_NAME/mcuboot --hex-file build/$BOARD_NAME/mcuboot/zephyr/zephyr.signed.hex
++## mcuboot has changes to help stm32h7 ota - not in upstream  (for the version we use)
++
++# Build and flash zbacrux_setup
++west build -b zb_tv_h743zi zbacrux_setup -d zbacrux_setup
++
++/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zbacrux_setup/zephyr/zephyr.hex /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zbacrux_setup/zephyr/zephyr.signed.hex
++
++/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zbacrux_setup/zephyr/zephyr.bin /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zbacrux_setup/zephyr/zephyr.signed.bin
++
++export BOARD_NAME=zb_tv_h743zi;west flash --build-dir build/$BOARD_NAME/zbacrux_setup --hex-file build/$BOARD_NAME/zbacrux_setup/zephyr/zephyr.signed.hex
++
++# Build and flash zb_actipod_app
++west build -b zb_tv_h743zi zb_actipod_app -d zb_actipod_app
++
++/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zb_actipod_app/zephyr/zephyr.hex /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zb_actipod_app/zephyr/zephyr.signed.hex
++
++/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zb_actipod_app/zephyr/zephyr.bin /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_tv_h743zi/zb_actipod_app/zephyr/zephyr.signed.bin
++
++export BOARD_NAME=zb_tv_h743zi;west flash --build-dir build/$BOARD_NAME/zb_actipod_app --hex-file build/$BOARD_NAME/zb_actipod_app/zephyr/zephyr.signed.hex
++
++
++export BOARD_NAME=zb_tv_h743zi;west build -p -c -b zb_tv_h743zi zb_actipod_app -d build/$(BOARD_NAME)/zb_actipod_app -DCONFIG_APP_SYS_VERSION=\"zbtv_4L_v1.0.2dbg\" -DCONFIG_ACTIPOD_4L=y;/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0 --align 32 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_actipod_app/zephyr/zephyr.hex /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_actipod_app/zephyr/zephyr.signed.hex;/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0 --align 32 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_actipod_app/zephyr/zephyr.bin /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_actipod_app/zephyr/zephyr.signed.bin;export BOARD_NAME=zb_tv_h743zi;west flash --skip-rebuild --build-dir build/zb_actipod_app --hex-file /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_actipod_app/zephyr/zephyr.signed.hex
++
++export BOARD_NAME=zb_tv_h743zi;west build -p -c -b zb_tv_h743zi zb_actipod_app -d build/$(BOARD_NAME)/zb_actipod_app -DCONFIG_APP_SYS_VERSION=\"zbtv_15L_v1.0.5\" -DCONFIG_ACTIPOD_15L=y;/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0 --align 32 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_actipod_app/zephyr/zephyr.hex /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_actipod_app/zephyr/zephyr.signed.hex;/home/sviraaj/.local/bin/imgtool sign --version 0.0.0+0 --align 32 --header-size 1024 --slot-size 393216 --key ../bootloader/mcuboot/zb-ed25519.pem /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_actipod_app/zephyr/zephyr.bin /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_actipod_app/zephyr/zephyr.signed.bin;export BOARD_NAME=zb_tv_h743zi;west flash --skip-rebuild --build-dir build/zb_actipod_app --hex-file /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/build/zb_actipod_app/zephyr/zephyr.signed.hex
++
++mkdir zedblox_scripts/images/zb_tv_h743zi/D4_zbtv_v1.0.3/
++cp -r build/zb_actipod_app/ zedblox_scripts/images/zb_tv_h743zi/D4_zbtv_v1.0.3/
++
++source zephyr-env.sh 
++./zedblox_scripts/new_id_acrux.sh -p 4L -b zb_tv_h743zi -t -f zedblox_scripts/ids_generated/optimus_50-ids.text
++./zedblox_scripts/new_id_acrux.sh -p 4L -b zb_tv_h743zi -t -i "ZBAX1122PQ55W"
++
++
++# NEW -- updated -- LATEST
++
++# ON zedblox PC
++cd ~/all_repositories/zephyr_new/zephyrproject
++
++## For flashing from scratch -- new changes. not a fixed version
++export ZEPHYR_SDK_INSTALL_DIR=/home/sviraaj
++
++### BUILD AND FLASH MCUBOOT
++west build -b <zb_tv_h743zi/zb_tv_h723zi> bootloader/mcuboot/boot/zephyr -d build-mcuboot
++west flash -d build-mcuboot_h723i
++###### (or)
++west flash -d build-mcuboot_h743i
++
++
++# If new setup, please use below or else skip
++west build -p -c -b <zb_tv_h743zi/zb_tv_h723zi> zephyr/zbacrux_setup -d build-zb_setup -- -DCONFIG_MCUBOOT_SIGNATURE_KEY_FILE=\"bootloader/mcuboot/zb-ed25519.pem\" -DCONFIG_DEVICE_ID=\"{YOUR DEVICE ID HERE}\"
++west flash -d build-zb_setup
++
++### BUILD AND FLASH APP
++#### For 15L
++export VERSION=D15_$(date +%d-%m-%y_%H-%M-%S)
++west build -p -c -b zb_tv_h743zi zephyr/zb_actipod_app -d build-zb_actipod_app -- -DCONFIG_ACTIPOD_15L=y -DCONFIG_APP_SYS_VERSION=\"$(echo $VERSION)\" -DCONFIG_MCUBOOT_SIGNATURE_KEY_FILE=\"bootloader/mcuboot/zb-ed25519.pem\"
++#### For 4L
++export VERSION=D4_$(date +%d-%m-%y_%H-%M-%S)
++west build -p -c -b zb_tv_h743zi zephyr/zb_actipod_app -d build-zb_actipod_app -- -DCONFIG_ACTIPOD_4L=y -DCONFIG_APP_SYS_VERSION=\"$(echo $VERSION)\" -DCONFIG_MCUBOOT_SIGNATURE_KEY_FILE=\"bootloader/mcuboot/zb-ed25519.pem\"
++
++west flash -d build-zb_actipod_app
++
++### COPY BUILT IMAGE TO IMAGES VAULT
++cp -r build-zb_actipod_app zephyr/zedblox_scripts/images/zb_tv_h743zi/$VERSION
++cp zephyr/zedblox_scripts/images/zb_tv_h743zi/$VERSION/zephyr/zephyr.signed.bin zephyr/zedblox_scripts/images/zb_tv_h743zi/$VERSION/zephyr/zephyr_$VERSION.signed.bin
++cp zephyr/zedblox_scripts/images/zb_tv_h743zi/$VERSION/zephyr/zephyr.signed.hex zephyr/zedblox_scripts/images/zb_tv_h743zi/$VERSION/zephyr/zephyr_$VERSION.signed.hex
++
++### Rename geenric zephyr bin and hex files to version specific names
++mv zephyr/zedblox_scripts/images/zb_tv_h743zi/$VERSION/zephyr/zephyr.signed.hex zephyr/zedblox_scripts/images/zb_tv_h743zi/$VERSION/zephyr/zephyr_$VERSION.signed.hex
++mv zephyr/zedblox_scripts/images/zb_tv_h743zi/$VERSION/zephyr/zephyr.signed.bin zephyr/zedblox_scripts/images/zb_tv_h743zi/$VERSION/zephyr/zephyr_$VERSION.signed.bin
++
++### FLASH PRE_BUILT APP
++west flash --skip-rebuild --build-dir /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/zedblox_scripts/images/zb_tv_h743zi/<version> --hex-file /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/zedblox_scripts/images/zb_tv_h743zi/<version>/zephyr/zephyr.signed.hex
++
++Eg:
++west flash --skip-rebuild --build-dir /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/zedblox_scripts/images/zb_tv_h743zi/D4_zbtv_v1.0.3 --hex-file /home/sviraaj/all_repositories/zephyr_new/zephyrproject/zephyr/zedblox_scripts/images/zb_tv_h743zi/D4_zbtv_v1.0.3/zephyr/zephyr.signed.hex
++#######################################################################
++
++
++west build -p -c -b zb_tv_h743zi zephyr/zbacrux_setup -d build-zb_setup -- -DCONFIG_MCUBOOT_SIGNATURE_KEY_FILE=\"bootloader/mcuboot/zb-ed25519.pem\" -DCONFIG_DEVICE_ID=\"ZB_AX__00\"
++
++west flash -d build-mcuboot; sleep 10; west flash -d build-zb_setup; sleep 180;west flash --build-dir/home/sviraaj/all_repositories/zephyr_new/zephyrproject/build-  zb_actipod_app
++
++west flash --skip-rebuild --build-dir \=D15_Selco_v1_beta/ --hex-file \=D15_Selco_v1_beta/zephyr/zephyr.signed.hex 
++
++### For minicom log in file
++# 1) Path to run minicom
++all_repositories/zephyr_new/zephyrproject
++# 2) Define file to save log of minicom
++sudo minicom -D /dev/ttyUSB0 -C zephyr/logs/jun10_24_ota_debug
++
++### Zedblox app location
++~/all_repositories/zephyr_new/zephyrproject/zephyr/zb_actipod_app/src
++
++# BASE VARIANT
++export BOARD_NAME=zb_bv_l151c8;west flash --build-dir build/$BOARD_NAME/zb_ap_bv_l151c8 --hex-file zb_images/zb_ap_bv_l151c8_v1.0_no_offset/zb_ap_bv_l151c8/zephyr/zephyr.hex
++export BOARD_NAME=zb_bv_l151c8;west flash --build-dir build/$BOARD_NAME/zb_ap_bv_l151c8 --hex-file zb_images/zb_ap_bv_l151c8_v1.1_offset/zephyr/zephyr.hex
++
++##
++export img_path=;west flash --skip-rebuild --build-dir $img_path --hex-file $img_path/zephyr/zephyr.signed.hex

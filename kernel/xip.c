@@ -6,13 +6,16 @@
  */
 
 
-#include <zephyr/zephyr.h>
 #include <zephyr/kernel.h>
 #include <kernel_internal.h>
 #include <zephyr/linker/linker-defs.h>
 
 #ifdef CONFIG_STACK_CANARIES
+#ifdef CONFIG_STACK_CANARIES_TLS
+extern __thread volatile uintptr_t __stack_chk_guard;
+#else
 extern volatile uintptr_t __stack_chk_guard;
+#endif /* CONFIG_STACK_CANARIES_TLS */
 #endif /* CONFIG_STACK_CANARIES */
 
 /**

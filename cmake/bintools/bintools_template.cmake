@@ -11,6 +11,7 @@
 # - elfconvert  : Tool for converting from elf into another format.
 # - readelf     : Tool for elf file processing
 # - strip       : Tool for symbol stripping
+# - symbols     : Tool for listing symbols in a binary
 #
 # Each tool will have the following minimum properties:
 # - <tool>_command : Name of executable to call
@@ -65,6 +66,7 @@
 #   elfconvert_flag_final         : Flags that must always be applied last at the elfconvert command
 #   elfconvert_flag_strip_all     : Flag that is used for stripping all symbols when converting
 #   elfconvert_flag_strip_debug   : Flag that is used to strip debug symbols when converting
+#   elfconvert_flag_compress_debug_sections: Flag that is used to compress debug sections when converting
 #   elfconvert_flag_intarget      : Flag for specifying target used for infile
 #   elfconvert_flag_outtarget     : Flag for specifying target to use for converted file.
 #                                   Target value must be one of those listed described by: elfconvert_formats
@@ -108,6 +110,13 @@
 #   strip_flag_dwo     : Flag for removing dwarf sections
 #   strip_flag_infile  : Flag for specifying the input file
 #   strip_flag_outfile : Flag for specifying the output file
+#
+# - symbols : Name of command for printing out symbols
+#             For GNU binary utilities this is nm
+#   symbols_command         : empty
+#   symbols_final   : empty
+#   symbols_infile  : ELF file name
+#   symbols_outfile : output file
 
 set(COMMAND_NOT_SUPPORTED "command not supported on bintools: ")
 
@@ -133,6 +142,7 @@ set_property(TARGET bintools PROPERTY elfconvert_command ${CMAKE_COMMAND} -E ech
 set_property(TARGET bintools PROPERTY elfconvert_formats "")
 set_property(TARGET bintools PROPERTY elfconvert_flag "")
 set_property(TARGET bintools PROPERTY elfconvert_flag_final "")
+set_property(TARGET bintools PROPERTY elfconvert_flag_compress_debug_sections "")
 set_property(TARGET bintools PROPERTY elfconvert_flag_outtarget "")
 set_property(TARGET bintools PROPERTY elfconvert_flag_section_remove "")
 set_property(TARGET bintools PROPERTY elfconvert_flag_gapfill "")
@@ -156,3 +166,10 @@ set_property(TARGET bintools PROPERTY strip_flag_debug "")
 set_property(TARGET bintools PROPERTY strip_flag_dwo "")
 set_property(TARGET bintools PROPERTY strip_flag_infile "")
 set_property(TARGET bintools PROPERTY strip_flag_outfile "")
+
+# list symbols in a binary
+set_property(TARGET bintools PROPERTY symbols_command ${CMAKE_NM})
+set_property(TARGET bintools PROPERTY symbols_flag "")
+set_property(TARGET bintools PROPERTY symbols_final "")
+set_property(TARGET bintools PROPERTY symbols_infile "")
+set_property(TARGET bintools PROPERTY symbols_outfile ">;" )

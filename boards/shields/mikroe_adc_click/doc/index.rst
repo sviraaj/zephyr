@@ -9,8 +9,7 @@ Overview
 The MikroElektronika ADC Click carries the `MCP3204`_ 12-bit
 Analog-to-Digital converter in a `mikroBUS`_ |trade| form factor.
 
-.. figure:: ./adc-click.jpg
-   :width: 528px
+.. figure:: adc-click.jpg
    :align: center
    :alt: MikroElektronika ADC Click
 
@@ -32,12 +31,12 @@ see the following documentation:
 Programming
 ***********
 
-Set ``-DSHIELD=mikro_adc_click`` when you invoke ``west build``. For
+Set ``--shield mikro_adc_click`` when you invoke ``west build``. For
 example:
 
 .. zephyr-app-commands::
-   :zephyr-app: test/boards/board_shell
-   :board: frdm_k64f
+   :zephyr-app: <my_app>
+   :board: lpcxpresso55s16
    :shield: mikroe_adc_click
    :goals: build
 

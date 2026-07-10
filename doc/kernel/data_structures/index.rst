@@ -31,5 +31,8 @@ needed will be provided by the user.
   slist.rst
   dlist.rst
   mpsc_pbuf.rst
+  spsc_pbuf.rst
   rbtree.rst
   ring_buffers.rst
+  mpsc_lockfree.rst
+  spsc_lockfree.rst

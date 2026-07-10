@@ -18,9 +18,8 @@
 #include <zephyr/bluetooth/hci_raw.h>
 #include <zephyr/bluetooth/l2cap.h>
 
-#define LOG_LEVEL CONFIG_USB_DEVICE_LOG_LEVEL
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(usb_bt_h4);
+LOG_MODULE_REGISTER(usb_bt_h4, CONFIG_USB_DEVICE_LOG_LEVEL);
 
 static K_FIFO_DEFINE(rx_queue);
 static K_FIFO_DEFINE(tx_queue);
@@ -32,9 +31,9 @@ static K_FIFO_DEFINE(tx_queue);
 #define BT_H4_IN_EP_IDX                 1
 
 /* HCI RX/TX threads */
-static K_KERNEL_STACK_DEFINE(rx_thread_stack, 512);
+static K_KERNEL_STACK_DEFINE(rx_thread_stack, CONFIG_BT_RX_STACK_SIZE);
 static struct k_thread rx_thread_data;
-static K_KERNEL_STACK_DEFINE(tx_thread_stack, 512);
+static K_KERNEL_STACK_DEFINE(tx_thread_stack, CONFIG_BT_HCI_TX_STACK_SIZE);
 static struct k_thread tx_thread_data;
 
 /* HCI USB state flags */
@@ -114,8 +113,12 @@ static void bt_h4_read(uint8_t ep, int size, void *priv)
 		     USB_MAX_FS_BULK_MPS, USB_TRANS_READ, bt_h4_read, NULL);
 }
 
-static void hci_tx_thread(void)
+static void hci_tx_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	LOG_DBG("Start USB Bluetooth thread");
 
 	while (true) {
@@ -130,8 +133,12 @@ static void hci_tx_thread(void)
 	}
 }
 
-static void hci_rx_thread(void)
+static void hci_rx_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	while (true) {
 		struct net_buf *buf;
 
@@ -180,11 +187,6 @@ static void bt_h4_status_cb(struct usb_cfg_data *cfg,
 		if (suspended) {
 			LOG_DBG("from suspend");
 			suspended = false;
-			if (configured) {
-				/* Start reading */
-				bt_h4_read(bt_h4_ep_data[BT_H4_OUT_EP_IDX].ep_addr,
-					   0, NULL);
-			}
 		} else {
 			LOG_DBG("Spurious resume event");
 		}
@@ -227,7 +229,7 @@ USBD_DEFINE_CFG_DATA(bt_h4_config) = {
 	.endpoint = bt_h4_ep_data,
 };
 
-static int bt_h4_init(const struct device *dev)
+static int bt_h4_init(void)
 {
 	int ret;
 
@@ -241,14 +243,14 @@ static int bt_h4_init(const struct device *dev)
 
 	k_thread_create(&rx_thread_data, rx_thread_stack,
 			K_KERNEL_STACK_SIZEOF(rx_thread_stack),
-			(k_thread_entry_t)hci_rx_thread, NULL, NULL, NULL,
+			hci_rx_thread, NULL, NULL, NULL,
 			K_PRIO_COOP(8), 0, K_NO_WAIT);
 
 	k_thread_name_set(&rx_thread_data, "usb_bt_h4_rx");
 
 	k_thread_create(&tx_thread_data, tx_thread_stack,
 			K_KERNEL_STACK_SIZEOF(tx_thread_stack),
-			(k_thread_entry_t)hci_tx_thread, NULL, NULL, NULL,
+			hci_tx_thread, NULL, NULL, NULL,
 			K_PRIO_COOP(8), 0, K_NO_WAIT);
 
 	k_thread_name_set(&tx_thread_data, "usb_bt_h4_tx");

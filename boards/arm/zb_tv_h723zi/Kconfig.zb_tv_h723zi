@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_ZB_TV_H723ZI
+	select SOC_STM32H723XX

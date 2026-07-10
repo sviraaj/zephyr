@@ -4,10 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
 #include <zephyr/irq_offload.h>
-#include <zephyr/syscall_handler.h>
-#include <ztest_error_hook.h>
+#include <zephyr/internal/syscall_handler.h>
+
+#include <zephyr/ztest.h>
+#include <zephyr/ztest_error_hook.h>
 
 #define STACK_SIZE (1024 + CONFIG_TEST_EXTRA_STACK_SIZE)
 #define THREAD_TEST_PRIORITY 5
@@ -30,7 +31,7 @@ enum {
 	ZTEST_CATCH_FATAL_IN_ISR,
 	ZTEST_CATCH_ASSERT_FAIL,
 	ZTEST_CATCH_ASSERT_IN_ISR,
-	ZTEST_CATCH_USER_FATAL_Z_OOPS,
+	ZTEST_CATCH_USER_FATAL_K_OOPS,
 	ZTEST_ERROR_MAX
 } error_case_type;
 
@@ -59,7 +60,8 @@ __no_optimization static void trigger_fault_illegal_instruction(void)
  */
 __no_optimization static void trigger_fault_access(void)
 {
-#if defined(CONFIG_SOC_ARC_IOT) || defined(CONFIG_SOC_NSIM) || defined(CONFIG_SOC_EMSK)
+#if defined(CONFIG_SOC_ARC_IOT) || defined(CONFIG_SOC_FAMILY_NSIM_ARC_CLASSIC) || \
+	defined(CONFIG_SOC_FAMILY_NSIM_ARC_V) || defined(CONFIG_SOC_EMSK)
 	/* For iotdk, em_starterkit and ARC/nSIM, nSIM simulates full address space of
 	 * memory, iotdk has eflash at 0x0 address, em_starterkit has ICCM at 0x0 address,
 	 * access to 0x0 address doesn't generate any exception. So we access to 0XFFFFFFFF
@@ -114,13 +116,16 @@ __no_optimization static void trigger_fault_divide_zero(void)
  * For the Cortex-M0, M0+, M23 (CONFIG_ARMV6_M_ARMV8_M_BASELINE)
  * which does not include a divide instruction, the test is skipped,
  * and there will be no hardware exception for that.
+ * For ARMv8-R, divide by zero trapping is not supported in hardware.
  */
 #if (defined(CONFIG_SOC_SERIES_MPS2) && defined(CONFIG_QEMU_TARGET)) || \
 	(defined(CONFIG_SOC_SERIES_MPS3) && defined(CONFIG_QEMU_TARGET)) || \
 	defined(CONFIG_BOARD_QEMU_CORTEX_A53) || defined(CONFIG_SOC_QEMU_ARC) || \
 	defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE) || \
 	defined(CONFIG_BOARD_QEMU_CORTEX_R5) || \
-	defined(CONFIG_BOARD_FVP_BASER_AEMV8R) || defined(CONFIG_BOARD_FVP_BASE_REVC_2XAEMV8A)
+	defined(CONFIG_ARMV8_R) || defined(CONFIG_AARCH32_ARMV8_R) || \
+	defined(CONFIG_BOARD_FVP_BASE_REVC_2XAEMV8A) || \
+	defined(CONFIG_SOC_NSIM_EM11D)
 	ztest_test_skip();
 #endif
 }
@@ -149,7 +154,7 @@ static void release_offload_sem(void)
  * default one.
  */
 void ztest_post_fatal_error_hook(unsigned int reason,
-		const z_arch_esf_t *pEsf)
+		const struct arch_esf *pEsf)
 {
 	switch (case_type) {
 	case ZTEST_CATCH_FATAL_ACCESS:
@@ -157,8 +162,8 @@ void ztest_post_fatal_error_hook(unsigned int reason,
 	case ZTEST_CATCH_FATAL_DIVIDE_ZERO:
 	case ZTEST_CATCH_FATAL_K_PANIC:
 	case ZTEST_CATCH_FATAL_K_OOPS:
-	case ZTEST_CATCH_USER_FATAL_Z_OOPS:
-		zassert_true(true, NULL);
+	case ZTEST_CATCH_USER_FATAL_K_OOPS:
+		zassert_true(true);
 		break;
 
 	/* Unfortunately, the case of trigger a fatal error
@@ -166,10 +171,10 @@ void ztest_post_fatal_error_hook(unsigned int reason,
 	 * So please don't use it this way.
 	 */
 	case ZTEST_CATCH_FATAL_IN_ISR:
-		zassert_true(false, NULL);
+		zassert_true(false);
 		break;
 	default:
-		zassert_true(false, NULL);
+		zassert_true(false);
 		break;
 	}
 }
@@ -197,6 +202,9 @@ void ztest_post_assert_fail_hook(void)
 
 static void tThread_entry(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	int sub_type = *(int *)p1;
 
 	printk("case type is %d\n", case_type);
@@ -245,7 +253,7 @@ static int run_trigger_thread(int i)
 	}
 
 	k_tid_t tid = k_thread_create(&tdata, tstack, STACK_SIZE,
-			(k_thread_entry_t)tThread_entry,
+			tThread_entry,
 			(void *)&case_type, NULL, NULL,
 			K_PRIO_PREEMPT(THREAD_TEST_PRIORITY),
 			perm, K_NO_WAIT);
@@ -331,7 +339,7 @@ static void trigger_z_oops(void)
 	/* Set up a dummy syscall frame, pointing to a valid area in memory. */
 	_current->syscall_frame = _image_ram_start;
 
-	Z_OOPS(true);
+	K_OOPS(true);
 }
 
 /**
@@ -344,7 +352,7 @@ static void trigger_z_oops(void)
  */
 ZTEST(error_hook_tests, test_catch_z_oops)
 {
-	case_type = ZTEST_CATCH_USER_FATAL_Z_OOPS;
+	case_type = ZTEST_CATCH_USER_FATAL_K_OOPS;
 
 	ztest_set_fault_valid(true);
 	trigger_z_oops();
@@ -360,3 +368,65 @@ static void *error_hook_tests_setup(void)
 	return NULL;
 }
 ZTEST_SUITE(error_hook_tests, NULL, error_hook_tests_setup, NULL, NULL, NULL);
+
+static void *fail_assume_in_setup_setup(void)
+{
+	/* Fail the assume, will skip all the tests */
+	zassume_true(false);
+	return NULL;
+}
+
+ZTEST_SUITE(fail_assume_in_setup, NULL, fail_assume_in_setup_setup, NULL, NULL, NULL);
+
+ZTEST_EXPECT_SKIP(fail_assume_in_setup, test_to_skip0);
+ZTEST(fail_assume_in_setup, test_to_skip0)
+{
+	/* This test should never be run */
+	ztest_test_fail();
+}
+
+ZTEST_EXPECT_SKIP(fail_assume_in_setup, test_to_skip1);
+ZTEST(fail_assume_in_setup, test_to_skip1)
+{
+	/* This test should never be run */
+	ztest_test_fail();
+}
+
+static void fail_assume_in_before_before(void *unused)
+{
+	ARG_UNUSED(unused);
+	zassume_true(false);
+}
+
+ZTEST_SUITE(fail_assume_in_before, NULL, NULL, fail_assume_in_before_before, NULL, NULL);
+
+ZTEST_EXPECT_SKIP(fail_assume_in_before, test_to_skip0);
+ZTEST(fail_assume_in_before, test_to_skip0)
+{
+	/* This test should never be run */
+	ztest_test_fail();
+}
+
+ZTEST_EXPECT_SKIP(fail_assume_in_before, test_to_skip1);
+ZTEST(fail_assume_in_before, test_to_skip1)
+{
+	/* This test should never be run */
+	ztest_test_fail();
+}
+
+ZTEST_SUITE(fail_assume_in_test, NULL, NULL, NULL, NULL, NULL);
+
+ZTEST_EXPECT_SKIP(fail_assume_in_test, test_to_skip);
+ZTEST(fail_assume_in_test, test_to_skip)
+{
+	zassume_true(false);
+	ztest_test_fail();
+}
+
+void test_main(void)
+{
+	ztest_run_test_suites(NULL, false, 1, 1);
+	/* Can't run ztest_verify_all_test_suites_ran() since some tests are
+	 * skipped by design.
+	 */
+}

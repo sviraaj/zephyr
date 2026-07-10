@@ -6,8 +6,12 @@
 #ifndef ZEPHYR_INCLUDE_POSIX_SYS_SELECT_H_
 #define ZEPHYR_INCLUDE_POSIX_SYS_SELECT_H_
 
+#include <zephyr/net/socket_types.h>
 #include <zephyr/net/socket_select.h>
-#include <sys/_timeval.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define fd_set zsock_fd_set
 #define FD_SETSIZE ZSOCK_FD_SETSIZE
@@ -18,12 +22,10 @@
 
 struct timeval;
 
-static inline int select(int nfds, fd_set *readfds,
-			 fd_set *writefds, fd_set *exceptfds,
-			 struct timeval *timeout)
-{
-	return zsock_select(nfds, readfds, writefds, exceptfds,
-			    (struct zsock_timeval *)timeout);
+int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
+
+#ifdef __cplusplus
 }
+#endif
 
 #endif /* ZEPHYR_INCLUDE_POSIX_SYS_SELECT_H_ */

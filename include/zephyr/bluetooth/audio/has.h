@@ -1,5 +1,11 @@
+/**
+ * @file
+ * @brief Bluetooth Hearing Access Service (HAS) APIs.
+ */
+
 /*
  * Copyright (c) 2022 Codecoup
+ * Copyright (c) 2024 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,28 +18,38 @@
  *
  * @defgroup bt_has Hearing Access Service (HAS)
  *
+ * @since 3.1
+ * @version 0.8.0
+ *
  * @ingroup bluetooth
  * @{
  *
  * The Hearing Access Service is used to identify a hearing aid and optionally
  * to control hearing aid presets.
- *
- * [Experimental] Users should note that the APIs can change as a part of
- * ongoing development.
  */
 
+#include <stdint.h>
+#include <stdbool.h>
+
 #include <zephyr/bluetooth/bluetooth.h>
-#include <sys/types.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** Preset index definitions */
+/**
+ * @name Preset index definitions
+ * @{
+ */
+/** No index */
 #define BT_HAS_PRESET_INDEX_NONE 0x00
+/** First preset index */
 #define BT_HAS_PRESET_INDEX_FIRST 0x01
+/** Last preset index */
 #define BT_HAS_PRESET_INDEX_LAST 0xFF
+/** @} */
 
 /** Preset name minimum length */
 #define BT_HAS_PRESET_NAME_MIN 1
@@ -45,9 +61,21 @@ struct bt_has;
 
 /** Hearing Aid device type */
 enum bt_has_hearing_aid_type {
-	BT_HAS_HEARING_AID_TYPE_BINAURAL,
-	BT_HAS_HEARING_AID_TYPE_MONAURAL,
-	BT_HAS_HEARING_AID_TYPE_BANDED,
+	/**
+	 * Two hearing aids that form a Coordinated Set, one for the right ear and one for the left
+	 * ear of the user. Typically used by a user with bilateral hearing loss.
+	 */
+	BT_HAS_HEARING_AID_TYPE_BINAURAL = 0x00,
+	/**
+	 * A single hearing aid for the left or the right ear. Typically used by a user with
+	 * unilateral hearing loss.
+	 */
+	BT_HAS_HEARING_AID_TYPE_MONAURAL = 0x01,
+	/**
+	 * Two hearing aids with a connection to one another that expose a single Bluetooth radio
+	 * interface.
+	 */
+	BT_HAS_HEARING_AID_TYPE_BANDED = 0x02,
 };
 
 /** Preset Properties values */
@@ -62,9 +90,32 @@ enum bt_has_properties {
 	BT_HAS_PROP_AVAILABLE = BIT(1),
 };
 
-/** Hearing Aid device capablilities */
+/** Hearing Aid device capabilities */
 enum bt_has_capabilities {
+	/** Indicate support for presets */
 	BT_HAS_PRESET_SUPPORT = BIT(0),
+};
+
+/** @brief Structure for registering features of a Hearing Access Service instance. */
+struct bt_has_features_param {
+	/** Hearing Aid Type value */
+	enum bt_has_hearing_aid_type type;
+
+	/**
+	 * @brief Preset Synchronization Support.
+	 *
+	 * Only applicable if @p type is @ref BT_HAS_HEARING_AID_TYPE_BINAURAL
+	 * and @kconfig{CONFIG_BT_HAS_PRESET_COUNT} is non-zero.
+	 */
+	bool preset_sync_support;
+
+	/**
+	 * @brief Independent Presets.
+	 *
+	 * Only applicable if @p type is @ref BT_HAS_HEARING_AID_TYPE_BINAURAL
+	 * and @kconfig{CONFIG_BT_HAS_PRESET_COUNT} is non-zero.
+	 */
+	bool independent_presets;
 };
 
 /** @brief Preset record definition */
@@ -98,15 +149,17 @@ struct bt_has_client_cb {
 	/**
 	 * @brief Callback function for Hearing Access Service active preset changes.
 	 *
-	 * Optional callback called when the value is changed by the remote server.
-	 * The callback must be set to receive active preset changes and enable support
-	 * for switching presets. If the callback is not set, the Active Index and
-	 * Control Point characteristics will not be discovered by @ref bt_has_client_discover.
+	 * Optional callback called when the active preset is changed by the remote server when the
+	 * preset switch procedure is complete. The callback must be set to receive active preset
+	 * changes and enable support for switching presets. If the callback is not set, the Active
+	 * Index and Control Point characteristics will not be discovered by
+	 * @ref bt_has_client_discover.
 	 *
 	 * @param has Pointer to the Hearing Access Service object.
+	 * @param err 0 on success, ATT error or negative errno otherwise.
 	 * @param index Active preset index.
 	 */
-	void (*preset_switch)(struct bt_has *has, uint8_t index);
+	void (*preset_switch)(struct bt_has *has, int err, uint8_t index);
 
 	/**
 	 * @brief Callback function for presets read operation.
@@ -164,11 +217,12 @@ struct bt_has_client_cb {
 				    bool is_last);
 };
 
-/** @brief Registers the callbacks used by the Hearing Access Service client.
+/**
+ * @brief Registers the callbacks used by the Hearing Access Service client.
  *
- *  @param cb The callback structure.
+ * @param cb The callback structure.
  *
- *  @return 0 in case of success or negative value in case of error.
+ * @return 0 in case of success or negative value in case of error.
  */
 int bt_has_client_cb_register(const struct bt_has_client_cb *cb);
 
@@ -213,6 +267,76 @@ int bt_has_client_conn_get(const struct bt_has *has, struct bt_conn **conn);
  */
 int bt_has_client_presets_read(struct bt_has *has, uint8_t index, uint8_t max_count);
 
+/**
+ * @brief Set Active Preset.
+ *
+ * Client procedure to set preset identified by @p index as active.
+ * The status is returned in the @ref bt_has_client_cb.preset_switch callback.
+ *
+ * @param has Pointer to the Hearing Access Service object.
+ * @param index Preset index to activate.
+ * @param sync Request active preset synchronization in set.
+ *
+ * @return 0 in case of success or negative value in case of error.
+ */
+int bt_has_client_preset_set(struct bt_has *has, uint8_t index, bool sync);
+
+/**
+ * @brief Activate Next Preset.
+ *
+ * Client procedure to set next available preset as active.
+ * The status is returned in the @ref bt_has_client_cb.preset_switch callback.
+ *
+ * @param has Pointer to the Hearing Access Service object.
+ * @param sync Request active preset synchronization in set.
+ *
+ * @return 0 in case of success or negative value in case of error.
+ */
+int bt_has_client_preset_next(struct bt_has *has, bool sync);
+
+/**
+ * @brief Activate Previous Preset.
+ *
+ * Client procedure to set previous available preset as active.
+ * The status is returned in the @ref bt_has_client_cb.preset_switch callback.
+ *
+ * @param has Pointer to the Hearing Access Service object.
+ * @param sync Request active preset synchronization in set.
+ *
+ * @return 0 in case of success or negative value in case of error.
+ */
+int bt_has_client_preset_prev(struct bt_has *has, bool sync);
+
+/** @brief Preset operations structure. */
+struct bt_has_preset_ops {
+	/**
+	 * @brief Preset select callback.
+	 *
+	 * This callback is called when the client requests to select preset identified by
+	 * @p index.
+	 *
+	 * @param index Preset index requested to activate.
+	 * @param sync Whether the server must relay this change to the other member of the
+	 *             Binaural Hearing Aid Set.
+	 *
+	 * @return 0 in case of success or negative value in case of error.
+	 * @return -EBUSY if operation cannot be performed at the time.
+	 * @return -EINPROGRESS in case where user has to confirm once the requested preset
+	 *                      becomes active by calling @ref bt_has_preset_active_set.
+	 */
+	int (*select)(uint8_t index, bool sync);
+
+	/**
+	 * @brief Preset name changed callback
+	 *
+	 * This callback is called when the name of the preset identified by @p index has changed.
+	 *
+	 * @param index Preset index that name has been changed.
+	 * @param name Preset current name.
+	 */
+	void (*name_changed)(uint8_t index, const char *name);
+};
+
 /** @brief Register structure for preset. */
 struct bt_has_preset_register_param {
 	/**
@@ -238,7 +362,19 @@ struct bt_has_preset_register_param {
 	 * @ref BT_HAS_PRESET_NAME_MAX, the name will be truncated.
 	 */
 	const char *name;
+
+	/** Preset operations structure. */
+	const struct bt_has_preset_ops *ops;
 };
+
+/**
+ * @brief Register the Hearing Access Service instance.
+ *
+ * @param features     Hearing Access Service register parameters.
+ *
+ * @return 0 if success, errno on failure.
+ */
+int bt_has_register(const struct bt_has_features_param *features);
 
 /**
  * @brief Register preset.
@@ -287,8 +423,11 @@ int bt_has_preset_available(uint8_t index);
  */
 int bt_has_preset_unavailable(uint8_t index);
 
+/** Enum for return values for @ref bt_has_preset_func_t functions */
 enum {
+	/** Stop iterating */
 	BT_HAS_PRESET_ITER_STOP = 0,
+	/** Continue iterating */
 	BT_HAS_PRESET_ITER_CONTINUE,
 };
 
@@ -317,6 +456,62 @@ typedef uint8_t (*bt_has_preset_func_t)(uint8_t index, enum bt_has_properties pr
  * @param user_data Data to pass to the callback.
  */
 void bt_has_preset_foreach(uint8_t index, bt_has_preset_func_t func, void *user_data);
+
+/**
+ * @brief Set active preset.
+ *
+ * Function used to set the preset identified by the @p index as the active preset.
+ * The preset index will be notified to peer devices.
+ *
+ * @param index Preset index.
+ *
+ * @return 0 in case of success or negative value in case of error.
+ */
+int bt_has_preset_active_set(uint8_t index);
+
+/**
+ * @brief Get active preset.
+ *
+ * Function used to get the currently active preset index.
+ *
+ * @return Active preset index.
+ */
+uint8_t bt_has_preset_active_get(void);
+
+/**
+ * @brief Clear out active preset.
+ *
+ * Used by server to deactivate currently active preset.
+ *
+ * @return 0 in case of success or negative value in case of error.
+ */
+static inline int bt_has_preset_active_clear(void)
+{
+	return bt_has_preset_active_set(BT_HAS_PRESET_INDEX_NONE);
+}
+
+/**
+ * @brief Change the Preset Name.
+ *
+ * Change the name of the preset identified by @p index.
+ *
+ * @param index The index of the preset to change the name of.
+ * @param name Name to write.
+ *
+ * @return 0 in case of success or negative value in case of error.
+ */
+int bt_has_preset_name_change(uint8_t index, const char *name);
+
+/**
+ * @brief Change the Hearing Aid Features.
+ *
+ * Change the hearing aid features.
+ *
+ * @param features The features to be set.
+ *
+ * @return 0 in case of success or negative value in case of error.
+ */
+int bt_has_features_set(const struct bt_has_features_param *features);
 
 #ifdef __cplusplus
 }

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <zephyr/kernel.h>
 #include <cmsis_os2.h>
 
@@ -81,8 +81,8 @@ void test_event_flags_no_wait_timeout(void)
 		     "Invalid event Flags ID is unexpectedly working!");
 
 	name = osEventFlagsGetName(evt_id);
-	zassert_true(strcmp(event_flags_attrs.name, name) == 0,
-		     "Error getting event_flags object name");
+	zassert_str_equal(event_flags_attrs.name, name,
+			  "Error getting event_flags object name");
 
 	id1 = osThreadNew(thread1, evt_id, &thread1_attr);
 	zassert_true(id1 != NULL, "Failed creating thread1");
@@ -217,3 +217,15 @@ void test_event_flags_isr(void)
 	zassert_true(osEventFlagsDelete(evt_id) == osOK,
 		     "EventFlagsDelete failed");
 }
+ZTEST(cmsis_event_flags, test_event_flags)
+{
+	/*
+	 *These tests are order-dependent.
+	 *They have to be executed in order.
+	 *So put these tests in one ZTEST.
+	 */
+	test_event_flags_no_wait_timeout();
+	test_event_flags_signalled();
+	test_event_flags_isr();
+}
+ZTEST_SUITE(cmsis_event_flags, NULL, NULL, NULL, NULL, NULL);

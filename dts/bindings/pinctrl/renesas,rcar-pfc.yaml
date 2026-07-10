@@ -40,7 +40,7 @@ description: |
 
     The 'can0_data_a_tx_default' child node encodes the pin configurations
     for a particular state of a device; in this case, the default
-    (that is, active) sate. You would specify the low-power configuration for
+    (that is, active) state. You would specify the low-power configuration for
     the same device in a separate child node.
 
     A pin configuration can also specify pin properties such as the
@@ -51,6 +51,7 @@ description: |
     - bias-pull-down
     - bias-pull-up
     - drive-strength
+    - power-source
 
     To link pin configurations with a device, use a pinctrl-N property for some
     number N, like this example you could place in your board's DTS file:
@@ -65,23 +66,25 @@ description: |
 
 compatible: "renesas,rcar-pfc"
 
-include:
-    - name: base.yaml
-    - name: pincfg-node.yaml
-      child-binding:
-        property-allowlist:
-          - bias-disable
-          - bias-pull-down
-          - bias-pull-up
-          - drive-strength
+include: base.yaml
 
 properties:
-    reg:
-      required: true
+  reg:
+    required: true
 
 child-binding:
   description: |
      This binding gives a base representation of the R-Car pins configuration.
+
+  include:
+    - name: pincfg-node.yaml
+      property-allowlist:
+        - bias-disable
+        - bias-pull-down
+        - bias-pull-up
+        - drive-strength
+        - power-source
+
   properties:
     pin:
       type: array
@@ -90,4 +93,4 @@ child-binding:
         The array is expected to have up to two elements. The first element is
         the pin the second optional element is the pin function.
     drive-strength:
-      enum: [ 3, 6, 9, 12, 15, 18, 21, 24 ]
+      enum: [3, 6, 9, 12, 15, 18, 21, 24]

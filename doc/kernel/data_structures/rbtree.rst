@@ -18,7 +18,7 @@ required.
 Unlike a list, where position is explicit, the ordering of nodes
 within an rbtree must be provided as a predicate function by the user.
 A function of type :c:func:`rb_lessthan_t` should be assigned to the
-``lessthan_fn`` field of the :c:struct`rbtree` struct before any tree
+``lessthan_fn`` field of the :c:struct:`rbtree` struct before any tree
 operations are attempted.  This function should, as its name suggests,
 return a boolean True value if the first node argument is "less than"
 the second in the ordering desired by the tree.  Note that "equal" is
@@ -27,7 +27,7 @@ the algorithm to work correctly.
 
 As with the slist and dlist containers, nodes within an rbtree are
 represented as a :c:struct:`rbnode` structure which exists in
-user-managed memory, typically embedded within the the data structure
+user-managed memory, typically embedded within the data structure
 being tracked in the tree.  Unlike the list code, the data within an
 rbnode is entirely opaque.  It is not possible for the user to extract
 the binary tree topology and "manually" traverse the tree as it is for

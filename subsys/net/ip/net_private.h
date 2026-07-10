@@ -14,48 +14,82 @@
 #include <zephyr/sys/printk.h>
 #include <zephyr/net/net_context.h>
 #include <zephyr/net/net_pkt.h>
+#include <zephyr/net/icmp.h>
 
 #ifdef CONFIG_NET_MGMT_EVENT_INFO
 
 #include <zephyr/net/net_event.h>
 
-/* Maximum size of "struct net_event_ipv6_addr" or
- * "struct net_event_ipv6_nbr" or "struct net_event_ipv6_route".
- * NOTE: Update comments here and calculate which struct occupies max size.
- */
-
 #ifdef CONFIG_NET_L2_WIFI_MGMT
-
+/* For struct wifi_scan_result */
 #include <zephyr/net/wifi_mgmt.h>
-#define NET_EVENT_INFO_MAX_SIZE sizeof(struct wifi_scan_result)
-
-#else
-
-#if defined(CONFIG_NET_DHCPV4)
-#define NET_EVENT_INFO_MAX_SIZE sizeof(struct net_if_dhcpv4)
-#else
-#define NET_EVENT_INFO_MAX_SIZE sizeof(struct net_event_ipv6_route)
-#endif
-
 #endif /* CONFIG_NET_L2_WIFI_MGMT */
-#endif /* CONFIG_NET_MGMT_EVENT_INFO */
+
+#define DEFAULT_NET_EVENT_INFO_SIZE 32
+/* NOTE: Update this union with all *big* event info structs */
+union net_mgmt_events {
+#if defined(CONFIG_NET_DHCPV4)
+	struct net_if_dhcpv4 dhcpv4;
+#endif /* CONFIG_NET_DHCPV4 */
+#if defined(CONFIG_NET_DHCPV6)
+	struct net_if_dhcpv6 dhcpv6;
+#endif /* CONFIG_NET_DHCPV6 */
+#if defined(CONFIG_NET_L2_WIFI_MGMT)
+	union wifi_mgmt_events wifi;
+#endif /* CONFIG_NET_L2_WIFI_MGMT */
+#if defined(CONFIG_NET_IPV6)
+	struct net_event_ipv6_prefix ipv6_prefix;
+#if defined(CONFIG_NET_IPV6_MLD)
+	struct net_event_ipv6_route ipv6_route;
+#endif /* CONFIG_NET_IPV6_MLD */
+#endif /* CONFIG_NET_IPV6 */
+#if defined(CONFIG_NET_HOSTNAME_ENABLE)
+	struct net_event_l4_hostname hostname;
+#endif /* CONFIG_NET_HOSTNAME_ENABLE */
+	char default_event[DEFAULT_NET_EVENT_INFO_SIZE];
+};
+
+#define NET_EVENT_INFO_MAX_SIZE sizeof(union net_mgmt_events)
+
+#endif
 
 #include "connection.h"
 
 extern void net_if_init(void);
 extern void net_if_post_init(void);
-extern void net_if_carrier_down(struct net_if *iface);
 extern void net_if_stats_reset(struct net_if *iface);
 extern void net_if_stats_reset_all(void);
 extern void net_process_rx_packet(struct net_pkt *pkt);
 extern void net_process_tx_packet(struct net_pkt *pkt);
 
+extern int net_icmp_call_ipv4_handlers(struct net_pkt *pkt,
+				       struct net_ipv4_hdr *ipv4_hdr,
+				       struct net_icmp_hdr *icmp_hdr);
+extern int net_icmp_call_ipv6_handlers(struct net_pkt *pkt,
+				       struct net_ipv6_hdr *ipv6_hdr,
+				       struct net_icmp_hdr *icmp_hdr);
+
+extern struct net_if *net_ipip_get_virtual_interface(struct net_if *input_iface);
+
+#if defined(CONFIG_NET_SOCKETS_SERVICE)
+extern void socket_service_init(void);
+#else
+static inline void socket_service_init(void) { }
+#endif
+
 #if defined(CONFIG_NET_NATIVE) || defined(CONFIG_NET_OFFLOAD)
 extern void net_context_init(void);
 extern const char *net_context_state(struct net_context *context);
+extern bool net_context_is_reuseaddr_set(struct net_context *context);
+extern bool net_context_is_reuseport_set(struct net_context *context);
+extern bool net_context_is_v6only_set(struct net_context *context);
+extern bool net_context_is_recv_pktinfo_set(struct net_context *context);
 extern void net_pkt_init(void);
 extern void net_tc_tx_init(void);
 extern void net_tc_rx_init(void);
+int net_context_get_local_addr(struct net_context *context,
+			       struct sockaddr *addr,
+			       socklen_t *addrlen);
 #else
 static inline void net_context_init(void) { }
 static inline void net_pkt_init(void) { }
@@ -66,15 +100,55 @@ static inline const char *net_context_state(struct net_context *context)
 	ARG_UNUSED(context);
 	return NULL;
 }
+static inline bool net_context_is_reuseaddr_set(struct net_context *context)
+{
+	ARG_UNUSED(context);
+	return false;
+}
+static inline bool net_context_is_reuseport_set(struct net_context *context)
+{
+	ARG_UNUSED(context);
+	return false;
+}
+static inline bool net_context_is_recv_pktinfo_set(struct net_context *context)
+{
+	ARG_UNUSED(context);
+	return false;
+}
+
+static inline int net_context_get_local_addr(struct net_context *context,
+					     struct sockaddr *addr,
+					     socklen_t *addrlen)
+{
+	ARG_UNUSED(context);
+	ARG_UNUSED(addr);
+	ARG_UNUSED(addrlen);
+
+	return -ENOTSUP;
+}
 #endif
 
+#if defined(CONFIG_DNS_SOCKET_DISPATCHER)
+extern void dns_dispatcher_init(void);
+#else
+static inline void dns_dispatcher_init(void) { }
+#endif
+
+#if defined(CONFIG_MDNS_RESPONDER)
+extern void mdns_init_responder(void);
+#else
+static inline void mdns_init_responder(void) { }
+#endif /* CONFIG_MDNS_RESPONDER */
+
 #if defined(CONFIG_NET_NATIVE)
-enum net_verdict net_ipv4_input(struct net_pkt *pkt);
+enum net_verdict net_ipv4_input(struct net_pkt *pkt, bool is_loopback);
 enum net_verdict net_ipv6_input(struct net_pkt *pkt, bool is_loopback);
 #else
-static inline enum net_verdict net_ipv4_input(struct net_pkt *pkt)
+static inline enum net_verdict net_ipv4_input(struct net_pkt *pkt,
+					      bool is_loopback)
 {
 	ARG_UNUSED(pkt);
+	ARG_UNUSED(is_loopback);
 
 	return NET_CONTINUE;
 }
@@ -112,7 +186,31 @@ static inline void net_coap_init(void)
 }
 #endif
 
+#if defined(CONFIG_NET_SOCKETS_OBJ_CORE)
+struct sock_obj_type_raw_stats {
+	uint64_t sent;
+	uint64_t received;
+};
 
+struct sock_obj {
+	struct net_socket_register *reg;
+	uint64_t create_time; /* in ticks */
+	k_tid_t creator;
+	int fd;
+	int socket_family;
+	int socket_type;
+	int socket_proto;
+	bool init_done;
+	struct k_obj_core obj_core;
+	struct sock_obj_type_raw_stats stats;
+};
+#endif /* CONFIG_NET_SOCKETS_OBJ_CORE */
+
+#if defined(CONFIG_NET_IPV6_PE)
+/* This is needed by ipv6_pe.c when privacy extension support is enabled */
+void net_if_ipv6_start_dad(struct net_if *iface,
+			   struct net_if_addr *ifaddr);
+#endif
 
 #if defined(CONFIG_NET_GPTP)
 /**
@@ -133,15 +231,22 @@ enum net_verdict net_gptp_recv(struct net_if *iface, struct net_pkt *pkt);
 #define net_gptp_recv(iface, pkt) NET_DROP
 #endif /* CONFIG_NET_GPTP */
 
+#if defined(CONFIG_NET_IPV4_FRAGMENT)
+int net_ipv4_send_fragmented_pkt(struct net_if *iface, struct net_pkt *pkt,
+				 uint16_t pkt_len, uint16_t mtu);
+#endif
+
 #if defined(CONFIG_NET_IPV6_FRAGMENT)
 int net_ipv6_send_fragmented_pkt(struct net_if *iface, struct net_pkt *pkt,
 				 uint16_t pkt_len);
 #endif
 
+extern const char *net_verdict2str(enum net_verdict verdict);
 extern const char *net_proto2str(int family, int proto);
 extern char *net_byte_to_hex(char *ptr, uint8_t byte, char base, bool pad);
 extern char *net_sprint_ll_addr_buf(const uint8_t *ll, uint8_t ll_len,
 				    char *buf, int buflen);
+extern uint16_t calc_chksum(uint16_t sum_in, const uint8_t *data, size_t len);
 extern uint16_t net_calc_chksum(struct net_pkt *pkt, uint8_t proto);
 
 /**
@@ -168,12 +273,21 @@ extern uint16_t net_calc_chksum_ipv4(struct net_pkt *pkt);
 #endif /* CONFIG_NET_IPV4 */
 
 #if defined(CONFIG_NET_IPV4_IGMP)
-uint16_t net_calc_chksum_igmp(uint8_t *data, size_t len);
+/**
+ * @brief Initialise the IGMP module for a given interface
+ *
+ * @param iface		Interface to init IGMP
+ */
+void net_ipv4_igmp_init(struct net_if *iface);
+#endif /* CONFIG_NET_IPV4_IGMP */
+
+#if defined(CONFIG_NET_IPV4_IGMP)
+uint16_t net_calc_chksum_igmp(struct net_pkt *pkt);
 enum net_verdict net_ipv4_igmp_input(struct net_pkt *pkt,
 				     struct net_ipv4_hdr *ip_hdr);
 #else
 #define net_ipv4_igmp_input(...)
-#define net_calc_chksum_igmp(data, len) 0U
+#define net_calc_chksum_igmp(pkt) 0U
 #endif /* CONFIG_NET_IPV4_IGMP */
 
 static inline uint16_t net_calc_chksum_icmpv6(struct net_pkt *pkt)
@@ -229,13 +343,13 @@ static inline void net_pkt_hexdump(struct net_pkt *pkt, const char *str)
 	char pkt_str[sizeof("0x") + sizeof(intptr_t) * 2];
 
 	if (str && str[0]) {
-		LOG_DBG("%s", log_strdup(str));
+		LOG_DBG("%s", str);
 	}
 
 	snprintk(pkt_str, sizeof(pkt_str), "%p", pkt);
 
 	while (buf) {
-		LOG_HEXDUMP_DBG(buf->data, buf->len, log_strdup(pkt_str));
+		LOG_HEXDUMP_DBG(buf->data, buf->len, pkt_str);
 		buf = buf->frags;
 	}
 }

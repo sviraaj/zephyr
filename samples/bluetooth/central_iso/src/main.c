@@ -7,7 +7,7 @@
 #include <zephyr/types.h>
 #include <stddef.h>
 #include <errno.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
@@ -16,6 +16,7 @@
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/iso.h>
+#include <zephyr/settings/settings.h>
 #include <zephyr/sys/byteorder.h>
 
 static void start_scan(void);
@@ -23,8 +24,11 @@ static void start_scan(void);
 static struct bt_conn *default_conn;
 static struct k_work_delayable iso_send_work;
 static struct bt_iso_chan iso_chan;
-NET_BUF_POOL_FIXED_DEFINE(tx_pool, 1, BT_ISO_SDU_BUF_SIZE(CONFIG_BT_ISO_TX_MTU), 8,
-			  NULL);
+static uint16_t seq_num;
+static uint16_t latency_ms = 10U; /* 10ms */
+static uint32_t interval_us = 10U * USEC_PER_MSEC; /* 10 ms */
+NET_BUF_POOL_FIXED_DEFINE(tx_pool, 1, BT_ISO_SDU_BUF_SIZE(CONFIG_BT_ISO_TX_MTU),
+			  CONFIG_BT_CONN_TX_USER_DATA_SIZE, NULL);
 
 /**
  * @brief Send ISO data on timeout
@@ -55,23 +59,32 @@ static void iso_timer_timeout(struct k_work *work)
 		data_initialized = true;
 	}
 
-	buf = net_buf_alloc(&tx_pool, K_FOREVER);
-	net_buf_reserve(buf, BT_ISO_CHAN_SEND_RESERVE);
+	buf = net_buf_alloc(&tx_pool, K_NO_WAIT);
+	if (buf != NULL) {
+		net_buf_reserve(buf, BT_ISO_CHAN_SEND_RESERVE);
 
-	net_buf_add_mem(buf, buf_data, len_to_send);
+		net_buf_add_mem(buf, buf_data, len_to_send);
 
-	ret = bt_iso_chan_send(&iso_chan, buf);
+		ret = bt_iso_chan_send(&iso_chan, buf, seq_num);
 
-	if (ret < 0) {
-		printk("Failed to send ISO data (%d)\n", ret);
+		if (ret < 0) {
+			printk("Failed to send ISO data (%d)\n", ret);
+			net_buf_unref(buf);
+		}
+
+		len_to_send++;
+		if (len_to_send > ARRAY_SIZE(buf_data)) {
+			len_to_send = 1;
+		}
+	} else {
+		printk("Failed to allocate buffer, retrying in next interval (%u us)\n",
+		       interval_us);
 	}
 
-	k_work_schedule(&iso_send_work, K_MSEC(1000));
+	/* Sequence number shall be incremented for each SDU interval */
+	seq_num++;
 
-	len_to_send++;
-	if (len_to_send > ARRAY_SIZE(buf_data)) {
-		len_to_send = 1;
-	}
+	k_work_schedule(&iso_send_work, K_USEC(interval_us));
 }
 
 static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
@@ -94,7 +107,7 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 	printk("Device found: %s (RSSI %d)\n", addr_str, rssi);
 
 	/* connect only to devices in close proximity */
-	if (rssi < -70) {
+	if (rssi < -50) {
 		return;
 	}
 
@@ -127,6 +140,8 @@ static void start_scan(void)
 static void iso_connected(struct bt_iso_chan *chan)
 {
 	printk("ISO Channel %p connected\n", chan);
+
+	seq_num = 0U;
 
 	/* Start send timer */
 	k_work_schedule(&iso_send_work, K_MSEC(0));
@@ -213,7 +228,7 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 	.disconnected = disconnected,
 };
 
-void main(void)
+int main(void)
 {
 	int err;
 	struct bt_iso_chan *channels[1];
@@ -223,13 +238,21 @@ void main(void)
 	err = bt_enable(NULL);
 	if (err) {
 		printk("Bluetooth init failed (err %d)\n", err);
-		return;
+		return 0;
 	}
+
+	if (IS_ENABLED(CONFIG_SETTINGS)) {
+		settings_load();
+	}
+
 
 	printk("Bluetooth initialized\n");
 
 	iso_chan.ops = &iso_ops;
 	iso_chan.qos = &iso_qos;
+#if defined(CONFIG_BT_SMP)
+	iso_chan.required_sec_level = BT_SECURITY_L2,
+#endif /* CONFIG_BT_SMP */
 
 	channels[0] = &iso_chan;
 	param.cis_channels = channels;
@@ -237,17 +260,20 @@ void main(void)
 	param.sca = BT_GAP_SCA_UNKNOWN;
 	param.packing = 0;
 	param.framing = 0;
-	param.latency = 10; /* ms */
-	param.interval = 10 * USEC_PER_MSEC; /* us */
+	param.c_to_p_latency = latency_ms; /* ms */
+	param.p_to_c_latency = latency_ms; /* ms */
+	param.c_to_p_interval = interval_us; /* us */
+	param.p_to_c_interval = interval_us; /* us */
 
 	err = bt_iso_cig_create(&param, &cig);
 
 	if (err != 0) {
 		printk("Failed to create CIG (%d)\n", err);
-		return;
+		return 0;
 	}
 
 	start_scan();
 
 	k_work_init_delayable(&iso_send_work, iso_timer_timeout);
+	return 0;
 }

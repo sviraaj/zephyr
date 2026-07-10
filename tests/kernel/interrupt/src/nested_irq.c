@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
-#include <interrupt_util.h>
+#include <zephyr/ztest.h>
+#include <zephyr/interrupt_util.h>
 
 /*
  * Run the nested interrupt test for the supported platforms only.
  */
 #if defined(CONFIG_CPU_CORTEX_M) || defined(CONFIG_ARC) || \
-	defined(CONFIG_GIC)
+	defined(CONFIG_GIC) || defined(CONFIG_NRFX_CLIC)
 #define TEST_NESTED_ISR
 #endif
 
@@ -56,6 +56,12 @@
  */
 #define IRQ0_PRIO	IRQ_DEFAULT_PRIORITY
 #define IRQ1_PRIO	0x0
+#elif defined(CONFIG_SOC_NRF54L15_ENGA_CPUFLPR)
+#define IRQ0_LINE	16
+#define IRQ1_LINE	17
+
+#define IRQ0_PRIO	1
+#define IRQ1_PRIO	2
 #else
 /*
  * For all the other platforms, use the last two available IRQ lines for
@@ -126,7 +132,7 @@ void isr0(const void *param)
  * 4. [isr0] Validate ISR 1 result token and return
  * 5. [thread] Validate ISR 0 result token
  */
-void test_nested_isr(void)
+ZTEST(interrupt_feature, test_nested_isr)
 {
 	/* Resolve test IRQ line numbers */
 #if defined(CONFIG_CPU_CORTEX_M)
@@ -154,7 +160,7 @@ void test_nested_isr(void)
 	zassert_equal(isr0_result, ISR0_TOKEN, "isr0 did not execute");
 }
 #else
-void test_nested_isr(void)
+ZTEST(interrupt_feature, test_nested_isr)
 {
 	ztest_test_skip();
 }

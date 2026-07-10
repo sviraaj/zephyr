@@ -11,13 +11,11 @@ compatible: "nxp,imx-csi"
 include: [base.yaml, pinctrl-device.yaml]
 
 properties:
-    interrupts:
-      required: true
+  interrupts:
+    required: true
 
-    label:
-      required: true
-
-    sensor-label:
-      required: true
-      type: string
-      description: label of connected sensor device
+  source:
+    required: true
+    type: phandle
+    description: the connected source device,
+      e.g., a mipi csi or a camera sensor

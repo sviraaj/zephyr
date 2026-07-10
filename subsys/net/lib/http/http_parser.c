@@ -23,7 +23,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
-#include <zephyr/net/http_parser.h>
+#include <zephyr/net/http/parser.h>
 #include <zephyr/sys/__assert.h>
 #include <stddef.h>
 #include <ctype.h>
@@ -72,7 +72,7 @@ do {                                                                       \
 	if (!FOR##_mark) {                                                 \
 		FOR##_mark = p;                                            \
 	}                                                                  \
-} while (0)
+} while (false)
 
 /* Don't allow the total size of the HTTP headers (including the status
  * line) to exceed HTTP_MAX_HEADER_SIZE.  This check is here to protect

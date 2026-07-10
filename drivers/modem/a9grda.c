@@ -6,12 +6,12 @@
 
 #define DT_DRV_COMPAT rda_a9g
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(modem_a9grda, CONFIG_MODEM_LOG_LEVEL);
 
 #include <drivers/modem/a9grda.h>
-#include <drivers/gpio.h>
-#include <init.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/init.h>
 
 #include "modem_context.h"
 #include "modem_socket.h"
@@ -1183,10 +1183,10 @@ static int offload_poll(struct pollfd *fds, int nfds, int msecs)
 		}
 
 		/* If vtable matches, then it's modem socket. */
-		obj = z_get_fd_obj(fds[i].fd,
-				   (const struct fd_op_vtable *)
+		obj = zvfs_get_fd_obj(fds[i].fd,
+				      (const struct fd_op_vtable *)
 						&offload_socket_fd_op_vtable,
-				   EINVAL);
+				      EINVAL);
 		if (obj == NULL) {
 			return -1;
 		}
@@ -1409,7 +1409,7 @@ int a9g_get_clock(struct device *dev, char *timeval)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -1436,7 +1436,7 @@ int a9g_http_init(struct device *dev, struct usr_http_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -1446,7 +1446,7 @@ int a9g_http_init(struct device *dev, struct usr_http_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -1455,7 +1455,7 @@ int a9g_http_init(struct device *dev, struct usr_http_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -1478,7 +1478,7 @@ int a9g_http_term(struct device *dev, struct usr_http_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 
@@ -1532,7 +1532,7 @@ int a9g_http_execute(struct device *dev, struct usr_http_cfg *cfg)
 				     mdata.send_buf, &mdata.sem_response,
 				     MDM_CMD_TIMEOUT);
 		if (ret < 0) {
-			LOG_ERR("%s ret:%d", log_strdup(cfg->url), ret);
+			LOG_ERR("%s ret:%d",cfg->url, ret);
 			goto ret;
 		}
 
@@ -1592,7 +1592,7 @@ int a9g_http_execute(struct device *dev, struct usr_http_cfg *cfg)
 				     mdata.send_buf, &mdata.sem_response,
 				     MDM_CMD_TIMEOUT);
 		if (ret < 0) {
-			LOG_ERR("%s ret:%d", log_strdup(cfg->url), ret);
+			LOG_ERR("%s ret:%d",cfg->url, ret);
 			goto ret;
 		}
 
@@ -1656,7 +1656,7 @@ int a9g_gps_init(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -1665,7 +1665,7 @@ int a9g_gps_init(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -1688,7 +1688,7 @@ int a9g_agps(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 
@@ -1702,7 +1702,7 @@ int a9g_agps(struct device *dev, struct usr_gps_cfg *cfg)
     else
     {
 		if (connect_status == MDM_CONNECT_FAIL) {
-			LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+			LOG_ERR("%s ret:%d", buf, ret);
 			ret = -EIO;
 		}
     }
@@ -1733,7 +1733,7 @@ int a9g_gps_read(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -1763,7 +1763,7 @@ int a9g_gps_close(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 

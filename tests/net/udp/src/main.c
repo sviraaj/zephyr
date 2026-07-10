@@ -11,7 +11,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_test, NET_LOG_LEVEL);
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/linker/sections.h>
 
 #include <zephyr/types.h>
@@ -29,12 +29,12 @@ LOG_MODULE_REGISTER(net_test, NET_LOG_LEVEL);
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/dummy.h>
 #include <zephyr/net/udp.h>
-#include <zephyr/random/rand32.h>
+#include <zephyr/random/random.h>
 
 #include "ipv4.h"
 #include "ipv6.h"
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 #if NET_LOG_LEVEL >= LOG_LEVEL_DBG
 #define DBG(fmt, ...) printk(fmt, ##__VA_ARGS__)
@@ -80,7 +80,7 @@ static uint8_t *net_udp_get_mac(const struct device *dev)
 		context->mac_addr[2] = 0x5E;
 		context->mac_addr[3] = 0x00;
 		context->mac_addr[4] = 0x53;
-		context->mac_addr[5] = sys_rand32_get();
+		context->mac_addr[5] = sys_rand8_get();
 	}
 
 	return context->mac_addr;
@@ -114,13 +114,13 @@ static inline struct in_addr *if_get_addr(struct net_if *iface)
 	int i;
 
 	for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
-		if (iface->config.ip.ipv4->unicast[i].is_used &&
-		    iface->config.ip.ipv4->unicast[i].address.family ==
+		if (iface->config.ip.ipv4->unicast[i].ipv4.is_used &&
+		    iface->config.ip.ipv4->unicast[i].ipv4.address.family ==
 								AF_INET &&
-		    iface->config.ip.ipv4->unicast[i].addr_state ==
+		    iface->config.ip.ipv4->unicast[i].ipv4.addr_state ==
 							NET_ADDR_PREFERRED) {
 			return
-			    &iface->config.ip.ipv4->unicast[i].address.in_addr;
+			    &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr;
 		}
 	}
 
@@ -419,7 +419,7 @@ static void set_port(sa_family_t family, struct sockaddr *raddr,
 	}
 }
 
-void test_udp(void)
+ZTEST(udp_fn_tests, test_udp)
 {
 	if (IS_ENABLED(CONFIG_NET_TC_THREAD_COOPERATIVE)) {
 		k_thread_priority_set(k_current_get(),
@@ -438,7 +438,7 @@ void test_udp(void)
 	bool st;
 
 	struct sockaddr_in6 any_addr6;
-	const struct in6_addr in6addr_any = IN6ADDR_ANY_INIT;
+	const struct in6_addr in6addr_anyaddr = IN6ADDR_ANY_INIT;
 
 	struct sockaddr_in6 my_addr6;
 	struct in6_addr in6addr_my = { { { 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
@@ -459,7 +459,7 @@ void test_udp(void)
 
 	iface = net_if_get_first_by_type(&NET_L2_GET_NAME(DUMMY));
 
-	net_ipaddr_copy(&any_addr6.sin6_addr, &in6addr_any);
+	net_ipaddr_copy(&any_addr6.sin6_addr, &in6addr_anyaddr);
 	any_addr6.sin6_family = AF_INET6;
 
 	net_ipaddr_copy(&my_addr6.sin6_addr, &in6addr_my);
@@ -671,9 +671,4 @@ void test_udp(void)
 	zassert_false(test_failed, "udp tests failed");
 }
 
-void test_main(void)
-{
-	ztest_test_suite(test_udp_fn,
-		ztest_unit_test(test_udp));
-	ztest_run_test_suite(test_udp_fn);
-}
+ZTEST_SUITE(udp_fn_tests, NULL, NULL, NULL, NULL, NULL);

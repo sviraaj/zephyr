@@ -6,21 +6,30 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/fff.h>
+#include <zephyr/kernel.h>
+#include <zephyr/ztest.h>
 
 #include <errno.h>
-#include <tc_util.h>
-#include <ztest.h>
+#include <zephyr/tc_util.h>
 
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/buf.h>
 #include <zephyr/bluetooth/bluetooth.h>
-#include <zephyr/drivers/bluetooth/hci_driver.h>
+#include <zephyr/drivers/bluetooth.h>
 #include <zephyr/sys/byteorder.h>
+
+#define DT_DRV_COMPAT zephyr_bt_hci_test
+
+struct driver_data {
+	bt_hci_recv_t recv;
+};
 
 #define LOG_LEVEL CONFIG_BT_LOG_LEVEL
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(host_test_app);
+
+DEFINE_FFF_GLOBALS;
 
 struct test_adv_report {
 	uint8_t data[CONFIG_BT_EXT_SCAN_BUF_SIZE];
@@ -108,8 +117,10 @@ static int cmd_handle_helper(uint16_t opcode, struct net_buf *cmd, struct net_bu
 }
 
 /* Lookup the command opcode and invoke handler. */
-static int cmd_handle(struct net_buf *cmd, const struct cmd_handler *handlers, size_t num_handlers)
+static int cmd_handle(const struct device *dev, struct net_buf *cmd,
+		      const struct cmd_handler *handlers, size_t num_handlers)
 {
+	struct driver_data *drv = dev->data;
 	struct net_buf *evt = NULL;
 	struct bt_hci_evt_cc_status *ccst;
 	struct bt_hci_cmd_hdr *chdr;
@@ -127,7 +138,7 @@ static int cmd_handle(struct net_buf *cmd, const struct cmd_handler *handlers, s
 	}
 
 	if (evt) {
-		bt_recv_prio(evt);
+		drv->recv(dev, evt);
 	}
 
 	return err;
@@ -212,29 +223,38 @@ static const struct cmd_handler cmds[] = {
 };
 
 /* HCI driver open. */
-static int driver_open(void)
+static int driver_open(const struct device *dev, bt_hci_recv_t recv)
 {
+	struct driver_data *drv = dev->data;
+
+	drv->recv = recv;
+
 	return 0;
 }
 
 /*  HCI driver send.  */
-static int driver_send(struct net_buf *buf)
+static int driver_send(const struct device *dev, struct net_buf *buf)
 {
-	zassert_true(cmd_handle(buf, cmds, ARRAY_SIZE(cmds)) == 0, "Unknown HCI command");
+	zassert_true(cmd_handle(dev, buf, cmds, ARRAY_SIZE(cmds)) == 0, "Unknown HCI command");
 
 	net_buf_unref(buf);
 
 	return 0;
 }
 
-/* HCI driver structure. */
-static const struct bt_hci_driver drv = {
-	.name = "test",
-	.bus = BT_HCI_DRIVER_BUS_VIRTUAL,
+static const struct bt_hci_driver_api driver_api = {
 	.open = driver_open,
 	.send = driver_send,
-	.quirks = 0,
 };
+
+#define TEST_DEVICE_INIT(inst) \
+	static struct driver_data driver_data_##inst = { \
+	}; \
+	DEVICE_DT_INST_DEFINE(inst, NULL, NULL, &driver_data_##inst, NULL, \
+			      POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &driver_api)
+
+DT_INST_FOREACH_STATUS_OKAY(TEST_DEVICE_INIT)
+
 
 struct bt_recv_job_data {
 	struct k_work work; /* Work item */
@@ -247,10 +267,12 @@ struct bt_recv_job_data {
 /* Work item handler for bt_recv() jobs. */
 static void bt_recv_job_cb(struct k_work *item)
 {
+	const struct device *dev = DEVICE_DT_GET(DT_DRV_INST(0));
+	struct driver_data *drv = dev->data;
 	struct bt_recv_job_data *data = CONTAINER_OF(item, struct bt_recv_job_data, work);
 
 	/* Send net buffer to host */
-	bt_recv(data->buf);
+	drv->recv(dev, data->buf);
 
 	/* Wake up bt_recv_job_submit */
 	k_sem_give(job(data->buf)->sync);
@@ -315,15 +337,7 @@ static void send_adv_report(const struct test_adv_report *report)
 	bt_recv_job_submit(buf);
 }
 
-static uint16_t get_expected_length(void)
-{
-	return ztest_get_return_value();
-}
-
-static uint8_t *get_expected_data(void)
-{
-	return ztest_get_return_value_ptr();
-}
+FAKE_VALUE_FUNC(struct test_adv_report, get_expected_report);
 
 static void scan_recv_cb(const struct bt_le_scan_recv_info *info, struct net_buf_simple *buf)
 {
@@ -331,11 +345,10 @@ static void scan_recv_cb(const struct bt_le_scan_recv_info *info, struct net_buf
 
 	LOG_DBG("Received event with length %u", buf->len);
 
-	const uint16_t expected_length = get_expected_length();
-	const uint8_t *expected_data = get_expected_data();
+	const struct test_adv_report expected = get_expected_report();
 
-	zassert_equal(buf->len, expected_length, "Lengths should be equal");
-	zassert_mem_equal(buf->data, expected_data, buf->len, "Data should be equal");
+	zassert_equal(buf->len, expected.length, "Lengths should be equal");
+	zassert_mem_equal(buf->data, expected.data, buf->len, "Data should be equal");
 }
 
 static void scan_timeout_cb(void)
@@ -357,11 +370,11 @@ static void generate_sequence(uint8_t *dest, uint16_t len, uint8_t range_start, 
 	}
 }
 
-/* Test. */
-static void test_host_long_adv_recv(void)
+ZTEST_SUITE(long_adv_rx_tests, NULL, NULL, NULL, NULL, NULL);
+
+ZTEST(long_adv_rx_tests, test_host_long_adv_recv)
 {
-	/* Register the test HCI driver */
-	bt_hci_driver_register(&drv);
+	struct test_adv_report expected_reports[2];
 
 	/* Go! Wait until Bluetooth initialization is done  */
 	zassert_true((bt_enable(NULL) == 0), "bt_enable failed");
@@ -426,49 +439,58 @@ static void test_host_long_adv_recv(void)
 		     report_b_2.length);
 
 	/* Check that non-interleaved fragmented adv reports work */
-	ztest_returns_value(get_expected_data, report_a_combined.data);
-	ztest_returns_value(get_expected_length, report_a_combined.length); /* Expect a */
-	ztest_returns_value(get_expected_data, report_b_combined.data);
-	ztest_returns_value(get_expected_length, report_b_combined.length); /* Then b */
+	expected_reports[0] = report_a_combined;
+	expected_reports[1] = report_b_combined;
+	SET_RETURN_SEQ(get_expected_report, expected_reports, 2);
 	send_adv_report(&report_a_1);
 	send_adv_report(&report_a_2);
 	send_adv_report(&report_b_1);
 	send_adv_report(&report_b_2);
+	zassert_equal(2, get_expected_report_fake.call_count);
+	RESET_FAKE(get_expected_report);
+	FFF_RESET_HISTORY();
 
 	/* Check that legacy adv reports interleaved with fragmented adv reports work */
-	ztest_returns_value(get_expected_data, report_c.data);
-	ztest_returns_value(get_expected_length, report_c.length); /* Expect c */
-	ztest_returns_value(get_expected_data, report_a_combined.data);
-	ztest_returns_value(get_expected_length, report_a_combined.length); /* Then a */
+	expected_reports[0] = report_c;
+	expected_reports[1] = report_a_combined;
+	SET_RETURN_SEQ(get_expected_report, expected_reports, 2);
 	send_adv_report(&report_a_1);
 	send_adv_report(&report_c); /* Interleaved legacy adv report */
 	send_adv_report(&report_a_2);
+	zassert_equal(2, get_expected_report_fake.call_count);
+	RESET_FAKE(get_expected_report);
+	FFF_RESET_HISTORY();
 
 	/* Check that complete adv reports interleaved with fragmented adv reports work */
-	ztest_returns_value(get_expected_data, report_b_2.data);
-	ztest_returns_value(get_expected_length, report_b_2.length); /* Expect b */
-	ztest_returns_value(get_expected_data, report_a_combined.data);
-	ztest_returns_value(get_expected_length, report_a_combined.length); /* Then a */
+	expected_reports[0] = report_b_2;
+	expected_reports[1] = report_a_combined;
+	SET_RETURN_SEQ(get_expected_report, expected_reports, 2);
 	send_adv_report(&report_a_1);
 	send_adv_report(&report_b_2); /* Interleaved short extended adv report */
 	send_adv_report(&report_a_2);
+	zassert_equal(2, get_expected_report_fake.call_count);
+	RESET_FAKE(get_expected_report);
+	FFF_RESET_HISTORY();
 
 	/* Check that fragmented adv reports from one peer are received,
 	 * and that interleaved fragmented adv reports from other peers are discarded
 	 */
-	ztest_returns_value(get_expected_data, report_a_combined.data);
-	ztest_returns_value(get_expected_length, report_a_combined.length); /* Expect a */
-	ztest_returns_value(get_expected_data, report_b_2.data);
-	ztest_returns_value(get_expected_length,
-			    report_b_2.length); /* Then b, INCOMPLETE REPORT */
+	expected_reports[0] = report_a_combined;
+	expected_reports[1] = report_b_2;
+	SET_RETURN_SEQ(get_expected_report, expected_reports, 2);
 	send_adv_report(&report_a_1);
 	send_adv_report(&report_b_1); /* Interleaved fragmented adv report, NOT SUPPORTED */
 	send_adv_report(&report_a_2);
 	send_adv_report(&report_b_2);
+	zassert_equal(2, get_expected_report_fake.call_count);
+	RESET_FAKE(get_expected_report);
+	FFF_RESET_HISTORY();
 
 	/* Check that host discards the data if the controller keeps sending
 	 * incomplete packets.
 	 */
+	expected_reports[0] = report_b_combined;
+	SET_RETURN_SEQ(get_expected_report, expected_reports, 1);
 	for (int i = 0; i < (2 + (CONFIG_BT_EXT_SCAN_BUF_SIZE / report_a_1.length)); i++) {
 		send_adv_report(&report_a_1);
 	}
@@ -478,16 +500,7 @@ static void test_host_long_adv_recv(void)
 	send_adv_report(&report_d);
 
 	/* Check that reports from a different advertiser works after truncation */
-	ztest_returns_value(get_expected_data, report_b_combined.data);
-	ztest_returns_value(get_expected_length, report_b_combined.length); /* Expect b */
 	send_adv_report(&report_b_1);
 	send_adv_report(&report_b_2);
-}
-
-/* test case main entry */
-void test_main(void)
-{
-	ztest_test_suite(test_host_long_adv_recv, ztest_unit_test(test_host_long_adv_recv));
-
-	ztest_run_test_suite(test_host_long_adv_recv);
+	zassert_equal(1, get_expected_report_fake.call_count);
 }

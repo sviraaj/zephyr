@@ -9,6 +9,7 @@
 #include <zephyr/sys/mpsc_pbuf.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/init.h>
 
 static uint32_t dbuf[CONFIG_LOG_FRONTEND_DICT_UART_BUFFER_SIZE / sizeof(uint32_t)];
 
@@ -64,7 +65,7 @@ static const struct mpsc_pbuf_buffer_config config = {
 	.get_wlen = get_wlen,
 	.flags = 0
 };
-static const struct device *dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
+static const struct device *const uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
 static struct mpsc_pbuf_buffer buf;
 static atomic_t active_cnt; /* Counts number of buffered messages. */
@@ -97,7 +98,7 @@ static void tx(void)
 	struct log_frontend_uart_generic_pkt *pkt;
 
 	if (!IS_ENABLED(CONFIG_UART_ASYNC_API) && !in_panic) {
-		uart_irq_tx_enable(dev);
+		uart_irq_tx_enable(uart_dev);
 		return;
 	}
 
@@ -110,11 +111,11 @@ static void tx(void)
 
 	if (in_panic) {
 		for (int i = 0; i < len; i++) {
-			uart_poll_out(dev, pkt->data[i]);
+			uart_poll_out(uart_dev, pkt->data[i]);
 		}
 		atomic_dec(&active_cnt);
 	} else {
-		int err = uart_tx(dev, pkt->data, len, SYS_FOREVER_US);
+		int err = uart_tx(uart_dev, pkt->data, len, SYS_FOREVER_US);
 
 		(void)err;
 		__ASSERT_NO_MSG(err == 0);
@@ -127,8 +128,7 @@ static atomic_val_t add_drop_msg(void)
 	union log_frontend_pkt generic_pkt;
 	struct log_frontend_uart_dropped_pkt *pkt;
 	size_t len = sizeof(struct log_frontend_uart_dropped_pkt);
-	size_t wlen = ceiling_fraction(len, sizeof(uint32_t));
-	bool ret = false;
+	size_t wlen = DIV_ROUND_UP(len, sizeof(uint32_t));
 
 	if (atomic_cas(&adding_drop, 0, 1) == false) {
 		return 1;
@@ -146,7 +146,6 @@ static atomic_val_t add_drop_msg(void)
 	pkt->data.type = MSG_DROPPED_MSG;
 	pkt->data.num_dropped_messages = atomic_set(&dropped, 0);
 	mpsc_pbuf_commit(&buf, generic_pkt.rw_pkt);
-	ret = true;
 
 	return atomic_inc(&active_cnt);
 }
@@ -159,9 +158,10 @@ static void uart_callback(const struct device *dev,
 	case UART_TX_DONE:
 	{
 		union log_frontend_pkt generic_pkt;
+		struct log_frontend_uart_pkt_hdr *hdr;
 
-		generic_pkt.generic = CONTAINER_OF(evt->data.tx.buf,
-						   struct log_frontend_uart_generic_pkt, hdr);
+		hdr = (struct log_frontend_uart_pkt_hdr *)evt->data.tx.buf;
+		generic_pkt.generic = CONTAINER_OF(hdr, struct log_frontend_uart_generic_pkt, hdr);
 
 		mpsc_pbuf_free(&buf, generic_pkt.ro_pkt);
 		atomic_val_t rem_pkts = atomic_dec(&active_cnt);
@@ -225,7 +225,7 @@ static void uart_isr_callback(const struct device *dev, void *user_data)
 
 static inline void hdr_fill(struct log_dict_output_normal_msg_hdr_t *hdr,
 			    const void *source,
-			    const struct log_msg2_desc desc)
+			    const struct log_msg_desc desc)
 {
 	hdr->type = MSG_NORMAL;
 	hdr->domain = desc.domain;
@@ -242,7 +242,7 @@ static inline void hdr_fill(struct log_dict_output_normal_msg_hdr_t *hdr,
 
 /* Handle logging message in synchronous manner, in panic mode. */
 static void sync_msg(const void *source,
-		     const struct log_msg2_desc desc,
+		     const struct log_msg_desc desc,
 		     uint8_t *package, const void *data)
 {
 	struct log_dict_output_normal_msg_hdr_t hdr;
@@ -253,24 +253,24 @@ static void sync_msg(const void *source,
 
 	for (int i = 0; i < ARRAY_SIZE(datas); i++) {
 		for (int j = 0; j < len[i]; j++) {
-			uart_poll_out(dev, datas[i][j]);
+			uart_poll_out(uart_dev, datas[i][j]);
 		}
 	}
 }
 
 void log_frontend_msg(const void *source,
-		      const struct log_msg2_desc desc,
+		      const struct log_msg_desc desc,
 		      uint8_t *package, const void *data)
 {
 	uint16_t strl[4];
-	struct log_msg2_desc outdesc = desc;
+	struct log_msg_desc outdesc = desc;
 	int plen = cbprintf_package_copy(package, desc.package_len, NULL, 0,
-					 CBPRINTF_PACKAGE_COPY_RW_STR,
+					 CBPRINTF_PACKAGE_CONVERT_RW_STR,
 					 strl, ARRAY_SIZE(strl));
 	size_t dlen = desc.data_len;
-	bool dev_ready = device_is_ready(dev);
+	bool dev_ready = device_is_ready(uart_dev);
 	size_t total_len = plen + dlen + sizeof(struct log_frontend_uart_pkt);
-	size_t total_wlen = ceiling_fraction(total_len, sizeof(uint32_t));
+	size_t total_wlen = DIV_ROUND_UP(total_len, sizeof(uint32_t));
 
 	if (in_panic) {
 		sync_msg(source, desc, package, data);
@@ -295,7 +295,7 @@ void log_frontend_msg(const void *source,
 
 	plen = cbprintf_package_copy(package, desc.package_len,
 				     pkt->data, plen,
-				     CBPRINTF_PACKAGE_COPY_RW_STR,
+				     CBPRINTF_PACKAGE_CONVERT_RW_STR,
 				     strl, ARRAY_SIZE(strl));
 	if (plen < 0) {
 		/* error */
@@ -328,9 +328,9 @@ void log_frontend_init(void)
 	int err;
 
 	if (IS_ENABLED(CONFIG_UART_ASYNC_API)) {
-		err = uart_callback_set(dev, uart_callback, NULL);
+		err = uart_callback_set(uart_dev, uart_callback, NULL);
 	} else if (IS_ENABLED(CONFIG_UART_INTERRUPT_DRIVEN)) {
-		uart_irq_callback_user_data_set(dev, uart_isr_callback, NULL);
+		uart_irq_callback_user_data_set(uart_dev, uart_isr_callback, NULL);
 		err = 0;
 	}
 
@@ -343,9 +343,8 @@ void log_frontend_init(void)
 }
 
 /* Cannot be started in log_frontend_init because it is called before kernel is ready. */
-static int log_frontend_uart_start_timer(const struct device *unused)
+static int log_frontend_uart_start_timer(void)
 {
-	ARG_UNUSED(unused);
 	k_timeout_t t = K_MSEC(CONFIG_LOG_FRONTEND_DICT_UART_DROPPED_NOTIFY_PERIOD);
 
 	k_timer_start(&dropped_timer, t, t);

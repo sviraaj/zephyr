@@ -18,7 +18,6 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
-#include <zephyr/zephyr.h>
 
 LOG_MODULE_REGISTER(adc_emul, CONFIG_ADC_LOG_LEVEL);
 
@@ -471,8 +470,12 @@ out:
  *
  * @return This thread should not end
  */
-static void adc_emul_acquisition_thread(struct adc_emul_data *data)
+static void adc_emul_acquisition_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	struct adc_emul_data *data = p1;
 	int err;
 
 	while (true) {
@@ -534,7 +537,7 @@ static int adc_emul_init(const struct device *dev)
 
 	k_thread_create(&data->thread, data->stack,
 			CONFIG_ADC_EMUL_ACQUISITION_THREAD_STACK_SIZE,
-			(k_thread_entry_t)adc_emul_acquisition_thread,
+			adc_emul_acquisition_thread,
 			data, NULL, NULL,
 			CONFIG_ADC_EMUL_ACQUISITION_THREAD_PRIO,
 			0, K_NO_WAIT);
@@ -575,6 +578,6 @@ static int adc_emul_init(const struct device *dev)
 			      &adc_emul_data_##_num,			\
 			      &adc_emul_config_##_num, POST_KERNEL,	\
 			      CONFIG_ADC_INIT_PRIORITY,			\
-			      &adc_emul_api_##_num)
+			      &adc_emul_api_##_num);
 
-DT_INST_FOREACH_STATUS_OKAY(ADC_EMUL_INIT);
+DT_INST_FOREACH_STATUS_OKAY(ADC_EMUL_INIT)

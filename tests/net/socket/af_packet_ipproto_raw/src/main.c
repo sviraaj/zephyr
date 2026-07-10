@@ -7,12 +7,12 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_test, CONFIG_NET_SOCKETS_LOG_LEVEL);
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/linker/sections.h>
-#include <ztest.h>
-#include <zephyr/random/rand32.h>
+#include <zephyr/ztest.h>
+#include <zephyr/random/random.h>
 
-#include <fcntl.h>
+#include <zephyr/posix/fcntl.h>
 
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/dummy.h>
@@ -35,7 +35,7 @@ static int fake_dev_send(const struct device *dev, struct net_pkt *pkt)
 	ARG_UNUSED(pkt);
 
 	/* Loopback the data back to stack: */
-	NET_DBG("Dummy device: Loopbacking data (%d bytes) to iface %d\n", net_pkt_get_len(pkt),
+	NET_DBG("Dummy device: Loopbacking data (%zd bytes) to iface %d\n", net_pkt_get_len(pkt),
 	    net_if_get_by_iface(net_pkt_iface(pkt)));
 
 	recv_pkt = net_pkt_clone(pkt, K_NO_WAIT);
@@ -56,7 +56,7 @@ static uint8_t *fake_dev_get_mac(struct fake_dev_context *ctx)
 		ctx->mac_addr[2] = 0x5E;
 		ctx->mac_addr[3] = 0x00;
 		ctx->mac_addr[4] = 0x53;
-		ctx->mac_addr[5] = sys_rand32_get();
+		ctx->mac_addr[5] = sys_rand8_get();
 	}
 
 	return ctx->mac_addr;
@@ -94,7 +94,7 @@ NET_DEVICE_INIT(fake_dev, "fake_dev", fake_dev_init, NULL, &fake_dev_context_dat
 		CONFIG_KERNEL_INIT_PRIORITY_DEFAULT, &fake_dev_if_api, _ETH_L2_LAYER,
 		_ETH_L2_CTX_TYPE, 127);
 
-void test_setup(void)
+static void *test_setup(void)
 {
 	struct net_if *iface;
 	struct in_addr in4addr_my = { { { 192, 168, 0, 2 } } };
@@ -107,9 +107,11 @@ void test_setup(void)
 
 	ifaddr = net_if_ipv4_addr_add(iface, &in4addr_my, NET_ADDR_MANUAL, 0);
 	zassert_not_null(ifaddr, "Could not add iface address");
+
+	return NULL;
 }
 
-void test_sckt_raw_packet_raw_ip(void)
+ZTEST(net_sckt_packet_raw_ip, test_sckt_raw_packet_raw_ip)
 {
 	/* A test case for testing socket combo: AF_PACKET & SOCK_RAW & IPPROTO_RAW: */
 	struct net_if *iface = net_if_get_first_by_type(&NET_L2_GET_NAME(DUMMY));
@@ -118,33 +120,27 @@ void test_sckt_raw_packet_raw_ip(void)
 	char receive_buffer[128];
 	int sock;
 
-	sock = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
+	sock = zsock_socket(AF_PACKET, SOCK_RAW, htons(IPPROTO_RAW));
 	zassert_true(sock >= 0, "Could not create a socket");
 
 	dst.sll_ifindex = net_if_get_by_iface(iface);
 	dst.sll_family = AF_PACKET;
 
-	ret = bind(sock, (const struct sockaddr *)&dst, sizeof(struct sockaddr_ll));
+	ret = zsock_bind(sock, (const struct sockaddr *)&dst, sizeof(struct sockaddr_ll));
 	zassert_true(ret >= 0, "Could not bind the socket");
 
 	/* Let's send some data: */
-	ret = sendto(sock, testing_data, ARRAY_SIZE(testing_data), 0, (const struct sockaddr *)&dst,
-		     sizeof(struct sockaddr_ll));
+	ret = zsock_sendto(sock, testing_data, ARRAY_SIZE(testing_data), 0,
+			   (const struct sockaddr *)&dst, sizeof(struct sockaddr_ll));
 	zassert_true(ret > 0, "Could not send data");
 
 	/* Receive the same data back: */
-	recv_data_len = recv(sock, receive_buffer, sizeof(receive_buffer), 0);
+	recv_data_len = zsock_recv(sock, receive_buffer, sizeof(receive_buffer), 0);
 	zassert_true(recv_data_len == ARRAY_SIZE(testing_data), "Expected data not received");
 
-	NET_DBG("Received successfully data %s", log_strdup(receive_buffer));
+	NET_DBG("Received successfully data %s", receive_buffer);
 
-	close(sock);
+	zsock_close(sock);
 }
 
-void test_main(void)
-{
-	ztest_test_suite(test_sckt_packet_raw_ip,
-			 ztest_unit_test(test_setup),
-			 ztest_unit_test(test_sckt_raw_packet_raw_ip));
-	ztest_run_test_suite(test_sckt_packet_raw_ip);
-}
+ZTEST_SUITE(net_sckt_packet_raw_ip, NULL, test_setup, NULL, NULL, NULL);

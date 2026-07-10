@@ -6,25 +6,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <stddef.h>
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 #include <zephyr/bluetooth/buf.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/gatt.h>
 
 /* Custom Service Variables */
-static struct bt_uuid_128 test_uuid = BT_UUID_INIT_128(
+static const struct bt_uuid_128 test_uuid = BT_UUID_INIT_128(
 	0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12,
 	0x78, 0x56, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12);
-static struct bt_uuid_128 test_chrc_uuid = BT_UUID_INIT_128(
+static const struct bt_uuid_128 test_chrc_uuid = BT_UUID_INIT_128(
 	0xf2, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12,
 	0x78, 0x56, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12);
 
 static uint8_t test_value[] = { 'T', 'e', 's', 't', '\0' };
 
-static struct bt_uuid_128 test1_uuid = BT_UUID_INIT_128(
+static const struct bt_uuid_128 test1_uuid = BT_UUID_INIT_128(
 	0xf4, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12,
 	0x78, 0x56, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12);
 
@@ -89,8 +89,14 @@ static struct bt_gatt_attr test1_attrs[] = {
 
 static struct bt_gatt_service test1_svc = BT_GATT_SERVICE(test1_attrs);
 
-void test_gatt_register(void)
+ZTEST_SUITE(test_gatt, NULL, NULL, NULL, NULL, NULL);
+
+ZTEST(test_gatt, test_gatt_register)
 {
+	/* Ensure our test services are not already registered */
+	bt_gatt_service_unregister(&test_svc);
+	bt_gatt_service_unregister(&test1_svc);
+
 	/* Attempt to register services */
 	zassert_false(bt_gatt_service_register(&test_svc),
 		     "Test service registration failed");
@@ -104,7 +110,7 @@ void test_gatt_register(void)
 		     "Test service1 duplicate succeeded");
 }
 
-void test_gatt_unregister(void)
+ZTEST(test_gatt, test_gatt_unregister)
 {
 	/* Attempt to unregister last */
 	zassert_false(bt_gatt_service_unregister(&test1_svc),
@@ -156,7 +162,7 @@ static uint8_t find_attr(const struct bt_gatt_attr *attr, uint16_t handle,
 	return BT_GATT_ITER_CONTINUE;
 }
 
-void test_gatt_foreach(void)
+ZTEST(test_gatt, test_gatt_foreach)
 {
 	const struct bt_gatt_attr *attr;
 	uint16_t num = 0;
@@ -224,7 +230,7 @@ void test_gatt_foreach(void)
 	}
 }
 
-void test_gatt_read(void)
+ZTEST(test_gatt, test_gatt_read)
 {
 	const struct bt_gatt_attr *attr;
 	uint8_t buf[256];
@@ -246,11 +252,15 @@ void test_gatt_read(void)
 			  "Attribute read value don't match");
 }
 
-void test_gatt_write(void)
+ZTEST(test_gatt, test_gatt_write)
 {
 	const struct bt_gatt_attr *attr;
 	char *value = "    ";
 	ssize_t ret;
+
+	/* Need our service to be registered */
+	zassert_false(bt_gatt_service_register(&test_svc),
+		     "Test service registration failed");
 
 	/* Find attribute by UUID */
 	attr = NULL;
@@ -265,14 +275,50 @@ void test_gatt_write(void)
 			  "Attribute write value don't match");
 }
 
-/*test case main entry*/
-void test_main(void)
+ZTEST(test_gatt, test_bt_att_err_to_str)
 {
-	ztest_test_suite(test_gatt,
-			 ztest_unit_test(test_gatt_register),
-			 ztest_unit_test(test_gatt_unregister),
-			 ztest_unit_test(test_gatt_foreach),
-			 ztest_unit_test(test_gatt_read),
-			 ztest_unit_test(test_gatt_write));
-	ztest_run_test_suite(test_gatt);
+	/* Test a couple of entries */
+	zassert_str_equal(bt_att_err_to_str(BT_ATT_ERR_SUCCESS),
+			  "BT_ATT_ERR_SUCCESS");
+	zassert_str_equal(bt_att_err_to_str(BT_ATT_ERR_INSUFFICIENT_ENCRYPTION),
+			  "BT_ATT_ERR_INSUFFICIENT_ENCRYPTION");
+	zassert_str_equal(bt_att_err_to_str(BT_ATT_ERR_OUT_OF_RANGE),
+			  "BT_ATT_ERR_OUT_OF_RANGE");
+
+	/* Test a entries that is not used */
+	zassert_mem_equal(bt_att_err_to_str(0x14),
+			  "(unknown)", strlen("(unknown)"));
+	zassert_mem_equal(bt_att_err_to_str(0xFB),
+			  "(unknown)", strlen("(unknown)"));
+
+	for (uint16_t i = 0; i <= UINT8_MAX; i++) {
+		zassert_not_null(bt_att_err_to_str(i), ": %d", i);
+	}
+}
+
+ZTEST(test_gatt, test_bt_gatt_err_to_str)
+{
+	/* Test a couple of entries */
+	zassert_str_equal(bt_gatt_err_to_str(BT_GATT_ERR(BT_ATT_ERR_SUCCESS)),
+			  "BT_ATT_ERR_SUCCESS");
+	zassert_str_equal(bt_gatt_err_to_str(BT_GATT_ERR(BT_ATT_ERR_INSUFFICIENT_ENCRYPTION)),
+			  "BT_ATT_ERR_INSUFFICIENT_ENCRYPTION");
+	zassert_str_equal(bt_gatt_err_to_str(BT_GATT_ERR(BT_ATT_ERR_OUT_OF_RANGE)),
+			  "BT_ATT_ERR_OUT_OF_RANGE");
+
+	/* Test entries that are not used */
+	zassert_mem_equal(bt_gatt_err_to_str(BT_GATT_ERR(0x14)),
+			  "(unknown)", strlen("(unknown)"));
+	zassert_mem_equal(bt_gatt_err_to_str(BT_GATT_ERR(0xFB)),
+			  "(unknown)", strlen("(unknown)"));
+
+	/* Test positive values */
+	for (uint16_t i = 0; i <= UINT8_MAX; i++) {
+		zassert_not_null(bt_gatt_err_to_str(i), ": %d", i);
+	}
+
+	/* Test negative values */
+	for (uint16_t i = 0; i <= UINT8_MAX; i++) {
+		zassert_not_null(bt_gatt_err_to_str(-i), ": %d", i);
+	}
 }

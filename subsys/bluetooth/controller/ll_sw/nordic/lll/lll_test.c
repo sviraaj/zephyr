@@ -21,6 +21,8 @@
 #include "util/util.h"
 #include "util/dbuf.h"
 
+#include "pdu_df.h"
+#include "pdu_vendor.h"
 #include "pdu.h"
 
 #include "lll.h"
@@ -39,9 +41,8 @@
 #include "ull_df_internal.h"
 #endif /* CONFIG_BT_CTLR_DTM_HCI_DF_IQ_REPORT */
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
-#define LOG_MODULE_NAME bt_ctlr_lll_test
-#include "common/log.h"
+#include <zephyr/bluetooth/hci_types.h>
+
 #include "hal/debug.h"
 
 #define CNTR_MIN_DELTA 3
@@ -150,7 +151,7 @@ static int create_iq_report(bool crc_ok)
 		return -ENOBUFS;
 	}
 
-	iq_report->hdr.type = NODE_RX_TYPE_DTM_IQ_SAMPLE_REPORT;
+	iq_report->rx.hdr.type = NODE_RX_TYPE_DTM_IQ_SAMPLE_REPORT;
 	iq_report->sample_count = sample_cnt;
 	iq_report->packet_status = ((crc_ok) ? BT_HCI_LE_CTE_CRC_OK :
 					       BT_HCI_LE_CTE_CRC_ERR_CTE_BASED_TIME);
@@ -159,11 +160,11 @@ static int create_iq_report(bool crc_ok)
 	iq_report->local_slot_durations = test_slot_duration;
 	iq_report->chan_idx = test_chan;
 
-	ftr = &iq_report->hdr.rx_ftr;
+	ftr = &iq_report->rx.rx_ftr;
 	ftr->param = NULL;
 	ftr->rssi = BT_HCI_LE_RSSI_NOT_AVAILABLE;
 
-	ull_rx_put(iq_report->hdr.link, iq_report);
+	ull_rx_put(iq_report->rx.hdr.link, iq_report);
 
 	return 0;
 }
@@ -477,7 +478,7 @@ static uint32_t calculate_tifs(uint8_t len)
 	 * LE Test packet interval: I(L) = ceil((L + 249) / 625) * 625 us
 	 * where L is an LE Test packet length in microseconds unit.
 	 */
-	interval = ceiling_fraction((transmit_time + 249), SCAN_INT_UNIT_US) * SCAN_INT_UNIT_US;
+	interval = DIV_ROUND_UP((transmit_time + 249), SCAN_INT_UNIT_US) * SCAN_INT_UNIT_US;
 
 	return interval - transmit_time;
 }
@@ -542,12 +543,12 @@ static void payload_set(uint8_t type, uint8_t len, uint8_t cte_len, uint8_t cte_
 	struct pdu_dtm *pdu = radio_pkt_scratch_get();
 
 	pdu->type = type;
-	pdu->length = len;
+	pdu->len = len;
 
 #if defined(CONFIG_BT_CTLR_DF_CTE_TX)
 	pdu->cp = cte_len ? 1U : 0U;
-	pdu->cte_info.time = cte_len;
-	pdu->cte_info.type = cte_type;
+	pdu->octet3.cte_info.time = cte_len;
+	pdu->octet3.cte_info.type = cte_type;
 #else
 	ARG_UNUSED(cte_len);
 	ARG_UNUSED(cte_type);

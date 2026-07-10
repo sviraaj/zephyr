@@ -9,6 +9,7 @@
 
 #include <soc.h>
 #include <stm32_ll_bus.h>
+#include <stm32_ll_crs.h>
 #include <stm32_ll_rcc.h>
 #include <stm32_ll_utils.h>
 #include <zephyr/drivers/clock_control.h>
@@ -16,14 +17,7 @@
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
 #include "clock_stm32_ll_common.h"
 
-#if STM32_SYSCLK_SRC_PLL
-
-/* Macros to fill up multiplication and division factors values */
-#define z_pll_div(v) LL_RCC_PLLM_DIV_ ## v
-#define pll_div(v) z_pll_div(v)
-
-#define z_pllr(v) LL_RCC_PLLR_DIV_ ## v
-#define pllr(v) z_pllr(v)
+#if defined(STM32_PLL_ENABLED)
 
 /**
  * @brief Return PLL source
@@ -43,33 +37,36 @@ static uint32_t get_pll_source(void)
 }
 
 /**
+ * @brief get the pll source frequency
+ */
+__unused
+uint32_t get_pllsrc_frequency(void)
+{
+	if (IS_ENABLED(STM32_PLL_SRC_HSI)) {
+		return STM32_HSI_FREQ;
+	} else if (IS_ENABLED(STM32_PLL_SRC_HSE)) {
+		return STM32_HSE_FREQ;
+	}
+
+	__ASSERT(0, "Invalid source");
+	return 0;
+}
+
+/**
  * @brief Set up pll configuration
  */
 __unused
 void config_pll_sysclock(void)
 {
 	LL_RCC_PLL_ConfigDomain_SYS(get_pll_source(),
-				    pll_div(STM32_PLL_M_DIVISOR),
+				    pllm(STM32_PLL_M_DIVISOR),
 				    STM32_PLL_N_MULTIPLIER,
 				    pllr(STM32_PLL_R_DIVISOR));
 
 	LL_RCC_PLL_EnableDomain_SYS();
 }
 
-
-/**
- * @brief Return pllout frequency
- */
-__unused
-uint32_t get_pllout_frequency(void)
-{
-	return __LL_RCC_CALC_PLLCLK_FREQ(get_pll_source(),
-					 pll_div(STM32_PLL_M_DIVISOR),
-					 STM32_PLL_N_MULTIPLIER,
-					 pllr(STM32_PLL_R_DIVISOR));
-}
-
-#endif /* STM32_SYSCLK_SRC_PLL */
+#endif /* defined(STM32_PLL_ENABLED) */
 
 /**
  * @brief Activate default clocks
@@ -78,4 +75,18 @@ void config_enable_default_clocks(void)
 {
 	/* Enable the power interface clock */
 	LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_PWR);
+
+#if defined(CRS)
+	if (IS_ENABLED(STM32_HSI48_CRS_USB_SOF)) {
+		LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_CRS);
+		/*
+		 * After reset the CRS configuration register
+		 * (CRS_CFGR) value corresponds to an USB SOF
+		 * synchronization.  FIXME: write it anyway.
+		 */
+		LL_CRS_EnableAutoTrimming();
+		LL_CRS_EnableFreqErrorCounter();
+	}
+#endif /* defined(CRS) */
+
 }

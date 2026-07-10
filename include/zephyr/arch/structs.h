@@ -25,6 +25,10 @@
 
 #if defined(CONFIG_ARM64)
 #include <zephyr/arch/arm64/structs.h>
+#elif defined(CONFIG_RISCV)
+#include <zephyr/arch/riscv/structs.h>
+#elif defined(CONFIG_ARM)
+#include <zephyr/arch/arm/structs.h>
 #else
 
 /* Default definitions when no architecture specific definitions exist. */

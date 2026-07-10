@@ -48,11 +48,15 @@ callbacks can be set to NULL if the attribute permission don't allow their
 respective operations.
 
 .. note::
+   32-bit UUIDs are not supported in GATT. All 32-bit UUIDs shall be converted
+   to 128-bit UUIDs when the UUID is contained in an ATT PDU.
+
+.. note::
   Attribute ``read`` and ``write`` callbacks are called directly from RX Thread
   thus it is not recommended to block for long periods of time in them.
 
 Attribute value changes can be notified using :c:func:`bt_gatt_notify` API,
-alternatively there is :c:func:`bt_gatt_notify_cb` where is is possible to
+alternatively there is :c:func:`bt_gatt_notify_cb` where it is possible to
 pass a callback to be called when it is necessary to know the exact instant when
 the data has been transmitted over the air. Indications are supported by
 :c:func:`bt_gatt_indicate` API.

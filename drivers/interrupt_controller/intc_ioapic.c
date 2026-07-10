@@ -89,7 +89,6 @@ DEVICE_MMIO_TOPLEVEL_STATIC(ioapic_regs, DT_DRV_INST(0));
 static __pinned_bss uint32_t ioapic_rtes;
 
 #ifdef CONFIG_PM_DEVICE
-#include <zephyr/pm/device.h>
 
 #define BITS_PER_IRQ  4
 #define IOAPIC_BITFIELD_HI_LO	0
@@ -120,29 +119,23 @@ static void IoApicRedUpdateLo(unsigned int irq, uint32_t value,
 	!defined(CONFIG_INTEL_VTD_ICTL_XAPIC_PASSTHROUGH)
 
 #include <zephyr/drivers/interrupt_controller/intel_vtd.h>
-#include <zephyr/arch/x86/acpi.h>
+#include <zephyr/acpi/acpi.h>
 
-static const struct device *vtd;
+static const struct device *const vtd =
+	DEVICE_DT_GET_OR_NULL(DT_INST(0, intel_vt_d));
 static uint16_t ioapic_id;
-
 
 static bool get_vtd(void)
 {
-	if (vtd != NULL) {
+	if (!device_is_ready(vtd)) {
+		return false;
+	}
+
+	if (ioapic_id != 0) {
 		return true;
 	}
 
-#define DRV_COMPAT_BAK DT_DRV_COMPAT
-#undef DT_DRV_COMPAT
-#define DT_DRV_COMPAT intel_vt_d
-	vtd = DEVICE_DT_GET_OR_NULL(DT_DRV_INST(0));
-#undef DT_DRV_COMPAT
-#define DT_DRV_COMPAT DRV_COMPAT_BAK
-#undef DRV_COMPAT_BAK
-
-	ioapic_id = z_acpi_get_dev_id_from_dmar(ACPI_DRHD_DEV_SCOPE_IOAPIC);
-
-	return vtd == NULL ? false : true;
+	return acpi_dmar_ioapic_get(&ioapic_id) == 0;
 }
 #endif /* CONFIG_INTEL_VTD_ICTL && !INTEL_VTD_ICTL_XAPIC_PASSTHROUGH */
 
@@ -445,7 +438,7 @@ static uint32_t __IoApicGet(int32_t offset)
 
 	key = irq_lock();
 
-	*((volatile uint32_t *) (IOAPIC_REG + IOAPIC_IND)) = (char)offset;
+	*((volatile uint32_t *) (IOAPIC_REG + IOAPIC_IND)) = (unsigned char)offset;
 	value = *((volatile uint32_t *)(IOAPIC_REG + IOAPIC_DATA));
 
 	irq_unlock(key);
@@ -470,7 +463,7 @@ static void __IoApicSet(int32_t offset, uint32_t value)
 
 	key = irq_lock();
 
-	*(volatile uint32_t *)(IOAPIC_REG + IOAPIC_IND) = (char)offset;
+	*(volatile uint32_t *)(IOAPIC_REG + IOAPIC_IND) = (unsigned char)offset;
 	*((volatile uint32_t *)(IOAPIC_REG + IOAPIC_DATA)) = value;
 
 	irq_unlock(key);
@@ -542,7 +535,7 @@ static void IoApicRedUpdateLo(unsigned int irq,
 	ioApicRedSetLo(irq, (ioApicRedGetLo(irq) & ~mask) | (value & mask));
 }
 
-PM_DEVICE_DEFINE(ioapic, ioapic_pm_action);
+PM_DEVICE_DT_INST_DEFINE(0, ioapic_pm_action);
 
-DEVICE_DEFINE(ioapic, "ioapic", ioapic_init, PM_DEVICE_GET(ioapic), NULL, NULL,
-	      PRE_KERNEL_1, CONFIG_INTC_INIT_PRIORITY, NULL);
+DEVICE_DT_INST_DEFINE(0, ioapic_init, PM_DEVICE_DT_INST_GET(0), NULL, NULL,
+		      PRE_KERNEL_1, CONFIG_INTC_INIT_PRIORITY, NULL);

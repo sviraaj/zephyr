@@ -10,13 +10,21 @@
 LOG_MODULE_REGISTER(modem_quectel_bg95, CONFIG_MODEM_LOG_LEVEL);
 
 #include <drivers/modem/quectel-bg95.h>
-#include <drivers/gpio.h>
-#include <init.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/init.h>
 
 #include "modem_context.h"
 #include "modem_socket.h"
 #include "modem_cmd_handler.h"
 #include "modem_iface_uart.h"
+
+static const struct gpio_dt_spec power_gpio = GPIO_DT_SPEC_INST_GET(0, mdm_power_gpios);
+
+static const struct gpio_dt_spec reset_gpio = GPIO_DT_SPEC_INST_GET(0, mdm_reset_gpios);
+
+#if DT_INST_NODE_HAS_PROP(0, mdm_vint_gpios)
+static const struct gpio_dt_spec vint_gpio = GPIO_DT_SPEC_INST_GET(0, mdm_vint_gpios);
+#endif
 
 /* Change to 1 if socket functionality enabled */
 #define MODEM_BG95_SOCKET
@@ -42,32 +50,11 @@ LOG_MODULE_REGISTER(modem_quectel_bg95, CONFIG_MODEM_LOG_LEVEL);
 /* Uncomment if BG96 used instead of BG95. FIXME Use config */
 //define QUECTEL_BG96
 
-/* pin settings */
-enum mdm_control_pins {
-	MDM_POWER = 0,
-	MDM_RESET,
-};
+/* Note: GPIO pins now use device-tree spec (gpio_dt_spec) approach in Zephyr 3.4+
+ * Old modem_pin[] array approach is deprecated, use gpio_dt_spec directly instead.
+ */
 
-static struct modem_pin modem_pins[] = {
-	/* MDM_POWER */
-	MODEM_PIN(DT_INST_GPIO_LABEL(0, mdm_power_gpios),
-		  DT_INST_GPIO_PIN(0, mdm_power_gpios),
-		  DT_INST_GPIO_FLAGS(0, mdm_power_gpios) | GPIO_OUTPUT),
-
-	/* MDM_RESET */
-	MODEM_PIN(DT_INST_GPIO_LABEL(0, mdm_reset_gpios),
-		  DT_INST_GPIO_PIN(0, mdm_reset_gpios),
-		  DT_INST_GPIO_FLAGS(0, mdm_reset_gpios) | GPIO_OUTPUT),
-
-#if DT_INST_NODE_HAS_PROP(0, mdm_vint_gpios)
-	/* MDM_VINT */
-	MODEM_PIN(DT_INST_GPIO_LABEL(0, mdm_vint_gpios),
-		  DT_INST_GPIO_PIN(0, mdm_vint_gpios),
-		  DT_INST_GPIO_FLAGS(0, mdm_vint_gpios) | GPIO_INPUT),
-#endif
-};
-
-#define MDM_UART_DEV_NAME DT_INST_BUS_LABEL(0)
+#define MDM_UART_DEV_NAME DT_PROP(DT_INST_BUS(0), label)
 
 #define MDM_POWER_ENABLE 1
 #define MDM_POWER_DISABLE 0
@@ -188,7 +175,7 @@ struct modem_data {
 	char send_buf[CONFIG_MODEM_MAXIMUM_TR_RC_SIZE];
 
 	/* RSSI work */
-	struct k_delayed_work rssi_query_work;
+	struct k_work_delayable rssi_query_work;
 	struct k_work urc_handle_work;
 
 	/* modem state */
@@ -201,6 +188,7 @@ struct modem_data {
      * 3:8 - rsvd
      */
     uint8_t urc_status;
+    int urc_recv;
     int urc_close;
 
     /* ntp status */
@@ -280,8 +268,7 @@ static int modem_atoi(const char *s, const int err_value, const char *desc,
 
 	ret = (int)strtol(s, &endptr, 10);
 	if (!endptr || *endptr != '\0') {
-		LOG_ERR("bad %s '%s' in %s", log_strdup(s), log_strdup(desc),
-			log_strdup(func));
+		LOG_ERR("bad %s '%s' in %s", s, desc, func);
 		return err_value;
 	}
 
@@ -334,7 +321,7 @@ MODEM_CMD_DEFINE(on_cmd_send_fail)
 /* Handler: +CME Error: <err>[0] */
 MODEM_CMD_DEFINE(on_cmd_exterror)
 {
-	LOG_INF("%s err %s", __func__, log_strdup(argv[0]));
+	LOG_INF("%s err %s", __func__, argv[0]);
 	/* TODO: map extended error codes to values */
 	modem_cmd_handler_set_error(data, -EIO);
 	k_sem_give(&mdata.sem_response);
@@ -355,7 +342,7 @@ MODEM_CMD_DEFINE(on_cmd_gps_read)
 				    data->rx_buf, 0, len);
 	mdata.gps_data[out_len] = '\0';
 
-    LOG_INF("GPS data: %s", log_strdup(mdata.gps_data));
+    LOG_INF("GPS data: %s", mdata.gps_data);
     /* Wait for OK to follow */
 	//k_sem_give(&mdata.sem_response);
     return 0;
@@ -369,7 +356,7 @@ MODEM_CMD_DEFINE(on_cmd_ntptime)
 	uint16_t ntp_err;
 
 	memset(buf, 0, sizeof(buf));
-    LOG_INF("TIME NTP: %s", log_strdup(argv[0]));
+    LOG_INF("TIME NTP: %s", argv[0]);
 
     while ((argv[0][t_off] != ',' && argv[0][t_off] != '\0')
             && t_off < MIN(7, strlen(argv[0])+1)) {
@@ -390,7 +377,7 @@ MODEM_CMD_DEFINE(on_cmd_ntptime)
     t_off++;
     if (argv[0][t_off] != '\"')
     {
-        LOG_ERR("Time format +QNTP wrong %s, %c", log_strdup(argv[0]), argv[0][t_off]);
+        LOG_ERR("Time format +QNTP wrong %s, %c", argv[0], argv[0][t_off]);
     }
 
 ret:
@@ -424,7 +411,7 @@ MODEM_CMD_DEFINE(on_cmd_gettime)
 	memcpy(mdata.time_data, argv[0] + 1, out_len - 1);
 	mdata.time_data[out_len] = '\0';
 
-    LOG_INF("TIME CCLK: %s", log_strdup(mdata.time_data));
+    LOG_INF("TIME CCLK: %s", mdata.time_data);
 
     /* OK to follow */
 
@@ -444,7 +431,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_manufacturer)
 				    sizeof(q_ctx.data_manufacturer) - 1,
 				    data->rx_buf, 0, len);
 	q_ctx.data_manufacturer[out_len] = '\0';
-	LOG_INF("Manufacturer: %s", log_strdup(q_ctx.data_manufacturer));
+	LOG_INF("Manufacturer: %s", q_ctx.data_manufacturer);
     return 0;
 }
 
@@ -490,8 +477,7 @@ MODEM_CMD_DEFINE(on_cmd_qeng)
         idx++;
     }
 
-	LOG_INF("CDBGO: %s", log_strdup(q_ctx.data_cellinfo +
-                cinfo_idx));
+	LOG_INF("CDBGO: %s", q_ctx.data_cellinfo + cinfo_idx);
 
     cinfo_idx += (out_len + 1); //+1 for ";"
 
@@ -531,8 +517,7 @@ MODEM_CMD_DEFINE(on_cmd_qcellinfo)
         idx++;
     }
 
-	LOG_INF("CDBGO: %s", log_strdup(q_ctx.data_cellinfo +
-                cinfo_idx2));
+	LOG_INF("CDBGO: %s", q_ctx.data_cellinfo + cinfo_idx2);
 
     cinfo_idx2 += (out_len + 1); //+1 for ";"
 
@@ -548,7 +533,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_model)
 		net_buf_linearize(q_ctx.data_model, sizeof(q_ctx.data_model) - 1,
 				  data->rx_buf, 0, len);
 	q_ctx.data_model[out_len] = '\0';
-	LOG_INF("Model: %s", log_strdup(q_ctx.data_model));
+	LOG_INF("Model: %s", q_ctx.data_model);
     return 0;
 }
 
@@ -561,7 +546,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_revision)
 				    sizeof(q_ctx.data_revision) - 1,
 				    data->rx_buf, 0, len);
 	q_ctx.data_revision[out_len] = '\0';
-	LOG_INF("Revision: %s", log_strdup(q_ctx.data_revision));
+	LOG_INF("Revision: %s", q_ctx.data_revision);
     return 0;
 }
 
@@ -573,7 +558,7 @@ MODEM_CMD_DEFINE(on_cmd_atcmdinfo_imei)
 	out_len = strlen(argv[0]);
 	memcpy(q_ctx.data_imei, argv[0], out_len);
 	q_ctx.data_imei[out_len] = '\0';
-	LOG_INF("IMEI: %s", log_strdup(q_ctx.data_imei));
+	LOG_INF("IMEI: %s", q_ctx.data_imei);
     return 0;
 }
 
@@ -586,7 +571,7 @@ MODEM_CMD_DEFINE(on_cmd_timezoneval)
 	memcpy(q_ctx.data_timeval, argv[0], out_len);
 	q_ctx.data_timeval[out_len] = '\0';
 	q_ctx.data_sys_timeval = k_uptime_get_32();
-	LOG_INF("TIME: %s, %u", log_strdup(q_ctx.data_timeval), q_ctx.data_sys_timeval);
+	LOG_INF("TIME: %s, %u", q_ctx.data_timeval, q_ctx.data_sys_timeval);
     return 0;
 }
 
@@ -795,6 +780,9 @@ MODEM_CMD_DEFINE(on_cmd_sockreadfrom)
         LOG_INF("no more data");
         /* TODO redundant logic? No more data left */
         mdata.urc_status &= ~URC_SSL_RECV;
+        mdata.urc_recv = -1;
+        sock = modem_socket_from_id(&mdata.socket_config, socket_id);
+        (void)modem_socket_packet_size_update(&mdata.socket_config, sock, 0);
         return i;
     }
 
@@ -893,6 +881,7 @@ MODEM_CMD_DEFINE(on_cmd_socknotifysslurc)
 
     if (strcmp(argv[0], "\"recv\"") == 0) {
         mdata.urc_status |= URC_SSL_RECV;
+        mdata.urc_recv = socket_id;
         LOG_INF("urc recv: %d, %x", socket_id, mdata.urc_status);
     } else if (strcmp(argv[0], "\"closed\"") == 0) {
         mdata.urc_status |= URC_SSL_CLOSED;
@@ -906,6 +895,10 @@ MODEM_CMD_DEFINE(on_cmd_socknotifysslurc)
 	if (!sock) {
 		return 0;
 	}
+
+    if (strcmp(argv[0], "\"recv\"") == 0) {
+        (void)modem_socket_packet_size_update(&mdata.socket_config, sock, 1);
+    }
 
     modem_socket_data_ready(&mdata.socket_config, sock);
 
@@ -964,58 +957,337 @@ MODEM_CMD_DEFINE(on_cmd_qfopen)
     mdata.fops.open_fd = ATOI(argv[0], 0, "fd");
     return 0;
 }
-
 /* Handler: CONNECT <rd_sz> */
 MODEM_CMD_DEFINE(on_cmd_qfread)
 {
     size_t cur_len = net_buf_frags_len(data->rx_buf);
-    char buf[8];
-    int i = 0;
+    char buf[16]; 
+    size_t i = 0;
     int ret = 0;
     int buf_len = 0;
+    uint32_t expected_rd_sz = 0;
 
-    if (cur_len < (len + 3)) {
-        return -EAGAIN;
+    if (cur_len < (len + 3)) return -EAGAIN;
+
+    buf_len = net_buf_linearize(buf, sizeof(buf) - 1, data->rx_buf, len, MIN(cur_len - len, 15));
+    buf[buf_len] = '\0';
+
+	while((buf[i] != '\r') && (i < buf_len)) i++;
+	if (i >= buf_len || i == 0) return -EAGAIN;
+
+	if ((i + 1) >= buf_len) {
+		return -EAGAIN;
+	}
+
+	if (buf[i + 1] != '\n') {
+		printk("OTA_QFREAD_BAD_HEADER_CRLF hdr_cr=0x%02x hdr_lf=0x%02x\n",
+		       buf[i], buf[i + 1]);
+		mdata.fops.status = -EILSEQ;
+		mdata.fops.act_rd_sz = 0U;
+		return len + i + 1;
+	}
+
+	buf[i] = '\0';
+
+    expected_rd_sz = (uint32_t)ATOI(buf, 0, "rd_sz");
+    size_t header_total = len + i + 2;
+
+    if (expected_rd_sz > mdata.fops.rd_buf_sz) {
+        printk("OTA_QFREAD_TOO_BIG expected=%u buf=%lu\n",
+               expected_rd_sz, (unsigned long)mdata.fops.rd_buf_sz);
+        mdata.fops.status = -EOVERFLOW;
+        mdata.fops.act_rd_sz = 0U;
+        return header_total;
     }
 
-	buf_len = net_buf_linearize(buf, 8,
-            data->rx_buf, len, cur_len - len);
-    buf[7] = '\0';
+    if (cur_len < (header_total + expected_rd_sz)) return -EAGAIN;
 
-    while((buf[i] != '\r') && (i < 7)) {
-        i++;
+    /* Copy data to application buffer */
+    ret = net_buf_linearize(mdata.fops.rw_buf, mdata.fops.rd_buf_sz,
+                            data->rx_buf, header_total, expected_rd_sz);
+
+    if (ret != (int)expected_rd_sz) {
+        printk("OTA_QFREAD_SHORT_COPY copied=%d expected=%u consume=%lu\n",
+               ret, expected_rd_sz, (unsigned long)(header_total + MAX(ret, 0)));
+        mdata.fops.status = -EIO;
+        mdata.fops.act_rd_sz = 0U;
+        return header_total + MAX(ret, 0);
     }
 
-    if (i >= 7) {
-        if (buf_len < 8) {
-            return -EAGAIN;
-        }
-        LOG_ERR("Wrong format in QFREAD");
-        return -EINVAL; /* FIXME */
-    }
-    buf[i] = '\0';
+	mdata.fops.status = 0;
+	mdata.fops.act_rd_sz = ret;
 
-    mdata.fops.act_rd_sz = ATOI(buf, 0, "rd_sz");
-
-    if (cur_len < (len + i + 2 + mdata.fops.act_rd_sz))
-    {
-		//LOG_INF("Not enough data -- wait!");
-        return -EAGAIN;
-    }
-
-    LOG_INF("mdata.fops.act_rd_sz: %d", mdata.fops.act_rd_sz);
-
-	ret = net_buf_linearize(mdata.fops.rw_buf, mdata.fops.rd_buf_sz,
-				data->rx_buf, len + i + 2, mdata.fops.act_rd_sz);
-    if (ret < MIN(mdata.fops.rd_buf_sz, ret < mdata.fops.act_rd_sz))
-    {
-        LOG_ERR("Could not fetch data");
-    }
-
-    mdata.fops.act_rd_sz = ret;
-
-    return (ret + len + i + 2);
+    /* 
+     * RETURN VALUE IS KEY: 
+     * We return (header_total + ret) to TELL THE MODEM DRIVER to clear the 
+     * bad bytes from RAM, so we don't loop forever.
+     */
+    return (header_total + ret);
 }
+// /* Handler: CONNECT <rd_sz> */
+// MODEM_CMD_DEFINE(on_cmd_qfread)
+// {
+//     size_t cur_len = net_buf_frags_len(data->rx_buf);
+//     char buf[16]; 
+//     int i = 0;
+//     int ret = 0;
+//     int buf_len = 0;
+//     uint32_t expected_rd_sz = 0;
+
+//     /* 1. Ensure we have enough data to read the 'CONNECT <sz>\r\n' header */
+//     if (cur_len < (len + 3)) {
+//         return -EAGAIN;
+//     }
+
+//     /* 2. Extract the 'rd_sz' string */
+//     buf_len = net_buf_linearize(buf, sizeof(buf) - 1,
+//                                 data->rx_buf, len, MIN(cur_len - len, 15));
+//     buf[buf_len] = '\0';
+
+//     while((buf[i] != '\r') && (i < buf_len)) {
+//         i++;
+//     }
+
+//     if (i >= buf_len || i == 0) {
+//         return -EAGAIN;
+//     }
+//     buf[i] = '\0';
+
+//     expected_rd_sz = (uint32_t)ATOI(buf, 0, "rd_sz");
+//     size_t header_total = len + i + 2;
+
+//     /* 3. Check if Total Packet (Header + Data) is in buffer */
+//     if (cur_len < (header_total + expected_rd_sz)) {
+//         return -EAGAIN;
+//     }
+
+//     /* 4. LINEARIZE: Copy to application buffer */
+//     ret = net_buf_linearize(mdata.fops.rw_buf, mdata.fops.rd_buf_sz,
+//                             data->rx_buf, header_total, expected_rd_sz);
+
+//     /* 5. CORRUPTION DETECTION (The Shift Fix)
+//      * If UART dropped a byte, the modem footer \r\n will be in our data.
+//      */
+//     if (ret == (int)expected_rd_sz && ret >= 2) {
+//         if (mdata.fops.rw_buf[ret-2] == 0x0D && mdata.fops.rw_buf[ret-1] == 0x0A) {
+//             /* SHIFT DETECTED: Signal to OTA loop to retry this block */
+//             printk("!!! UART OVERRUN DETECTED: Data Shifted at offset %zu !!!\n", header_total);
+//             return -EBADMSG; 
+//         }
+//     }
+
+//     if (ret < (int)expected_rd_sz) {
+//         printk("!!! DATA LOSS !!! Expected %u, but only got %d \n", expected_rd_sz, ret);
+//         return -EAGAIN;
+//     }
+
+//     /* Success Path */
+//     mdata.fops.act_rd_sz = ret;
+//     return (header_total + ret);
+// }
+
+// /* Handler: CONNECT <rd_sz> */
+// MODEM_CMD_DEFINE(on_cmd_qfread)
+// {
+//     size_t cur_len = net_buf_frags_len(data->rx_buf);
+//     char buf[16]; // Increased from 8 to 16 for safety
+//     int i = 0;
+//     int ret = 0;
+//     int buf_len = 0;
+//     uint32_t expected_rd_sz = 0;
+
+//     /* 1. Ensure we have enough data to even read the 'CONNECT <sz>\r\n' header */
+//     if (cur_len < (len + 3)) {
+//         return -EAGAIN;
+//     }
+
+//     /* 2. Extract the 'rd_sz' string from the net_buf */
+//     buf_len = net_buf_linearize(buf, sizeof(buf) - 1,
+//                                 data->rx_buf, len, cur_len - len);
+//     buf[buf_len] = '\0';
+	
+
+//     /* Find the delimiter (\r) that marks the end of the CONNECT header */
+//     while((buf[i] != '\r') && (i < buf_len)) {
+//         i++;
+//     }
+
+//     if (i >= buf_len || i == 0) {
+//         return -EAGAIN; // Still waiting for the full header string
+//     }
+//     buf[i] = '\0';
+
+//     /* Parse actual size the modem says it is sending */
+//     expected_rd_sz = (uint32_t)ATOI(buf, 0, "rd_sz");
+
+//     /* 
+//      * OFFSET CALCULATION (Critical for 3.7):
+//      * Header = 'len' (prefix) + 'i' (size string) + 2 (\r\n)
+//      */
+//     size_t header_total = len + i + 2;
+
+//     /* 3. Check if the TOTAL packet (Header + Binary Data) has arrived */
+//     if (cur_len < (header_total + expected_rd_sz)) {
+//         return -EAGAIN;
+//     }
+
+//     printk("QFREAD: HeaderLen=%zu, DataExpected=%u, TotalInBuf=%zu \n", 
+//             header_total, expected_rd_sz, cur_len);
+
+//     /* 4. LINEARIZE (Copy from net_buf to your application buffer) */
+//     ret = net_buf_linearize(mdata.fops.rw_buf, mdata.fops.rd_buf_sz,
+//                             data->rx_buf, header_total, expected_rd_sz);
+
+//     // /* 5. CORTEX-M7 MEMORY BARRIER (Critical for Migration to 3.7)
+//     //  * This ensures the CPU finishes writing to RAM before the App thread 
+//     //  * or the Flash DMA tries to read this data. 
+//     //  */
+//     // #if defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
+//     //     __DSB(); 
+//     // #endif
+
+//     /* 6. PROPER ERROR CHECKING (Fixed your logic bug here) */
+//     if (ret < (int)expected_rd_sz) {
+//         printk("!!! DATA LOSS !!! Expected %u, but only got %d \n", expected_rd_sz, ret);
+//     } else {
+//         /* DEBUG: Print first/last bytes of the chunk to verify alignment */
+//         printk("Chunk Verify: First[%02x %02x] Last[%02x %02x] \n", 
+//                 mdata.fops.rw_buf[0], mdata.fops.rw_buf[1],
+//                 mdata.fops.rw_buf[ret-2], mdata.fops.rw_buf[ret-1]);
+//     }
+
+//     mdata.fops.act_rd_sz = ret;
+
+//     /* 7. Return total bytes consumed from the modem RX ring buffer */
+//     return (header_total + ret);
+// }
+
+// /* Handler: CONNECT <rd_sz> */
+// MODEM_CMD_DEFINE(on_cmd_qfread)
+// {
+//     size_t cur_len = net_buf_frags_len(data->rx_buf);
+//     char buf[16]; // Increased from 8 to 16 for safety
+//     int i = 0;
+//     int ret = 0;
+//     int buf_len = 0;
+//     uint32_t expected_rd_sz = 0;
+
+//     /* 1. Ensure we have enough data to even read the 'CONNECT <sz>\r\n' header */
+//     if (cur_len < (len + 3)) {
+//         return -EAGAIN;
+//     }
+
+//     /* 2. Extract the 'rd_sz' string from the net_buf */
+//     buf_len = net_buf_linearize(buf, sizeof(buf) - 1,
+//                                 data->rx_buf, len, cur_len - len);
+//     buf[buf_len] = '\0';
+	
+
+//     /* Find the delimiter (\r) that marks the end of the CONNECT header */
+//     while((buf[i] != '\r') && (i < buf_len)) {
+//         i++;
+//     }
+
+//     if (i >= buf_len || i == 0) {
+//         return -EAGAIN; // Still waiting for the full header string
+//     }
+//     buf[i] = '\0';
+
+//     /* Parse actual size the modem says it is sending */
+//     expected_rd_sz = (uint32_t)ATOI(buf, 0, "rd_sz");
+
+//     /* 
+//      * OFFSET CALCULATION (Critical for 3.7):
+//      * Header = 'len' (prefix) + 'i' (size string) + 2 (\r\n)
+//      */
+//     size_t header_total = len + i + 2;
+
+//     /* 3. Check if the TOTAL packet (Header + Binary Data) has arrived */
+//     if (cur_len < (header_total + expected_rd_sz)) {
+//         return -EAGAIN;
+//     }
+
+//     printk("QFREAD: HeaderLen=%zu, DataExpected=%u, TotalInBuf=%zu \n", 
+//             header_total, expected_rd_sz, cur_len);
+
+//     /* 4. LINEARIZE (Copy from net_buf to your application buffer) */
+//     ret = net_buf_linearize(mdata.fops.rw_buf, mdata.fops.rd_buf_sz,
+//                             data->rx_buf, header_total, expected_rd_sz);
+
+//     // /* 5. CORTEX-M7 MEMORY BARRIER (Critical for Migration to 3.7)
+//     //  * This ensures the CPU finishes writing to RAM before the App thread 
+//     //  * or the Flash DMA tries to read this data. 
+//     //  */
+//     // #if defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
+//     //     __DSB(); 
+//     // #endif
+
+//     /* 6. PROPER ERROR CHECKING (Fixed your logic bug here) */
+//     if (ret < (int)expected_rd_sz) {
+//         printk("!!! DATA LOSS !!! Expected %u, but only got %d \n", expected_rd_sz, ret);
+//     } else {
+//         /* DEBUG: Print first/last bytes of the chunk to verify alignment */
+//         printk("Chunk Verify: First[%02x %02x] Last[%02x %02x] \n", 
+//                 mdata.fops.rw_buf[0], mdata.fops.rw_buf[1],
+//                 mdata.fops.rw_buf[ret-2], mdata.fops.rw_buf[ret-1]);
+//     }
+
+//     mdata.fops.act_rd_sz = ret;
+
+//     /* 7. Return total bytes consumed from the modem RX ring buffer */
+//     return (header_total + ret);
+// }
+// /* Handler: CONNECT <rd_sz> */
+// MODEM_CMD_DEFINE(on_cmd_qfread)
+// {
+//     size_t cur_len = net_buf_frags_len(data->rx_buf);
+//     char buf[8];
+//     int i = 0;
+//     int ret = 0;
+//     int buf_len = 0;
+
+//     if (cur_len < (len + 3)) {
+//         return -EAGAIN;
+//     }
+
+// 	buf_len = net_buf_linearize(buf, 8,
+//             data->rx_buf, len, cur_len - len);
+//     buf[7] = '\0';
+
+//     while((buf[i] != '\r') && (i < 7)) {
+//         i++;
+//     }
+
+//     if (i >= 7) {
+//         if (buf_len < 8) {
+//             return -EAGAIN;
+//         }
+//         LOG_ERR("Wrong format in QFREAD");
+//         return -EINVAL; /* FIXME */
+//     }
+//     buf[i] = '\0';
+
+//     mdata.fops.act_rd_sz = ATOI(buf, 0, "rd_sz");
+
+//     if (cur_len < (len + i + 2 + mdata.fops.act_rd_sz))
+//     {
+// 		//LOG_INF("Not enough data -- wait!");
+//         return -EAGAIN;
+//     }
+
+//     LOG_INF("mdata.fops.act_rd_sz: %d", mdata.fops.act_rd_sz);
+
+// 	ret = net_buf_linearize(mdata.fops.rw_buf, mdata.fops.rd_buf_sz,
+// 				data->rx_buf, len + i + 2, mdata.fops.act_rd_sz);
+//     if (ret < MIN(mdata.fops.rd_buf_sz, ret < mdata.fops.act_rd_sz))
+//     {
+//         LOG_ERR("Could not fetch data");
+//     }
+
+//     mdata.fops.act_rd_sz = ret;
+
+//     return (ret + len + i + 2);
+// }
 
 /* Handler: +QFWRITE: <wr_sz>,<tot_sz> */
 MODEM_CMD_DEFINE(on_cmd_qfwrite)
@@ -1084,7 +1356,7 @@ static void quectel_bg95_rx_priority(uint8_t prio)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 	}
 
     k_sem_give(&mdata.mdm_lock);
@@ -1108,7 +1380,7 @@ static int quectel_bg95_gps_auto(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 	}
 
     k_sem_give(&mdata.mdm_lock);
@@ -1164,7 +1436,7 @@ static int configure_ssl_ctx(void)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 
@@ -1174,7 +1446,7 @@ static int configure_ssl_ctx(void)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 
@@ -1185,7 +1457,7 @@ static int configure_ssl_ctx(void)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 
@@ -1210,7 +1482,7 @@ static int check_pdp_ctx(void)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
                 send_cmd, &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(send_cmd), ret);
+		LOG_ERR("%s ret:%d", send_cmd, ret);
 		goto ret;
 	}
 
@@ -1234,7 +1506,7 @@ static int configure_pdp_ctx(void)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 ret:
@@ -1259,7 +1531,7 @@ static int deactivate_pdp_ctx(void)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_REGISTRATION_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 
@@ -1286,7 +1558,7 @@ static int activate_pdp_ctx(void)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_REGISTRATION_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 
@@ -1361,7 +1633,7 @@ static int bg95_sock_close(uint8_t sock_id)
                  NULL, 0U, buf,
                  &mdata.sem_response, MDM_CMD_TIMEOUT);
     if (ret < 0) {
-        LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+        LOG_ERR("%s ret:%d",buf, ret);
     }
 
     k_sem_give(&mdata.mdm_lock);
@@ -1381,22 +1653,33 @@ static int bg95_sock_close(uint8_t sock_id)
 
 static int pin_init(void)
 {
+	int ret;
+
 	LOG_INF("Setting Modem Pins");
 
-	LOG_INF("MDM_POWER_PIN -> DISABLE");
-	modem_pin_write(&mctx, MDM_POWER, MDM_POWER_DISABLE);
-	k_sleep(K_SECONDS(3));
-	LOG_INF("MDM_POWER_PIN -> ENABLE");
-	modem_pin_write(&mctx, MDM_POWER, MDM_POWER_ENABLE);
-	k_sleep(K_SECONDS(1));
+	/* Configure POWER GPIO if property exists */
+	if (power_gpio.port) {
+		LOG_INF("MDM_POWER_PIN -> DISABLE");
+		ret = gpio_pin_configure_dt(&power_gpio, GPIO_OUTPUT_LOW);
+		if (ret < 0) {
+			LOG_ERR("Failed to configure power_gpio: %d", ret);
+			return ret;
+		}
+		k_sleep(K_SECONDS(3));
+		LOG_INF("MDM_POWER_PIN -> ENABLE");
+		gpio_pin_set_dt(&power_gpio, 1);
+		k_sleep(K_SECONDS(1));
+	}
 
-	/* make sure module is powered off */
-#if defined(DT_QUECTEL_BG95_0_MDM_VINT_GPIOS_CONTROLLER)
-	LOG_INF("Waiting for MDM_VINT_PIN = 0");
-
-	do {
-		k_sleep(K_MSEC(100));
-	} while (modem_pin_read(&mctx, MDM_VINT) != MDM_VINT_DISABLE);
+	/* Wait for VINT pin to indicate power down */
+#if DT_INST_NODE_HAS_PROP(0, mdm_vint_gpios)
+	if (vint_gpio.port) {
+		LOG_INF("Waiting for MDM_VINT_PIN = 0");
+		int count = 0;
+		while (gpio_pin_get_dt(&vint_gpio) != 0 && count++ < 100) {
+			k_sleep(K_MSEC(100));
+		}
+	}
 #else
 	k_sleep(K_SECONDS(1));
 #endif
@@ -1405,25 +1688,34 @@ static int pin_init(void)
 
 	unsigned int irq_lock_key = irq_lock();
 
-	LOG_INF("MDM_RESET_PIN -> ASSERTED");
-	modem_pin_write(&mctx, MDM_RESET, MDM_RESET_ASSERTED);
-	k_sleep(K_SECONDS(1));
-	LOG_INF("MDM_RESET_PIN -> NOT_ASSERTED");
-	modem_pin_write(&mctx, MDM_RESET, MDM_RESET_NOT_ASSERTED);
+	if (reset_gpio.port) {
+		LOG_INF("MDM_RESET_PIN -> ASSERTED");
+		ret = gpio_pin_configure_dt(&reset_gpio, GPIO_OUTPUT_HIGH);
+		if (ret < 0) {
+			LOG_ERR("Failed to configure reset_gpio: %d", ret);
+			irq_unlock(irq_lock_key);
+			return ret;
+		}
+		gpio_pin_set_dt(&reset_gpio, 1);
+		k_sleep(K_SECONDS(1));
+		LOG_INF("MDM_RESET_PIN -> NOT_ASSERTED");
+		gpio_pin_set_dt(&reset_gpio, 0);
+	}
 
 	irq_unlock(irq_lock_key);
 
-#if defined(DT_QUECTEL_BG95_0_MDM_VINT_GPIOS_CONTROLLER)
-	LOG_INF("Waiting for MDM_VINT_PIN = 1");
-	do {
-		k_sleep(K_MSEC(100));
-	} while (modem_pin_read(&mctx, MDM_VINT) != MDM_VINT_ENABLE);
+	/* Wait for VINT pin to indicate power up */
+#if DT_INST_NODE_HAS_PROP(0, mdm_vint_gpios)
+	if (vint_gpio.port) {
+		LOG_INF("Waiting for MDM_VINT_PIN = 1");
+		int count = 0;
+		while (gpio_pin_get_dt(&vint_gpio) == 0 && count++ < 100) {
+			k_sleep(K_MSEC(100));
+		}
+	}
 #else
 	k_sleep(K_SECONDS(1));
 #endif
-
-    // What for?
-	//modem_pin_config(&mctx, MDM_POWER, GPIO_DIR_IN);
 
 	LOG_INF("... Done!");
 
@@ -1488,7 +1780,7 @@ static void modem_rssi_query_work(struct k_work *work)
 
 	/* re-start RSSI query work */
 	if (work) {
-		k_delayed_work_submit_to_queue(&modem_workq,
+		k_work_reschedule_for_queue(&modem_workq,
 					       &mdata.rssi_query_work,
 					       K_SECONDS(RSSI_TIMEOUT_SECS));
 	}
@@ -1530,11 +1822,9 @@ static void modem_reset(void)
 
 restart:
 
-	/* stop RSSI delay work */
-	k_delayed_work_cancel(&mdata.rssi_query_work);
-
+	/* stop RSSI delWhyay work */
+	k_work_cancel_delayable(&mdata.rssi_query_work);
 	pin_init();
-
 	LOG_INF("Waiting for modem to respond");
 
 	/* Give the modem a while to start responding to simple 'AT' commands.
@@ -1648,6 +1938,7 @@ restart:
     /* reset status */
     mdata.pdp_ctx = 0;
     mdata.urc_status = 0;
+    mdata.urc_recv = -1;
     mdata.urc_close = -1;
     mdata.wwan_in_session = 0;
 
@@ -1681,8 +1972,8 @@ restart:
 #endif
 
 	/* start RSSI query */
-	k_delayed_work_submit_to_queue(&modem_workq, &mdata.rssi_query_work,
-				       K_SECONDS(RSSI_TIMEOUT_SECS));
+	k_work_reschedule_for_queue(&modem_workq, &mdata.rssi_query_work,
+				     K_SECONDS(RSSI_TIMEOUT_SECS));
 
 error:
 	return;
@@ -1736,8 +2027,8 @@ static int offload_close(void *obj)
     struct modem_socket *sock = (struct modem_socket *)obj;
 	int ret;
 
-	/* make sure we assigned an id */
-	if (sock->id < mdata.socket_config.base_socket_num) {
+	/* Make sure socket is allocated */
+	if (modem_socket_is_allocated(&mdata.socket_config, sock) == false) {
 		return 0;
 	}
 
@@ -1750,6 +2041,12 @@ static int offload_close(void *obj)
     ret = bg95_sock_close(sock->id);
     if (ret < 0) {
         LOG_ERR("sock close, ret:%d", ret);
+    }
+
+    if (mdata.urc_recv == sock->id) {
+        mdata.urc_status &= ~URC_SSL_RECV;
+        mdata.urc_recv = -1;
+        (void)modem_socket_packet_size_update(&mdata.socket_config, sock, 0);
     }
 
 	modem_socket_put(&mdata.socket_config, sock->sock_fd);
@@ -1788,7 +2085,8 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
 		return -1;
 	}
 
-	if (sock->id < mdata.socket_config.base_socket_num - 1) {
+		/* Verify socket has been allocated */
+	if (modem_socket_is_allocated(&mdata.socket_config, sock) == false) {
 		LOG_ERR("Invalid socket_id(%d) from fd:%d",
 			sock->id, sock->sock_fd);
 		errno = EINVAL;
@@ -1838,7 +2136,7 @@ static int offload_connect(void *obj, const struct sockaddr *addr,
 			     NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_CONN_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		errno = -ret;
         ret = -1;
 		goto re;
@@ -1870,6 +2168,8 @@ static int offload_poll(struct pollfd *fds, int nfds, int msecs)
 {
 	int i;
 	void *obj;
+	struct modem_socket *sock;
+	int readable = 0;
 
 	/* Only accept modem sockets. */
 	for (i = 0; i < nfds; i++) {
@@ -1878,14 +2178,28 @@ static int offload_poll(struct pollfd *fds, int nfds, int msecs)
 		}
 
 		/* If vtable matches, then it's modem socket. */
-		obj = z_get_fd_obj(fds[i].fd,
-				   (const struct fd_op_vtable *)
+		obj = zvfs_get_fd_obj(fds[i].fd,
+				      (const struct fd_op_vtable *)
 						&offload_socket_fd_op_vtable,
-				   EINVAL);
+				      EINVAL);
 		if (obj == NULL) {
             LOG_ERR("poll err obj NULL");
 			return -1;
 		}
+
+		sock = (struct modem_socket *)obj;
+		fds[i].revents = 0;
+
+		if ((fds[i].events & ZSOCK_POLLIN) &&
+		    (mdata.urc_status & URC_SSL_RECV) &&
+		    sock->id == mdata.urc_recv) {
+			fds[i].revents |= ZSOCK_POLLIN;
+			readable++;
+		}
+	}
+
+	if (readable > 0) {
+		return readable;
 	}
 
 	return modem_socket_poll(&mdata.socket_config, fds, nfds, msecs);
@@ -1920,7 +2234,8 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 	}
 
     LOG_INF("urc stat: %x", mdata.urc_status);
-    if ((mdata.urc_status & URC_SSL_RECV) == 0) {
+    if (((mdata.urc_status & URC_SSL_RECV) == 0) ||
+        (sock->id != mdata.urc_recv)) {
         if ((flags & MSG_DONTWAIT) != 0) {
             errno = EWOULDBLOCK;
             return -1;
@@ -1963,6 +2278,8 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
 	if (ret < 0) {
         /* TODO Check why this is needed for error*/
         mdata.urc_status &= ~URC_SSL_RECV;
+        mdata.urc_recv = -1;
+        (void)modem_socket_packet_size_update(&mdata.socket_config, sock, 0);
 		errno = -ret;
 		ret = -1;
 		goto exit;
@@ -1977,6 +2294,8 @@ static ssize_t offload_recvfrom(void *obj, void *buf, size_t len,
     /* read all the socket data, reset SSL RECV flag */
     if (sock_data.recv_read_len < rd_len) {
         mdata.urc_status &= ~URC_SSL_RECV;
+        mdata.urc_recv = -1;
+        (void)modem_socket_packet_size_update(&mdata.socket_config, sock, 0);
     }
 
 	/* return length of received data */
@@ -2254,9 +2573,9 @@ static int offload_getaddrinfo(const char *node, const char *service,
 	}
 
 	LOG_INF("DNS RESULT: %s",
-		log_strdup(net_addr_ntop(result.ai_family,
+		net_addr_ntop(result.ai_family,
 					 &net_sin(&result_addr)->sin_addr,
-					 sendbuf, NET_IPV4_ADDR_LEN)));
+					 sendbuf, NET_IPV4_ADDR_LEN));
 
 	*res = (struct addrinfo *)&result;
 	return 0;
@@ -2317,7 +2636,7 @@ int quectel_bg95_get_ntp_time(struct device *dev)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -2361,7 +2680,7 @@ int quectel_bg95_get_clock(struct device *dev, char *timeval)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_LOCK_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -2393,7 +2712,7 @@ int quectel_bg95_http_init(struct device *dev, struct usr_http_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -2403,7 +2722,7 @@ int quectel_bg95_http_init(struct device *dev, struct usr_http_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -2461,7 +2780,7 @@ int quectel_bg95_http_execute(struct device *dev, struct usr_http_cfg *cfg)
                  mdata.send_buf, &mdata.sem_connect,
                  MDM_CMD_TIMEOUT);
     if (ret < 0) {
-        LOG_ERR("%s ret:%d", log_strdup(cfg->url), ret);
+        LOG_ERR("%s ret:%d",cfg->url,ret);
         goto ret;
     }
 
@@ -2474,7 +2793,7 @@ int quectel_bg95_http_execute(struct device *dev, struct usr_http_cfg *cfg)
                  mdata.send_buf, &mdata.sem_response,
                  MDM_CMD_TIMEOUT);
     if (ret < 0) {
-        LOG_ERR("%s ret:%d", log_strdup(cfg->url), ret);
+        LOG_ERR("%s ret:%d",cfg->url, ret);
         goto ret;
     }
 
@@ -2493,7 +2812,7 @@ int quectel_bg95_http_execute(struct device *dev, struct usr_http_cfg *cfg)
 				     mdata.send_buf, &mdata.sem_response,
 				     MDM_CMD_TIMEOUT);
 		if (ret < 0) {
-			LOG_ERR("%s ret:%d", log_strdup(cfg->url), ret);
+			LOG_ERR("%s ret:%d",cfg->url, ret);
 			goto ret;
 		}
 		break;
@@ -2513,7 +2832,7 @@ int quectel_bg95_http_execute(struct device *dev, struct usr_http_cfg *cfg)
 				     mdata.send_buf, &mdata.sem_connect,
 				     MDM_CMD_TIMEOUT);
 		if (ret < 0) {
-			LOG_ERR("%s ret:%d", log_strdup(cfg->url), ret);
+			LOG_ERR("%s ret:%d", cfg->url, ret);
 			goto ret;
 		}
 
@@ -2526,7 +2845,7 @@ int quectel_bg95_http_execute(struct device *dev, struct usr_http_cfg *cfg)
 				     mdata.send_buf, &mdata.sem_response,
 				     MDM_CMD_TIMEOUT);
 		if (ret < 0) {
-			LOG_ERR("%s ret:%d", log_strdup(cfg->url), ret);
+			LOG_ERR("%s ret:%d", cfg->url, ret);
 			goto ret;
 		}
 
@@ -2581,7 +2900,7 @@ int quectel_bg95_http_execute(struct device *dev, struct usr_http_cfg *cfg)
                      mdata.send_buf, &mdata.sem_response,
                      MDM_CMD_TIMEOUT);
         if (ret < 0) {
-            LOG_ERR("%s ret:%d", log_strdup(cfg->url), ret);
+            LOG_ERR("%s ret:%d", cfg->url, ret);
             goto ret;
         }
 
@@ -2607,7 +2926,7 @@ int quectel_bg95_http_execute(struct device *dev, struct usr_http_cfg *cfg)
                      mdata.send_buf, &mdata.sem_response,
                      MDM_CMD_TIMEOUT);
         if (ret < 0) {
-            LOG_ERR("%s ret:%d", log_strdup(cfg->url), ret);
+            LOG_ERR("%s ret:%d", cfg->url, ret);
             goto ret;
         }
     }
@@ -2663,7 +2982,7 @@ int quectel_bg95_gps_init(struct device *dev, struct usr_gps_cfg *cfg)
     ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
                  &mdata.sem_response, MDM_CMD_TIMEOUT);
     if (ret < 0) {
-        LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+        LOG_ERR("%s ret:%d", buf, ret);
         goto ret;
     }
 
@@ -2702,7 +3021,7 @@ int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", , ret);
 		goto ret;
 	}
 
@@ -2712,7 +3031,7 @@ int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", , ret);
 		goto ret;
 	}
 
@@ -2722,7 +3041,7 @@ int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", , ret);
 		goto ret;
 	}
 
@@ -2732,7 +3051,7 @@ int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", , ret);
 		goto ret;
 	}
 
@@ -2768,7 +3087,7 @@ int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -2778,7 +3097,7 @@ int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf,ret);
 		goto ret;
 	}
 
@@ -2788,7 +3107,7 @@ int quectel_bg95_agps(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -2846,7 +3165,7 @@ int quectel_bg95_gps_read(struct device *dev, struct usr_gps_cfg *cfg)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 
@@ -2876,7 +3195,7 @@ int quectel_bg95_gps_close(struct device *dev)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U, buf,
 			     &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -2931,7 +3250,7 @@ int quectel_bg95_get_cell_info(struct device *dev, char **cell_info)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
                 buf, &mdata.sem_response, MDM_LOCK_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
  
@@ -2966,7 +3285,7 @@ int quectel_bg95_get_ctx(struct device *dev, struct mdm_ctx **ctx)
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
                 buf, &mdata.sem_response, MDM_LOCK_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
  
@@ -3041,7 +3360,7 @@ int quectel_bg95_fopen(struct device *dev,
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
                 buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 
@@ -3059,24 +3378,36 @@ int quectel_bg95_fread(struct device *dev,
     struct modem_cmd cmd =
 		MODEM_CMD_DIRECT("CONNECT ", on_cmd_qfread);
 
-    char send_cmd[sizeof("AT+QFREAD=##,#####")];
+    char send_cmd[48];
 	int ret = 0;
+	int cmd_len;
 
 	memset(send_cmd, 0, sizeof(send_cmd));
-	snprintk(send_cmd, sizeof(send_cmd), "AT+QFREAD=%d,%u", fd, len);
+	cmd_len = snprintk(send_cmd, sizeof(send_cmd), "AT+QFREAD=%d,%zu", fd, len);
+	if (cmd_len < 0 || cmd_len >= (int)sizeof(send_cmd)) {
+		printk("OTA_QFREAD_CMD_TRUNC fd=%d len=%lu\n", fd, (unsigned long)len);
+		return -ENOSPC;
+	}
 
     k_sem_take(&mdata.mdm_lock, K_FOREVER);
 
     /* read buf len */
+    mdata.fops.status = 0;
+    mdata.fops.act_rd_sz = 0U;
     mdata.fops.rd_buf_sz = len;
     mdata.fops.rw_buf = buf;
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
                 send_cmd, &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
+
+    if (mdata.fops.status < 0) {
+        ret = mdata.fops.status;
+        goto ret;
+    }
 
     /* return actual read size */
     ret = mdata.fops.act_rd_sz;
@@ -3105,7 +3436,7 @@ int quectel_bg95_fwrite(struct device *dev,
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U,
                 send_cmd, &mdata.sem_connect, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -3134,18 +3465,23 @@ ret:
 int quectel_bg95_fseek(struct device *dev,
                 int fd, size_t off)
 {
-    char buf[sizeof("AT+QFSEEK=##,#####,#####")];
+    char buf[48];
 	int ret = 0;
+	int cmd_len;
 
 	memset(buf, 0, sizeof(buf));
-	snprintk(buf, sizeof(buf), "AT+QFSEEK=%d,%d,0", fd, off);
+	cmd_len = snprintk(buf, sizeof(buf), "AT+QFSEEK=%d,%zu,0", fd, off);
+	if (cmd_len < 0 || cmd_len >= (int)sizeof(buf)) {
+		printk("OTA_QFSEEK_CMD_TRUNC fd=%d off=%lu\n", fd, (unsigned long)off);
+		return -ENOSPC;
+	}
 
     k_sem_take(&mdata.mdm_lock, K_FOREVER);
 
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U,
                 buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 
@@ -3169,7 +3505,7 @@ int quectel_bg95_fclose(struct device *dev,
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U,
                 buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -3193,7 +3529,7 @@ int quectel_bg95_fdel(struct device *dev,
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, NULL, 0U,
                 buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -3220,7 +3556,7 @@ int quectel_bg95_fstat(struct device *dev,
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
                 buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 
@@ -3252,7 +3588,7 @@ int quectel_bg95_dfota(struct device *dev,
     ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
                 buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d", buf, ret);
 		goto ret;
 	}
 
@@ -3262,7 +3598,7 @@ int quectel_bg95_dfota(struct device *dev,
     ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
                 buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -3275,7 +3611,7 @@ int quectel_bg95_dfota(struct device *dev,
 	ret = modem_cmd_send(&mctx.iface, &mctx.cmd_handler, &cmd, 1U,
                 buf, &mdata.sem_response, MDM_CMD_TIMEOUT);
 	if (ret < 0) {
-		LOG_ERR("%s ret:%d", log_strdup(buf), ret);
+		LOG_ERR("%s ret:%d",buf, ret);
 		goto ret;
 	}
 
@@ -3366,17 +3702,18 @@ static int modem_init(const struct device *dev)
 	k_sem_init(&mdata.mdm_lock, 1, 1);
 
 	/* initialize the work queue */
-	k_work_q_start(&modem_workq, modem_workq_stack,
+	k_work_queue_start(&modem_workq, modem_workq_stack,
 		       K_THREAD_STACK_SIZEOF(modem_workq_stack),
-		       K_PRIO_COOP(7));
+		       K_PRIO_COOP(7), NULL);
 
 #ifdef MODEM_BG95_SOCKET
 	/* socket config */
 	mdata.socket_config.sockets = &mdata.sockets[0];
 	mdata.socket_config.sockets_len = ARRAY_SIZE(mdata.sockets);
-	mdata.socket_config.base_socket_num = MDM_BASE_SOCKET_NUM;
-	ret = modem_socket_init(&mdata.socket_config,
-            &offload_socket_fd_op_vtable);
+	mdata.socket_config.base_socket_id = MDM_BASE_SOCKET_NUM;
+	mdata.socket_config.assign_id = true;
+	ret = modem_socket_init(&mdata.socket_config, &mdata.sockets[0], ARRAY_SIZE(mdata.sockets),
+				MDM_BASE_SOCKET_NUM, true, &offload_socket_fd_op_vtable);
 	if (ret < 0) {
 		goto error;
 	}
@@ -3395,8 +3732,20 @@ static int modem_init(const struct device *dev)
 	mdata.cmd_handler_data.alloc_timeout = BUF_ALLOC_TIMEOUT;
 	mdata.cmd_handler_data.process_data = NULL;
     mdata.cmd_handler_data.eol = "\r";
+	const struct modem_cmd_handler_config cmd_handler_config = {
+		.match_buf = &mdata.cmd_match_buf[0],
+		.match_buf_len = sizeof(mdata.cmd_match_buf),
+		.buf_pool = &mdm_recv_pool,
+		.alloc_timeout = BUF_ALLOC_TIMEOUT,
+		.eol = "\r\n",
+		.user_data = NULL,
+		.response_cmds = response_cmds,
+		.response_cmds_len = ARRAY_SIZE(response_cmds),
+		.unsol_cmds = unsol_cmds,
+		.unsol_cmds_len = ARRAY_SIZE(unsol_cmds),
+	};
 	ret = modem_cmd_handler_init(&mctx.cmd_handler,
-				     &mdata.cmd_handler_data);
+				     &mdata.cmd_handler_data, &cmd_handler_config);
 	if (ret < 0) {
 		goto error;
 	}
@@ -3404,13 +3753,40 @@ static int modem_init(const struct device *dev)
 	/* modem interface */
 	mdata.iface_data.hw_flow_control = DT_PROP(MDM_UART_NODE,
 						   hw_flow_control);
-	mdata.iface_data.rx_rb_buf = &mdata.iface_rb_buf[0];
-	mdata.iface_data.rx_rb_buf_len = sizeof(mdata.iface_rb_buf);
+	const struct modem_iface_uart_config uart_config = {
+		.rx_rb_buf = &mdata.iface_rb_buf[0],
+		.rx_rb_buf_len = sizeof(mdata.iface_rb_buf),
+		.dev = MDM_UART_DEV,
+		.hw_flow_control = DT_PROP(MDM_UART_NODE, hw_flow_control),
+	};
 	ret = modem_iface_uart_init(&mctx.iface, &mdata.iface_data,
-				    MDM_UART_DEV);
+				    &uart_config);
 	if (ret < 0) {
 		goto error;
 	}
+
+	/* pin setup */
+	ret = gpio_pin_configure_dt(&power_gpio, GPIO_OUTPUT_LOW);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure %s pin", "power");
+		goto error;
+	}
+
+#if DT_INST_NODE_HAS_PROP(0, mdm_reset_gpios)
+	ret = gpio_pin_configure_dt(&reset_gpio, GPIO_OUTPUT_LOW);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure %s pin", "reset");
+		goto error;
+	}
+#endif
+
+#if DT_INST_NODE_HAS_PROP(0, mdm_vint_gpios)
+	ret = gpio_pin_configure_dt(&vint_gpio, GPIO_INPUT);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure %s pin", "vint");
+		goto error;
+	}
+#endif
 
     /* modem data storage */
 	mctx.data_manufacturer = q_ctx.data_manufacturer;
@@ -3419,10 +3795,6 @@ static int modem_init(const struct device *dev)
 	mctx.data_imei = q_ctx.data_imei;
 	mctx.data_timeval = q_ctx.data_timeval;
     mctx.data_cellinfo = q_ctx.data_cellinfo;
-
-	/* pin setup */
-	mctx.pins = modem_pins;
-	mctx.pins_len = ARRAY_SIZE(modem_pins);
 
 	mctx.driver_data = &mdata;
 
@@ -3439,7 +3811,7 @@ static int modem_init(const struct device *dev)
 			K_PRIO_COOP(7), 0, K_NO_WAIT);
 
 	/* init RSSI query */
-	k_delayed_work_init(&mdata.rssi_query_work, modem_rssi_query_work);
+	k_work_init_delayable(&mdata.rssi_query_work, modem_rssi_query_work);
 	k_work_init(&mdata.urc_handle_work, urc_handle_worker);
 
 #ifdef AGPS_DEFAULT
@@ -3459,7 +3831,15 @@ error:
 	return ret;
 }
 
-NET_DEVICE_OFFLOAD_INIT(modem_quectel_bg95, DT_INST_LABEL(0),
-            modem_init, device_pm_control_nop, &mdata, NULL,
+// NET_DEVICE_OFFLOAD_INIT(modem_quectel_bg95, DT_INST_PROP(0, label),
+//             modem_init, device_pm_control_nop, &mdata, NULL,
+//             CONFIG_MODEM_QUECTEL_BG95_INIT_PRIORITY,
+//             &api_funcs, MDM_MAX_DATA_LENGTH);
+NET_DEVICE_DT_INST_OFFLOAD_DEFINE(0,
+            modem_init, 
+            NULL, /* In 3.7, pm_control is often NULL or handled via pm_device */
+            &mdata, 
+            NULL,
             CONFIG_MODEM_QUECTEL_BG95_INIT_PRIORITY,
-            &api_funcs, MDM_MAX_DATA_LENGTH);
+            &api_funcs, 
+            MDM_MAX_DATA_LENGTH);

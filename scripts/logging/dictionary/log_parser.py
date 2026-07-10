@@ -28,7 +28,7 @@ LOG_HEX_SEP = "##ZLOGV1##"
 
 def parse_args():
     """Parse command line arguments"""
-    argparser = argparse.ArgumentParser()
+    argparser = argparse.ArgumentParser(allow_abbrev=False)
 
     argparser.add_argument("dbfile", help="Dictionary Logging Database file")
     argparser.add_argument("logfile", help="Log Data file")
@@ -131,6 +131,8 @@ def main():
             logger.debug("# Endianness: Little")
         else:
             logger.debug("# Endianness: Big")
+
+        logger.debug("# Database version: %d", database.get_version())
 
         ret = log_parser.parse_log_data(logdata, debug=args.debug)
         if not ret:

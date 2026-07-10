@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/slist.h>
+#include <zephyr/sys/iterable_sections.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -20,12 +21,15 @@ extern "C" {
 
 /**
  * @defgroup file_system_storage File System Storage
+ * @ingroup os_services
  * @{
  * @}
  */
 
 /**
  * @defgroup settings Settings
+ * @since 1.12
+ * @version 1.0.0
  * @ingroup file_system_storage
  * @{
  */
@@ -261,8 +265,6 @@ int settings_load_subtree(const char *subtree);
  *                        @ref settings_load_subtree_direct function.
  *
  * @return When nonzero value is returned, further subtree searching is stopped.
- *         Use with care as some settings backends would iterate through old
- *         values, and the current value is returned last.
  */
 typedef int (*settings_load_direct_cb)(
 	const char      *key,
@@ -300,6 +302,16 @@ int settings_load_subtree_direct(
  * @return 0 on success, non-zero on failure.
  */
 int settings_save(void);
+
+/**
+ * Save limited set of currently running serialized items. All serialized items
+ * that belong to subtree and which are different from currently persisted
+ * values will be saved.
+ *
+ * @param[in] subtree name of the subtree to be loaded.
+ * @return 0 on success, non-zero on failure.
+ */
+int settings_save_subtree(const char *subtree);
 
 /**
  * Write a single serialized value to persisted storage (if it has
@@ -442,6 +454,13 @@ struct settings_store_itf {
 	 * Parameters:
 	 *  - cs - Corresponding backend handler node
 	 */
+
+	/**< Get pointer to the storage instance used by the backend.
+	 *
+	 * Parameters:
+	 *  - cs - Corresponding backend handler node
+	 */
+	void *(*csi_storage_get)(struct settings_store *cs);
 };
 
 /**
@@ -587,6 +606,18 @@ int settings_runtime_commit(const char *name);
 
 #endif /* CONFIG_SETTINGS_RUNTIME */
 
+/**
+ * Get the storage instance used by zephyr.
+ *
+ * The type of storage object instance depends on the settings backend used.
+ * It might pointer to: `struct nvs_fs`, `struct fcb` or string witch file name
+ * depends on settings backend type used.
+ *
+ * @retval Pointer to which reference to the storage object can be stored.
+ *
+ * @retval 0 on success, negative error code on failure.
+ */
+int settings_storage_get(void **storage);
 
 #ifdef __cplusplus
 }

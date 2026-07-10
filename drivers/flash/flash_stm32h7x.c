@@ -12,9 +12,15 @@
 #include <string.h>
 #include <zephyr/drivers/flash.h>
 #include <zephyr/init.h>
+#include <zephyr/sys/barrier.h>
 #include <soc.h>
+#if defined(CONFIG_SOC_SERIES_STM32H7RSX)
+#include <stm32h7rsxx_ll_bus.h>
+#include <stm32h7rsxx_ll_utils.h>
+#else
 #include <stm32h7xx_ll_bus.h>
 #include <stm32h7xx_ll_utils.h>
+#endif /* CONFIG_SOC_SERIES_STM32H7RSX */
 
 #include "flash_stm32.h"
 #include "stm32_hsem.h"
@@ -24,12 +30,11 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(LOG_DOMAIN);
 
-#define STM32H7_FLASH_MAX_ERASE_TIME    4000
-
 /* Let's wait for double the max erase time to be sure that the operation is
  * completed.
  */
-#define STM32H7_FLASH_TIMEOUT   (2 * STM32H7_FLASH_MAX_ERASE_TIME)
+#define STM32H7_FLASH_TIMEOUT	\
+	(2 * DT_PROP(DT_INST(0, st_stm32_nv_flash), max_erase_time))
 
 #ifdef CONFIG_CPU_CORTEX_M4
 #error Flash driver on M4 core is not supported yet
@@ -117,13 +122,40 @@ static int flash_stm32_check_status(const struct device *dev)
 	 * ECC errors. Corrected data is returned for single ECC
 	 * errors, so in this case we just log a warning.
 	 */
-	uint32_t const error_bank1 = (FLASH_FLAG_ALL_ERRORS_BANK1
-				      & ~FLASH_FLAG_SNECCERR_BANK1);
 #ifdef DUAL_BANK
 	uint32_t const error_bank2 = (FLASH_FLAG_ALL_ERRORS_BANK2
 				      & ~FLASH_FLAG_SNECCERR_BANK2);
 #endif
 	uint32_t sr;
+
+#if defined(CONFIG_SOC_SERIES_STM32H7RSX)
+	uint32_t const error_bank = (FLASH_FLAG_ECC_ERRORS
+				      & ~FLASH_FLAG_SNECCERR
+				      & ~FLASH_FLAG_DBECCERR);
+
+
+	/* Read the Interrupt status flags. */
+	sr = regs->ISR;
+	if (sr & (FLASH_FLAG_SNECCERR)) {
+		uint32_t word = regs->ECCSFADDR & FLASH_ECCSFADDR_SEC_FADD;
+
+		LOG_WRN("Bank%d ECC error at 0x%08x", 1,
+			word * 4 * FLASH_NB_32BITWORD_IN_FLASHWORD);
+	}
+
+	if (sr & (FLASH_FLAG_DBECCERR)) {
+		uint32_t word = regs->ECCDFADDR & FLASH_ECCDFADDR_DED_FADD;
+
+		LOG_WRN("Bank%d ECC error at 0x%08x", 1,
+			word * 4 * FLASH_NB_32BITWORD_IN_FLASHWORD);
+	}
+
+	/* Clear the ECC flags (including FA) */
+	regs->ICR = FLASH_FLAG_ECC_ERRORS;
+	if (sr & error_bank) {
+#else
+	uint32_t const error_bank1 = (FLASH_FLAG_ALL_ERRORS_BANK1
+				      & ~FLASH_FLAG_SNECCERR_BANK1);
 
 	/* Read the status flags. */
 	sr = regs->SR1;
@@ -135,7 +167,9 @@ static int flash_stm32_check_status(const struct device *dev)
 	}
 	/* Clear the flags (including FA1R) */
 	regs->CCR1 = FLASH_FLAG_ALL_BANK1;
+
 	if (sr & error_bank1) {
+#endif /* CONFIG_SOC_SERIES_STM32H7RSX */
 		LOG_ERR("Status Bank%d: 0x%08x", 1, sr);
 		return -EIO;
 	}
@@ -156,6 +190,17 @@ static int flash_stm32_check_status(const struct device *dev)
 #endif
 
 	return 0;
+}
+
+static void flash_stm32_clear_status_flags(const struct device *dev)
+{
+	FLASH_TypeDef *regs = FLASH_STM32_REGS(dev);
+
+	regs->CCR1 = FLASH_FLAG_ALL_BANK1;
+#ifdef DUAL_BANK
+	regs->CCR2 = FLASH_FLAG_ALL_BANK2;
+#endif
+	barrier_dsync_fence_full();
 }
 
 
@@ -253,6 +298,8 @@ static int erase_sector(const struct device *dev, int offset)
 		return -EIO;
 	}
 
+	flash_stm32_clear_status_flags(dev);
+
 	rc = flash_stm32_wait_flash_idle(dev);
 	if (rc < 0) {
 		return rc;
@@ -263,7 +310,7 @@ static int erase_sector(const struct device *dev, int offset)
 		| ((sector.sector_index << FLASH_CR_SNB_Pos) & FLASH_CR_SNB));
 	*(sector.cr) |= FLASH_CR_START;
 	/* flush the register write */
-	__DSB();
+	barrier_dsync_fence_full();
 
 	rc = flash_stm32_wait_flash_idle(dev);
 	*(sector.cr) &= ~(FLASH_CR_SER | FLASH_CR_SNB);
@@ -288,17 +335,11 @@ int flash_stm32_block_erase_loop(const struct device *dev,
 	return rc;
 }
 
-static int wait_write_queue(const struct device *dev, off_t offset)
+static int wait_write_queue(const struct flash_stm32_sector_t *sector)
 {
 	int64_t timeout_time = k_uptime_get() + 100;
-	struct flash_stm32_sector_t sector = get_sector(dev, offset);
 
-	if (sector.bank == 0) {
-		LOG_ERR("Offset %ld does not exist", (long) offset);
-		return -EINVAL;
-	}
-
-	while (*(sector.sr) & FLASH_SR_QW) {
+	while (*(sector->sr) & FLASH_SR_QW) {
 		if (k_uptime_get() > timeout_time) {
 			LOG_ERR("Timeout! val: %d", 100);
 			return -EIO;
@@ -313,7 +354,7 @@ static int write_ndwords(const struct device *dev,
 			 uint8_t n)
 {
 	volatile uint64_t *flash = (uint64_t *)(offset
-						+ CONFIG_FLASH_BASE_ADDRESS);
+						+ FLASH_STM32_BASE_ADDRESS);
 	int rc;
 	int i;
 	struct flash_stm32_sector_t sector = get_sector(dev, offset);
@@ -327,6 +368,8 @@ static int write_ndwords(const struct device *dev,
 	if (*(sector.cr) & FLASH_CR_LOCK) {
 		return -EIO;
 	}
+
+	flash_stm32_clear_status_flags(dev);
 
 	/* Check that no Flash main memory operation is ongoing */
 	rc = flash_stm32_wait_flash_idle(dev);
@@ -345,16 +388,17 @@ static int write_ndwords(const struct device *dev,
 	*(sector.cr) |= FLASH_CR_PG;
 
 	/* Flush the register write */
-	__DSB();
+	barrier_dsync_fence_full();
 
 	/* Perform the data write operation at the desired memory address */
 	for (i = 0; i < n; ++i) {
-		flash[i] = data[i];
+		/* Source dword may be unaligned, so take extra care when dereferencing it */
+		flash[i] = UNALIGNED_GET(data + i);
 
 		/* Flush the data write */
-		__DSB();
+		barrier_dsync_fence_full();
 
-		wait_write_queue(dev, offset);
+		wait_write_queue(&sector);
 	}
 
 	/* Wait until the BSY bit is cleared */
@@ -456,7 +500,7 @@ static void flash_stm32h7_flush_caches(const struct device *dev,
 		return; /* Cache not enabled */
 	}
 
-	SCB_InvalidateDCache_by_Addr((uint32_t *)(CONFIG_FLASH_BASE_ADDRESS
+	SCB_InvalidateDCache_by_Addr((uint32_t *)(FLASH_STM32_BASE_ADDRESS
 						  + offset), len);
 }
 #endif /* CONFIG_CPU_CORTEX_M7 */
@@ -576,15 +620,15 @@ static int flash_stm32h7_read(const struct device *dev, off_t offset,
 
 	__set_FAULTMASK(1);
 	SCB->CCR |= SCB_CCR_BFHFNMIGN_Msk;
-	__DSB();
-	__ISB();
+	barrier_dsync_fence_full();
+	barrier_isync_fence_full();
 
-	memcpy(data, (uint8_t *) CONFIG_FLASH_BASE_ADDRESS + offset, len);
+	memcpy(data, (uint8_t *) FLASH_STM32_BASE_ADDRESS + offset, len);
 
 	__set_FAULTMASK(0);
 	SCB->CCR &= ~SCB_CCR_BFHFNMIGN_Msk;
-	__DSB();
-	__ISB();
+	barrier_dsync_fence_full();
+	barrier_isync_fence_full();
 	irq_unlock(irq_lock_key);
 
 	return flash_stm32_check_status(dev);
@@ -671,10 +715,15 @@ static const struct flash_driver_api flash_stm32h7_api = {
 static int stm32h7_flash_init(const struct device *dev)
 {
 	struct flash_stm32_priv *p = FLASH_STM32_PRIV(dev);
-	const struct device *clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
+	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
+
+	if (!device_is_ready(clk)) {
+		LOG_ERR("clock control device not ready");
+		return -ENODEV;
+	}
 
 	/* enable clock */
-	if (clock_control_on(clk, (clock_control_subsys_t *)&p->pclken) != 0) {
+	if (clock_control_on(clk, (clock_control_subsys_t)&p->pclken) != 0) {
 		LOG_ERR("Failed to enable clock");
 		return -EIO;
 	}

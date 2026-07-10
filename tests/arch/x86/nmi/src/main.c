@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/zephyr.h>
-#include <ztest.h>
-#include <tc_util.h>
+#include <zephyr/kernel.h>
+#include <zephyr/ztest.h>
+#include <zephyr/tc_util.h>
 
 #include <kernel_internal.h>
 #if defined(__GNUC__)
@@ -17,25 +17,25 @@
 
 static volatile int int_handler_executed;
 
-extern uint8_t z_x86_nmi_stack[];
+extern uint8_t z_x86_nmi_stack0[];
 extern uint8_t z_x86_nmi_stack1[];
 extern uint8_t z_x86_nmi_stack2[];
 extern uint8_t z_x86_nmi_stack3[];
 
 uint8_t *nmi_stacks[] = {
-	z_x86_nmi_stack,
-#if CONFIG_MP_NUM_CPUS > 1
+	z_x86_nmi_stack0,
+#if CONFIG_MP_MAX_NUM_CPUS > 1
 	z_x86_nmi_stack1,
-#if CONFIG_MP_NUM_CPUS > 2
+#if CONFIG_MP_MAX_NUM_CPUS > 2
 	z_x86_nmi_stack2,
-#if CONFIG_MP_NUM_CPUS > 3
+#if CONFIG_MP_MAX_NUM_CPUS > 3
 	z_x86_nmi_stack3
 #endif
 #endif
 #endif
 };
 
-bool z_x86_do_kernel_nmi(const z_arch_esf_t *esf)
+bool z_x86_do_kernel_nmi(const struct arch_esf *esf)
 {
 	uint64_t stack;
 
@@ -53,7 +53,7 @@ bool z_x86_do_kernel_nmi(const z_arch_esf_t *esf)
 	return true;
 }
 
-void test_nmi_handler(void)
+ZTEST(nmi, test_nmi_handler)
 {
 	TC_PRINT("Testing to see interrupt handler executes properly\n");
 
@@ -66,8 +66,4 @@ void test_nmi_handler(void)
 		      int_handler_executed);
 }
 
-void test_main(void)
-{
-	ztest_test_suite(nmi, ztest_unit_test(test_nmi_handler));
-	ztest_run_test_suite(nmi);
-}
+ZTEST_SUITE(nmi, NULL, NULL, NULL, NULL, NULL);

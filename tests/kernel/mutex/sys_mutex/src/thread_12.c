@@ -15,8 +15,8 @@
  * the one it was defined in.
  */
 
-#include <tc_util.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/tc_util.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/mutex.h>
 
 static int tc_rc = TC_PASS;         /* test case return code */
@@ -29,8 +29,12 @@ extern struct sys_mutex private_mutex;
  *
  */
 
-void thread_12(void)
+void thread_12(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	int rv;
 
 	/* Wait for private mutex to be released */

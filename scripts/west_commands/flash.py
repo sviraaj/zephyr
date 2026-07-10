@@ -8,7 +8,9 @@
 
 from west.commands import WestCommand
 
-from run_common import add_parser_common, do_run_common
+from run_common import add_parser_common, do_run_common, get_build_dir
+
+from pathlib import Path
 
 
 class Flash(WestCommand):
@@ -26,4 +28,6 @@ class Flash(WestCommand):
         return add_parser_common(self, parser_adder)
 
     def do_run(self, my_args, runner_args):
-        do_run_common(self, my_args, runner_args)
+        build_dir = get_build_dir(my_args)
+        domains_file = Path(build_dir) / 'domains.yaml'
+        do_run_common(self, my_args, runner_args, domain_file=domains_file)

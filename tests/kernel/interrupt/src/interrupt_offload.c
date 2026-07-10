@@ -4,9 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <zephyr/irq_offload.h>
-#include <interrupt_util.h>
+#include <zephyr/interrupt_util.h>
+#if defined(CONFIG_ARCH_POSIX)
+#include <soc.h>
+#endif
 
 #define STACK_SIZE	1024
 #define NUM_WORK	4
@@ -86,10 +89,14 @@ void isr_handler(const void *param)
  * Other arch will be add later.
  */
 #if defined(CONFIG_X86)
-#define TEST_IRQ_DYN_LINE 17
+#define TEST_IRQ_DYN_LINE 26
 
 #elif defined(CONFIG_ARCH_POSIX)
-#define TEST_IRQ_DYN_LINE 5
+#if defined(OFFLOAD_SW_IRQ)
+#define TEST_IRQ_DYN_LINE OFFLOAD_SW_IRQ
+#else
+#define TEST_IRQ_DYN_LINE 0
+#endif
 
 #else
 #define TEST_IRQ_DYN_LINE 0
@@ -128,6 +135,10 @@ static void trigger_offload_interrupt(const bool real_irq, void *work)
 
 static void t_running(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	k_sem_give(&sync_sem);
 
 	while (wait_for_end == false) {
@@ -182,7 +193,7 @@ static void run_test_offload(int case_type, int real_irq)
 	}
 
 	k_tid_t tid = k_thread_create(&tdata, tstack, STACK_SIZE,
-			(k_thread_entry_t)t_running,
+			t_running,
 			NULL, NULL, NULL, thread_prio,
 			K_INHERIT_PERMS, K_NO_WAIT);
 
@@ -233,7 +244,7 @@ static void run_test_offload(int case_type, int real_irq)
  *
  * We test this by irq_offload().
  */
-void test_isr_offload_job_multiple(void)
+ZTEST(interrupt_feature, test_isr_offload_job_multiple)
 {
 	offload_job_prio_higher = false;
 	run_test_offload(TEST_OFFLOAD_MULTI_JOBS, false);
@@ -258,7 +269,7 @@ void test_isr_offload_job_multiple(void)
  *
  * We test this by irq_offload().
  */
-void test_isr_offload_job_identi(void)
+ZTEST(interrupt_feature, test_isr_offload_job_identi)
 {
 	offload_job_prio_higher = false;
 	run_test_offload(TEST_OFFLOAD_IDENTICAL_JOBS, false);
@@ -276,7 +287,7 @@ void test_isr_offload_job_identi(void)
  * offload jobs could execute immediately base on it's priority.
  * We test this by dynamic interrupt.
  */
-void test_isr_offload_job(void)
+ZTEST(interrupt_feature, test_isr_offload_job)
 {
 	if (!IS_ENABLED(CONFIG_DYNAMIC_INTERRUPTS)) {
 		ztest_test_skip();

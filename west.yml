@@ -16,291 +16,345 @@
 
 manifest:
   defaults:
-    remote: origin
+    remote: upstream
 
   remotes:
     - name: upstream
       url-base: https://github.com/zephyrproject-rtos
+    - name: babblesim
+      url-base: https://github.com/BabbleSim
     - name: origin
       url-base: https://github.com/sviraaj
     - name: zedblox
       url-base: https://github.com/zedblox
+  
+ 
+
+  group-filter: [-babblesim, -optional]
 
   #
   # Please add items below based on alphabetical order
   projects:
-    - name: canopennode
-      revision: 53d3415c14d60f8f4bfca54bfbc5d5a667d7e724
-      remote: upstream
-      path: modules/lib/canopennode
-    - name: chre
-      revision: 0edfe2c2ec656afb910cfab8ed59a5ffd59b87c8
-      remote: upstream
-      path: modules/lib/chre
-    - name: civetweb
-      revision: 094aeb41bb93e9199d24d665ee43e9e05d6d7b1c
-      remote: upstream
-      path: modules/lib/civetweb
+    - name: acpica
+      revision: 8d24867bc9c9d81c81eeac59391cda59333affd4
+      path: modules/lib/acpica
+    - name: bsim
+      repo-path: babblesim-manifest
+      revision: 9351ae1ad44864a49c351f9704f65f43046abeb0
+      path: tools/bsim
+      groups:
+        - babblesim
+    - name: babblesim_base
+      remote: babblesim
+      repo-path: base
+      path: tools/bsim/components
+      revision: 4bd907be0b2abec3b31a23fd8ca98db2a07209d2
+      groups:
+        - babblesim
+    - name: babblesim_ext_2G4_libPhyComv1
+      remote: babblesim
+      repo-path: ext_2G4_libPhyComv1
+      path: tools/bsim/components/ext_2G4_libPhyComv1
+      revision: 93f5eba512c438b0c9ebc1b1a947517c865b3643
+      groups:
+        - babblesim
+    - name: babblesim_ext_2G4_phy_v1
+      remote: babblesim
+      repo-path: ext_2G4_phy_v1
+      path: tools/bsim/components/ext_2G4_phy_v1
+      revision: 04eeb3c3794444122fbeeb3715f4233b0b50cfbb
+      groups:
+        - babblesim
+    - name: babblesim_ext_2G4_channel_NtNcable
+      remote: babblesim
+      repo-path: ext_2G4_channel_NtNcable
+      path: tools/bsim/components/ext_2G4_channel_NtNcable
+      revision: 20a38c997f507b0aa53817aab3d73a462fff7af1
+      groups:
+        - babblesim
+    - name: babblesim_ext_2G4_channel_multiatt
+      remote: babblesim
+      repo-path: ext_2G4_channel_multiatt
+      path: tools/bsim/components/ext_2G4_channel_multiatt
+      revision: bde72a57384dde7a4310bcf3843469401be93074
+      groups:
+        - babblesim
+    - name: babblesim_ext_2G4_modem_magic
+      remote: babblesim
+      repo-path: ext_2G4_modem_magic
+      path: tools/bsim/components/ext_2G4_modem_magic
+      revision: edfcda2d3937a74be0a59d6cd47e0f50183453da
+      groups:
+        - babblesim
+    - name: babblesim_ext_2G4_modem_BLE_simple
+      remote: babblesim
+      repo-path: ext_2G4_modem_BLE_simple
+      path: tools/bsim/components/ext_2G4_modem_BLE_simple
+      revision: a38d2d24b04a6f970a225d1316047256ebf5a539
+      groups:
+        - babblesim
+    - name: babblesim_ext_2G4_device_burst_interferer
+      remote: babblesim
+      repo-path: ext_2G4_device_burst_interferer
+      path: tools/bsim/components/ext_2G4_device_burst_interferer
+      revision: 5b5339351d6e6a2368c686c734dc8b2fc65698fc
+      groups:
+        - babblesim
+    - name: babblesim_ext_2G4_device_WLAN_actmod
+      remote: babblesim
+      repo-path: ext_2G4_device_WLAN_actmod
+      path: tools/bsim/components/ext_2G4_device_WLAN_actmod
+      revision: 9cb6d8e72695f6b785e57443f0629a18069d6ce4
+      groups:
+        - babblesim
+    - name: babblesim_ext_2G4_device_playback
+      remote: babblesim
+      repo-path: ext_2G4_device_playback
+      path: tools/bsim/components/ext_2G4_device_playback
+      revision: abb48cd71ddd4e2a9022f4bf49b2712524c483e8
+      groups:
+        - babblesim
+    - name: babblesim_ext_libCryptov1
+      remote: babblesim
+      repo-path: ext_libCryptov1
+      path: tools/bsim/components/ext_libCryptov1
+      revision: eed6d7038e839153e340bd333bc43541cb90ba64
+      groups:
+        - babblesim
+    # - name: canopennode
+    #   revision: dec12fa3f0d790cafa8414a4c2930ea71ab72ffd
+    #   path: modules/lib/canopennode
+    # - name: chre
+    #   revision: b7955c27e50485b7dafdc3888d7d6afdc2ac6d96
+    #   path: modules/lib/chre
     - name: cmsis
-      revision: 5f86244bad4ad5a590e084f0e72ba7a1416c2edf
-      remote: upstream
+      revision: 4b96cbb174678dcd3ca86e11e1f24bc5f8726da0
       path: modules/hal/cmsis
       groups:
         - hal
+    - name: cmsis-dsp
+      revision: 6489e771e9c405f1763b52d64a3f17a1ec488ace
+      path: modules/lib/cmsis-dsp
+    - name: cmsis-nn
+      revision: ea987c1ca661be723de83bd159aed815d6cbd430
+      path: modules/lib/cmsis-nn
     - name: edtt
-      revision: 1ea61a390d2bfcf3b2ecdba8f8b0b98dfdffbd11
-      remote: upstream
+      revision: 8d7b543d4d2f2be0f78481e4e1d8d73a88024803
       path: tools/edtt
       groups:
         - tools
     - name: fatfs
-      revision: a30531af3a95a9a3ea7d771ea8a578ebfed45514
-      remote: upstream
+      revision: 427159bf95ea49b7680facffaa29ad506b42709b
       path: modules/fs/fatfs
       groups:
         - fs
-    - name: fff
-      revision: 6ce5ba26486e93d5b7696a3e23f0585932c14b16
-      remote: upstream
-      path: modules/lib/fff
+    - name: hal_adi
+      revision: dee9a7b1eff13a9da0560daf8842d61657f9d61e
+      path: modules/hal/adi
       groups:
-        - ci
+        - hal
     - name: hal_altera
-      revision: 0d225ddd314379b32355a00fb669eacf911e750d
-      remote: upstream
+      revision: 4fe4df959d4593ce66e676aeba0b57f546dba0fe
       path: modules/hal/altera
       groups:
         - hal
+    - name: hal_ambiq
+      revision: e25327f026df1ee08f1bf01a4bbfeb5e5f4026f1
+      path: modules/hal/ambiq
+      groups:
+        - hal
     - name: hal_atmel
-      revision: 78c5567c05b6b434dd7d98f49156319df4217bac
-      remote: upstream
+      revision: 56d60ebc909ad065bf6554cee73487969857614b
       path: modules/hal/atmel
       groups:
         - hal
     - name: hal_espressif
-      revision: df85671c5d0405c0747c2939c8dfe808b7e4cf38
-      remote: upstream
+      revision: 87e7902d7184a8280b4d13bce79801a723f4ddd8
       path: modules/hal/espressif
       west-commands: west/west-commands.yml
       groups:
         - hal
+    - name: hal_ethos_u
+      revision: 8e2cf756b474eff9a32a9bdf1775d9620f1eadcf
+      path: modules/hal/ethos_u
+      groups:
+        - hal
     - name: hal_gigadevice
-      revision: 63a72ca90b7e0d7257211ddc5c79e8c0b940371b
-      remote: upstream
+      revision: 2994b7dde8b0b0fa9b9c0ccb13474b6a486cddc3
       path: modules/hal/gigadevice
       groups:
         - hal
     - name: hal_infineon
-      revision: 4af06965f57ba1e7d170e6a97d24c33785543a8c
-      remote: upstream
+      revision: f25734a72c585f6675e8254a382e80e78a3cd03a
       path: modules/hal/infineon
       groups:
         - hal
+    - name: hal_intel
+      revision: 0905a528623de56b1bedf817536321bcdbc0efae
+      path: modules/hal/intel
+      groups:
+        - hal
     - name: hal_microchip
-      revision: 5d079f1683a00b801373bbbbf5d181d4e33b30d5
-      remote: upstream
+      revision: 71eba057c0cb7fc11b6f33eb40a82f1ebe2c571c
       path: modules/hal/microchip
       groups:
         - hal
     - name: hal_nordic
-      revision: a85bb3676d61d1ae202088e0d3fec556056b2c9e
-      remote: upstream
+      revision: ab5cb2e2faeb1edfad7a25286dcb513929ae55da
       path: modules/hal/nordic
       groups:
         - hal
     - name: hal_nuvoton
-      revision: b4d31f33238713a568e23618845702fadd67386f
-      remote: upstream
+      revision: 466c3eed9c98453fb23953bf0e0427fea01924be
       path: modules/hal/nuvoton
       groups:
         - hal
     - name: hal_nxp
-      revision: 2302a1e94f5bc00ce59db4e249b688ad2e959f58
-      remote: upstream
+      revision: 862e001504bd6e0a4feade6a718e9f973116849c
       path: modules/hal/nxp
       groups:
         - hal
     - name: hal_openisa
-      revision: 40d049f69c50b58ea20473bee14cf93f518bf262
-      remote: upstream
+      revision: eabd530a64d71de91d907bad257cd61aacf607bc
       path: modules/hal/openisa
       groups:
         - hal
     - name: hal_quicklogic
-      revision: b3a66fe6d04d87fd1533a5c8de51d0599fcd08d0
-      remote: upstream
+      revision: bad894440fe72c814864798c8e3a76d13edffb6c
       path: modules/hal/quicklogic
       repo-path: hal_quicklogic
       groups:
         - hal
+    - name: hal_renesas
+      path: modules/hal/renesas
+      revision: af77d7cdfeeff290593e7e99f54f0c1e2a3f91e6
+      groups:
+        - hal
     - name: hal_rpi_pico
       path: modules/hal/rpi_pico
-      revision: 191f5ba46fda49523cdaaef27583d1c875ba2c36
-      remote: upstream
+      revision: fba7162cc7bee06d0149622bbcaac4e41062d368
       groups:
         - hal
     - name: hal_silabs
-      revision: be39d4eebeddac6e18e9c0c3ba1b31ad1e82eaed
-      remote: upstream
+      revision: a09dd1b82b24aa3060e162c0dfa40026c0dba450
       path: modules/hal/silabs
       groups:
         - hal
     - name: hal_st
-      revision: 52a522ca4a8a9ec1e9bb5bb514e1ab6f102863fe
-      remote: upstream
+      revision: b77157f6bc4395e398d90ab02a7d2cbc01ab2ce7
       path: modules/hal/st
       groups:
         - hal
     - name: hal_stm32
-      revision: 8a109ecde13d37b0b646d25fba04b8022cdbdd4e
-      remote: zedblox
+      revision: f1317150eac951fdd8259337a47cbbc4c2e6d335
       path: modules/hal/stm32
       groups:
         - hal
     - name: hal_telink
-      revision: ffcfd6282aa213f1dc0848dbca6279b098f6b143
-      remote: upstream
+      revision: 4226c7fc17d5a34e557d026d428fc766191a0800
       path: modules/hal/telink
       groups:
         - hal
     - name: hal_ti
-      revision: 905a5d4134899630071f9383aadaaf266e8f8cd2
-      remote: upstream
+      revision: b85f86e51fc4d47c4c383d320d64d52d4d371ae4
       path: modules/hal/ti
       groups:
         - hal
+    - name: hal_wurthelektronik
+      revision: e5bcb2eac1bb9639ce13b4dafc78eb254e014342
+      path: modules/hal/wurthelektronik
+      groups:
+        - hal
     - name: hal_xtensa
-      revision: 0e577021bb66e644afd067cd9f7c71ab11b62b3d
-      remote: upstream
+      revision: a2d658525b16c57bea8dd565f5bd5167e4b9f1ee
       path: modules/hal/xtensa
       groups:
         - hal
+    - name: hostap
+      repo-path: hostap
+      path: modules/lib/hostap
+      revision: a90df86d7c596a5367ff70c2b50c7f599e6636f3
     - name: libmetal
-      revision: 850a3c3fd5bc655987021dc9106d8e8cd0f7e061
-      remote: upstream
+      revision: a6851ba6dba8c9e87d00c42f171a822f7a29639b
       path: modules/hal/libmetal
       groups:
         - hal
-    - name: liblc3codec
-      revision: 3951cf1b71ff3be086c9b9b595e473e12301337c
-      remote: upstream
-      path: modules/lib/liblc3codec
+    - name: liblc3
+      revision: 1a5938ebaca4f13fe79ce074f5dee079783aa29f
+      path: modules/lib/liblc3
     - name: littlefs
       path: modules/fs/littlefs
       groups:
         - fs
-      revision: 652f2c5646e79b881e6f3099686ad3b7af9e216c
-      remote: upstream
+      revision: 408c16a909dd6cf128874a76f21c793798c9e423
     - name: loramac-node
-      revision: 12019623bbad9eb54fe51066847a7cbd4b4eac57
-      remote: upstream
+      revision: fb00b383072518c918e2258b0916c996f2d4eebe
       path: modules/lib/loramac-node
     - name: lvgl
-      revision: df717ac87a9fd80246cc8df24554475e59bda21f
-      remote: upstream
+      revision: 2b498e6f36d6b82ae1da12c8b7742e318624ecf5
       path: modules/lib/gui/lvgl
-    - name: lz4
-      revision: 8e303c264fc21c2116dc612658003a22e933124d
-      remote: upstream
-      path: modules/lib/lz4
     - name: mbedtls
-      revision: 7fed49c9b9f983ad6416986661ef637459723bcb
-      remote: upstream
+      revision: 2f24831ee13d399ce019c4632b0bcd440a713f7c
       path: modules/crypto/mbedtls
       groups:
         - crypto
     - name: mcuboot
-      revision: c1c4936c89347d447c8f2353b9dbb374df0a5e16
+      revision: 78d3f68ddfc0a98b51e611a498c39dd337509e8c
       remote: origin
       path: bootloader/mcuboot
     - name: mipi-sys-t
       path: modules/debug/mipi-sys-t
       groups:
         - debug
-      revision: a5163c1800a5243f8b05d84c942da008df4cb666
-      remote: upstream
-    - name: nanopb
-      revision: d148bd26718e4c10414f07a7eb1bd24c62e56c5d
-      remote: upstream
-      path: modules/lib/nanopb
+      revision: 71ace1f5caa03e56c8740a09863e685efb4b2360
     - name: net-tools
-      revision: f49bd1354616fae4093bf36e5eaee43c51a55127
-      remote: upstream
+      revision: 7c7a856814d7f27509c8511fef14cec21f7d0c30
       path: tools/net-tools
       groups:
         - tools
     - name: nrf_hw_models
-      revision: b8cea37dbdc8fc58cc14b4e19fa850877a9da520
-      remote: upstream
+      revision: 6c389b9b5fa0a079cd4502e69d375da4c0c289b7
       path: modules/bsim_hw_models/nrf_hw_models
     - name: open-amp
-      revision: 8d53544871e1f300c478224faca6be8384ab0d04
-      remote: upstream
+      revision: 76d2168bcdfcd23a9a7dce8c21f2083b90a1e60a
       path: modules/lib/open-amp
     - name: openthread
-      revision: e2a765599aa0379d0f72f0149a9cbafec070c12d
-      remote: upstream
+      revision: 3873c6fcd5a8a9dd01b71e8efe32ef5dc7923bb1
       path: modules/lib/openthread
+    - name: percepio
+      path: modules/debug/percepio
+      revision: a49e5f3947faad0dd654eddd5a750127fb81e50d
+      groups:
+        - debug
+    - name: picolibc
+      path: modules/lib/picolibc
+      revision: 764ef4e401a8f4c6a86ab723533841f072885a5b
     - name: segger
-      revision: 3a52ab222133193802d3c3b4d21730b9b1f1d2f6
-      remote: upstream
+      revision: b011c45b585e097d95d9cf93edf4f2e01588d3cd
       path: modules/debug/segger
       groups:
         - debug
-    - name: sof
-      revision: 2efc3ea41c0074c6dab5f376fafaa26f52c25c75
-      remote: upstream
-      path: modules/audio/sof
-    - name: tflite-micro
-      revision: 9156d050927012da87079064db59d07f03b8baf6
-      remote: upstream
-      path: modules/lib/tflite-micro
-      repo-path: tflite-micro
-    - name: tinycbor
-      revision: 9e1f34bc08123aaad7666d3652aaa839e8178b3b
-      remote: upstream
-      path: modules/lib/tinycbor
     - name: tinycrypt
-      revision: 3e9a49d2672ec01435ffbf0d788db6d95ef28de0
-      remote: upstream
+      revision: 1012a3ebee18c15ede5efc8332ee2fc37817670f
       path: modules/crypto/tinycrypt
       groups:
         - crypto
-    - name: TraceRecorderSource
-      revision: e8ca3b6a83d19b2fc4738a0d9607190436e5e452
-      remote: upstream
-      path: modules/debug/TraceRecorder
-      groups:
-        - debug
     - name: trusted-firmware-m
-      revision: 7c53a6e76130a85303f83b15d868a92fdcd5f5be
-      remote: upstream
+      revision: 069455be098383bf96eab73e3ff8e0c66c60fa5a
       path: modules/tee/tf-m/trusted-firmware-m
       groups:
         - tee
-    - name: tf-m-tests
-      revision: c99a86b295c4887520da9d8402566d7f225c974e
-      remote: upstream
-      path: modules/tee/tf-m/tf-m-tests
+    - name: trusted-firmware-a
+      revision: 713ffbf96c5bcbdeab757423f10f73eb304eff07
+      path: modules/tee/tf-a/trusted-firmware-a
       groups:
         - tee
-    - name: psa-arch-tests
-      revision: a81f9da287569f169d60026916952641b233faa8
-      remote: upstream
-      path: modules/tee/tf-m/psa-arch-tests
-      groups:
-        - tee
+    - name: uoscore-uedhoc
+      revision: 84ef879a46d7bfd9a423fbfb502b04289861f9ea
+      path: modules/lib/uoscore-uedhoc
     - name: zcbor
-      revision: 882c489a7d9fdfff31d27666914a78a9eb6976d7
-      remote: upstream
+      revision: 75d088037eb237b18e7ec1f47c9ce494b9b95aab
       path: modules/lib/zcbor
-    - name: zscilib
-      path: modules/lib/zscilib
-      revision: fc979a8dcb74169c69b02835927bff8f070d6325
-      remote: upstream
-
-  group-filter:
-    - -ci
 
   self:
     path: zephyr

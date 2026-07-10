@@ -4,7 +4,7 @@
 
 find_program(CMAKE_C_COMPILER gcc)
 
-if(CONFIG_CPLUSPLUS)
+if(CONFIG_CPP)
   set(cplusplus_compiler g++)
 else()
   if(EXISTS g++)
@@ -36,3 +36,12 @@ foreach(file_name include/stddef.h)
 
   list(APPEND NOSTDINC ${_OUTPUT})
 endforeach()
+
+list(APPEND LLEXT_EDK_REMOVE_FLAGS
+    --sysroot=.*
+    -fmacro-prefix-map=.*
+    )
+
+list(APPEND LLEXT_EDK_APPEND_FLAGS
+    -nodefaultlibs
+    )

@@ -35,7 +35,7 @@ For more information, see:
     https://pygithub.readthedocs.io/en/latest/github_objects/Issue.html
   - pickle: https://docs.python.org/3/library/pickle.html
 ''',
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+        formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False)
     parser.add_argument('out_file', metavar='OUTFILE', type=Path, nargs='?',
                         help='''file to write pickle data to (default:
                         stdout)''')
@@ -53,7 +53,7 @@ def open_out_file(args: argparse.Namespace) -> BinaryIO:
 
 def main() -> None:
     args = parse_args()
-    open_bugs = get_open_bugs()
+    open_bugs = [issue for issue in get_open_bugs() if not issue.pull_request]
 
     with open_out_file(args) as out_file:
         pickle.dump(open_bugs, out_file)

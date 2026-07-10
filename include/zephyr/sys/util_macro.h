@@ -73,6 +73,26 @@ extern "C" {
  */
 #define BIT64_MASK(n) (BIT64(n) - 1ULL)
 
+/** @brief Check if a @p x is a power of two */
+#define IS_POWER_OF_TWO(x) (((x) != 0U) && (((x) & ((x) - 1U)) == 0U))
+
+/**
+ * @brief Check if bits are set continuously from the specified bit
+ *
+ * The macro is not dependent on the bit-width.
+ *
+ * @param m Check whether the bits are set continuously or not.
+ * @param s Specify the lowest bit for that is continuously set bits.
+ */
+#define IS_SHIFTED_BIT_MASK(m, s) (!(((m) >> (s)) & (((m) >> (s)) + 1U)))
+
+/**
+ * @brief Check if bits are set continuously from the LSB.
+ *
+ * @param m Check whether the bits are set continuously from LSB.
+ */
+#define IS_BIT_MASK(m) IS_SHIFTED_BIT_MASK(m, 0)
+
 /**
  * @brief Check for macro definition in compiler-visible expressions
  *
@@ -93,6 +113,9 @@ extern "C" {
  *
  * This is cleaner since the compiler can generate errors and warnings
  * for @p do_something_with_foo even when @p CONFIG_FOO is undefined.
+ *
+ * Note: Use of IS_ENABLED in a <tt>\#if</tt> statement is discouraged
+ *       as it doesn't provide any benefit vs plain <tt>\#if defined()</tt>
  *
  * @param config_macro Macro to check
  * @return 1 if @p config_macro is defined to 1, 0 otherwise (including
@@ -201,6 +224,30 @@ extern "C" {
 	COND_CODE_1(_flag, _code, ())
 
 /**
+ * @brief Insert code if @p _flag is not defined as 1.
+ *
+ * This expands to nothing if @p _flag is defined and equal to 1;
+ * it expands to @p _code otherwise.
+ *
+ * Example:
+ *
+ *     IF_DISABLED(CONFIG_FLAG, (uint32_t foo;))
+ *
+ * If @p CONFIG_FLAG isn't defined or different than 1, this expands to:
+ *
+ *     uint32_t foo;
+ *
+ * and to nothing otherwise.
+ *
+ * IF_DISABLED does the opposite of IF_ENABLED.
+ *
+ * @param _flag evaluated flag
+ * @param _code result if @p _flag does not expand to 1; must be in parentheses
+ */
+#define IF_DISABLED(_flag, _code) \
+	COND_CODE_1(_flag, (), _code)
+
+/**
  * @brief Check if a macro has a replacement expression
  *
  * If @p a is a macro defined to a nonempty value, this will return
@@ -208,7 +255,7 @@ extern "C" {
  * macros, so an additional @p \#ifdef test may be needed in some cases.
  *
  * This macro may be used with COND_CODE_1() and COND_CODE_0() while
- * processing <tt>__VA_ARGS__</tt> to avoid processing empty arguments.
+ * processing `__VA_ARGS__` to avoid processing empty arguments.
  *
  * Example:
  *
@@ -225,14 +272,23 @@ extern "C" {
  * In above examples, the invocations of IS_EMPTY(...) return @p true,
  * @p false, and @p true; @p some_conditional_code is included.
  *
- * @param ... macro to check for emptiness (may be <tt>__VA_ARGS__</tt>)
+ * @param ... macro to check for emptiness (may be `__VA_ARGS__`)
  */
 #define IS_EMPTY(...) Z_IS_EMPTY_(__VA_ARGS__)
 
 /**
+ * @brief Like <tt>a == b</tt>, but does evaluation and
+ * short-circuiting at C preprocessor time.
+ *
+ * This however only works for integer literal from 0 to 4095.
+ *
+ */
+#define IS_EQ(a, b) Z_IS_EQ(a, b)
+
+/**
  * @brief Remove empty arguments from list.
  *
- * During macro expansion, <tt>__VA_ARGS__</tt> and other preprocessor
+ * During macro expansion, `__VA_ARGS__` and other preprocessor
  * generated lists may contain empty elements, e.g.:
  *
  *	#define LIST ,a,b,,d,
@@ -335,6 +391,29 @@ extern "C" {
 #define UTIL_AND(a, b) COND_CODE_1(UTIL_BOOL(a), (b), (0))
 
 /**
+ * @brief UTIL_INC(x) for an integer literal x from 0 to 4095 expands to an
+ * integer literal whose value is x+1.
+ *
+ * @see UTIL_DEC(x)
+ */
+#define UTIL_INC(x) UTIL_PRIMITIVE_CAT(Z_UTIL_INC_, x)
+
+/**
+ * @brief UTIL_DEC(x) for an integer literal x from 0 to 4095 expands to an
+ * integer literal whose value is x-1.
+ *
+ * @see UTIL_INC(x)
+ */
+#define UTIL_DEC(x) UTIL_PRIMITIVE_CAT(Z_UTIL_DEC_, x)
+
+/**
+ * @brief UTIL_X2(y) for an integer literal y from 0 to 4095 expands to an
+ * integer literal whose value is 2y.
+ */
+#define UTIL_X2(y) UTIL_PRIMITIVE_CAT(Z_UTIL_X2_, y)
+
+
+/**
  * @brief Generates a sequence of code with configurable separator.
  *
  * Example:
@@ -347,7 +426,7 @@ extern "C" {
  *    { MY_PWM0 , MY_PWM1 }
  *
  * @param LEN The length of the sequence. Must be an integer literal less
- *            than 255.
+ *            than 4095.
  * @param F A macro function that accepts at least two arguments:
  *          <tt>F(i, ...)</tt>. @p F is called repeatedly in the expansion.
  *          Its first argument @p i is the index in the sequence, and
@@ -361,33 +440,6 @@ extern "C" {
  * behavior.
  */
 #define LISTIFY(LEN, F, sep, ...) UTIL_CAT(Z_UTIL_LISTIFY_, LEN)(F, sep, __VA_ARGS__)
-
-/**
- * @brief Generates a sequence of code. Deprecated, use @ref LISTIFY.
- *
- * @deprecated Use @ref LISTIFY instead.
- *
- * Example:
- *
- *     #define FOO(i, _) MY_PWM ## i ,
- *     { UTIL_LISTIFY(PWM_COUNT, FOO) }
- *
- * The above two lines expand to:
- *
- *    { MY_PWM0 , MY_PWM1 , }
- *
- * @param LEN The length of the sequence. Must be an integer literal less
- *            than 255.
- * @param F A macro function that accepts at least two arguments:
- *          <tt>F(i, ...)</tt>. @p F is called repeatedly in the expansion.
- *          Its first argument @p i is the index in the sequence, and
- *          the variable list of arguments passed to UTIL_LISTIFY are passed
- *          through to @p F.
- *
- * @note Calling UTIL_LISTIFY with undefined arguments has undefined
- * behavior.
- */
-#define UTIL_LISTIFY(LEN, F, ...) LISTIFY(LEN, F, (), __VA_ARGS__) __DEPRECATED_MACRO
 
 /**
  * @brief Call a macro @p F on each provided argument with a given
@@ -438,7 +490,7 @@ extern "C" {
  * often cumbersome to write a macro @p F that does the right thing
  * even when given an empty argument.
  *
- * One example is when <tt>__VA_ARGS__</tt> may or may not be empty,
+ * One example is when `__VA_ARGS__` may or may not be empty,
  * and the results are embedded in a larger initializer:
  *
  *     #define SQUARE(x) ((x)*(x))
@@ -571,6 +623,8 @@ extern "C" {
 /**
  * @brief Number of arguments in the variable arguments list minus one.
  *
+ * @note Supports up to 64 arguments.
+ *
  * @param ... List of arguments
  * @return  Number of variadic arguments in the argument list, minus one
  */
@@ -584,10 +638,21 @@ extern "C" {
 	10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, ~)
 
 /**
+ * @brief Number of arguments in the variable arguments list.
+ *
+ * @note Supports up to 63 arguments.
+ *
+ * @param ... List of arguments
+ * @return  Number of variadic arguments in the argument list
+ */
+#define NUM_VA_ARGS(...)                                                                           \
+	COND_CODE_1(IS_EMPTY(__VA_ARGS__), (0), (UTIL_INC(NUM_VA_ARGS_LESS_1(__VA_ARGS__))))
+
+/**
  * @brief Mapping macro that pastes results together
  *
  * This is similar to FOR_EACH() in that it invokes a macro repeatedly
- * on each element of <tt>__VA_ARGS__</tt>. However, unlike FOR_EACH(),
+ * on each element of `__VA_ARGS__`. However, unlike FOR_EACH(),
  * MACRO_MAP_CAT() pastes the results together into a single token.
  *
  * For example, with this macro FOO:

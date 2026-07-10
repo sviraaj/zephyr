@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 NXP
+ * Copyright 2021,2023 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,6 +8,7 @@
 
 #include <zephyr/drivers/flash.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 #include <zephyr/sys/util.h>
 #include "spi_nor.h"
 #include "memc_mcux_flexspi.h"
@@ -16,7 +17,6 @@
 #include <fsl_cache.h>
 #endif
 
-#define NOR_WRITE_SIZE	1
 #define NOR_ERASE_VALUE	0xff
 
 #ifdef CONFIG_FLASH_MCUX_FLEXSPI_NOR_WRITE_BUFFER
@@ -34,6 +34,16 @@ static uint8_t nor_write_buf[SPI_NOR_PAGE_SIZE];
 #if defined(CONFIG_FLASH_MCUX_FLEXSPI_XIP) && (CONFIG_FLASH_LOG_LEVEL > 0)
 #warning "Enabling flash driver logging and XIP mode simultaneously can cause \
 	read-while-write hazards. This configuration is not recommended."
+#endif
+
+/* FLASH_ENABLE_OCTAL_CMD: (01 = STR OPI Enable) , (02 = DTR OPI Enable) */
+#if CONFIG_FLASH_MCUX_FLEXSPI_MX25UM51345G_OPI_DTR
+#define NOR_FLASH_ENABLE_OCTAL_CMD 0x2
+/* In OPI DTR mode, all writes must be 2 byte aligned, and multiples of 2 bytes */
+#define NOR_WRITE_SIZE	2
+#else
+#define NOR_FLASH_ENABLE_OCTAL_CMD 0x1
+#define NOR_WRITE_SIZE	1
 #endif
 
 LOG_MODULE_REGISTER(flash_flexspi_nor, CONFIG_FLASH_LOG_LEVEL);
@@ -71,6 +81,19 @@ static const uint32_t flash_flexspi_nor_lut[][4] = {
 				kFLEXSPI_Command_STOP,		kFLEXSPI_1PAD, 0x0),
 	},
 
+	[WRITE_ENABLE] = {
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_SDR,		kFLEXSPI_1PAD, 0x06,
+				kFLEXSPI_Command_STOP,		kFLEXSPI_1PAD, 0),
+	},
+
+	[ENTER_OPI] = {
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_SDR,		kFLEXSPI_1PAD, 0x72,
+				kFLEXSPI_Command_RADDR_SDR,	kFLEXSPI_1PAD, 0x20),
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_WRITE_SDR,	kFLEXSPI_1PAD, 0x04,
+				kFLEXSPI_Command_STOP,		kFLEXSPI_1PAD, 0),
+	},
+
+#if (NOR_FLASH_ENABLE_OCTAL_CMD == 0x1)
 	[READ_STATUS_REG] = {
 		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_SDR,		kFLEXSPI_8PAD, 0x05,
 				kFLEXSPI_Command_SDR,		kFLEXSPI_8PAD, 0xFA),
@@ -79,12 +102,6 @@ static const uint32_t flash_flexspi_nor_lut[][4] = {
 		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_READ_SDR,	kFLEXSPI_8PAD, 0x04,
 				kFLEXSPI_Command_STOP,		kFLEXSPI_1PAD, 0x0),
 	},
-
-	[WRITE_ENABLE] = {
-		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_SDR,		kFLEXSPI_1PAD, 0x06,
-				kFLEXSPI_Command_STOP,		kFLEXSPI_1PAD, 0),
-	},
-
 	[WRITE_ENABLE_OPI] = {
 		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_SDR,		kFLEXSPI_8PAD, 0x06,
 				kFLEXSPI_Command_SDR,		kFLEXSPI_8PAD, 0xF9),
@@ -117,13 +134,47 @@ static const uint32_t flash_flexspi_nor_lut[][4] = {
 		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_RADDR_SDR,	kFLEXSPI_8PAD, 0x20,
 				kFLEXSPI_Command_WRITE_SDR,	kFLEXSPI_8PAD, 0x04),
 	},
-
-	[ENTER_OPI] = {
-		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_SDR,		kFLEXSPI_1PAD, 0x72,
-				kFLEXSPI_Command_RADDR_SDR,	kFLEXSPI_1PAD, 0x20),
-		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_WRITE_SDR,	kFLEXSPI_1PAD, 0x04,
-				kFLEXSPI_Command_STOP,		kFLEXSPI_1PAD, 0),
+#else
+	[READ_STATUS_REG] = {
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_DDR,		kFLEXSPI_8PAD, 0x05,
+				kFLEXSPI_Command_DDR,		kFLEXSPI_8PAD, 0xFA),
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_RADDR_DDR,	kFLEXSPI_8PAD, 0x20,
+				kFLEXSPI_Command_READ_DDR,	kFLEXSPI_8PAD, 0x4),
 	},
+
+	[WRITE_ENABLE_OPI] = {
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_DDR,		kFLEXSPI_8PAD, 0x06,
+				kFLEXSPI_Command_DDR,		kFLEXSPI_8PAD, 0xF9),
+	},
+
+	[ERASE_SECTOR] = {
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_DDR,		kFLEXSPI_8PAD, 0x21,
+				kFLEXSPI_Command_DDR,		kFLEXSPI_8PAD, 0xDE),
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_RADDR_DDR,	kFLEXSPI_8PAD, 0x20,
+				kFLEXSPI_Command_STOP,		kFLEXSPI_8PAD, 0),
+	},
+
+	[ERASE_CHIP] = {
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_DDR,		kFLEXSPI_8PAD, 0x60,
+				kFLEXSPI_Command_SDR,		kFLEXSPI_8PAD, 0x9F),
+	},
+
+	[READ] = {
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_DDR,		kFLEXSPI_8PAD, 0xEE,
+				kFLEXSPI_Command_DDR,		kFLEXSPI_8PAD, 0x11),
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_RADDR_DDR,	kFLEXSPI_8PAD, 0x20,
+				kFLEXSPI_Command_DUMMY_DDR,	kFLEXSPI_8PAD, 0x08),
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_READ_DDR,	kFLEXSPI_8PAD, 0x04,
+				kFLEXSPI_Command_STOP,		kFLEXSPI_1PAD, 0x0),
+	},
+
+	[PAGE_PROGRAM] = {
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_DDR,		kFLEXSPI_8PAD, 0x12,
+				kFLEXSPI_Command_DDR,		kFLEXSPI_8PAD, 0xED),
+		FLEXSPI_LUT_SEQ(kFLEXSPI_Command_RADDR_DDR,	kFLEXSPI_8PAD, 0x20,
+				kFLEXSPI_Command_WRITE_DDR,	kFLEXSPI_8PAD, 0x04),
+	},
+#endif
 
 };
 
@@ -294,8 +345,8 @@ static int flash_flexspi_nor_wait_bus_busy(const struct device *dev)
 static int flash_flexspi_enable_octal_mode(const struct device *dev)
 {
 	struct flash_flexspi_nor_data *data = dev->data;
-	/* FLASH_ENABLE_OCTAL_CMD: (01 = STR OPI Enable) */
-	uint32_t status = 0x01;
+	/* FLASH_ENABLE_OCTAL_CMD: (01 = STR OPI Enable, 02 = DTR OPI Enable) */
+	uint32_t status = NOR_FLASH_ENABLE_OCTAL_CMD;
 
 	flash_flexspi_nor_write_enable(dev, false);
 	flash_flexspi_nor_write_status(dev, &status);
@@ -338,6 +389,12 @@ static int flash_flexspi_nor_write(const struct device *dev, off_t offset,
 		 * code and data accessed must reside in ram.
 		 */
 		key = irq_lock();
+	}
+	if (IS_ENABLED(CONFIG_FLASH_MCUX_FLEXSPI_MX25UM51345G_OPI_DTR)) {
+		/* Check that write size and length are even */
+		if ((offset & 0x1) || (len & 0x1)) {
+			return -EINVAL;
+		}
 	}
 
 	while (len) {
@@ -461,17 +518,16 @@ static int flash_flexspi_nor_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-	if (!memc_flexspi_is_running_xip(data->controller) &&
-	    memc_flexspi_set_device_config(data->controller, &data->config,
-					   data->port)) {
-		LOG_ERR("Could not set device configuration");
-		return -EINVAL;
+	if (memc_flexspi_is_running_xip(data->controller)) {
+		/* Wait for bus idle before configuring */
+		memc_flexspi_wait_bus_idle(data->controller);
 	}
 
-	if (memc_flexspi_update_lut(data->controller, 0,
-				   (const uint32_t *) flash_flexspi_nor_lut,
-				   sizeof(flash_flexspi_nor_lut) / 4)) {
-		LOG_ERR("Could not update lut");
+	if (memc_flexspi_set_device_config(data->controller, &data->config,
+	    (const uint32_t *)flash_flexspi_nor_lut,
+	    sizeof(flash_flexspi_nor_lut) / MEMC_FLEXSPI_CMD_SIZE,
+	    data->port)) {
+		LOG_ERR("Could not set device configuration");
 		return -EINVAL;
 	}
 

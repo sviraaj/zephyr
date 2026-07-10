@@ -5,14 +5,25 @@ description: NRF5 GPIOTE node
 
 compatible: "nordic,nrf-gpiote"
 
-include: base.yaml
+include:
+  - base.yaml
+  - nordic,split-channels.yaml
 
 properties:
-    reg:
-      required: true
+  reg:
+    required: true
 
-    interrupts:
-      required: true
+  interrupts:
+    required: true
 
-    label:
-      required: true
+  instance:
+    type: int
+    required: true
+    description: |
+      The GPIOTE instance number. GPIOTE instance GPIOTE0 has:
+
+        instance = <0>;
+
+      And GPIOTE1 has:
+
+        instance = <1>;

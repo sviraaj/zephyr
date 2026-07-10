@@ -4,16 +4,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <device.h>
-#include <drivers/i2c.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/i2c.h>
 #include <sys/util.h>
-#include <kernel.h>
-#include <drivers/sensor.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/sensor.h>
 
 #include "icm20600.h"
 
 #define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(ICM20600);
 
 int icm20600_trigger_set(struct device *dev,

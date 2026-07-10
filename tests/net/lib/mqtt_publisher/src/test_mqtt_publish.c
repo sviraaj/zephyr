@@ -9,12 +9,12 @@ LOG_MODULE_REGISTER(net_test, LOG_LEVEL_WRN);
 
 #include <zephyr/net/mqtt.h>
 #include <zephyr/net/socket.h>
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 #include <string.h>
 #include <errno.h>
 
-#include <zephyr/random/rand32.h>
+#include <zephyr/random/random.h>
 
 #include "config.h"
 
@@ -193,7 +193,7 @@ static int publish(enum mqtt_qos qos)
 	param.message.payload.data = get_mqtt_payload(qos);
 	param.message.payload.len =
 			strlen(param.message.payload.data);
-	param.message_id = sys_rand32_get();
+	param.message_id = sys_rand16_get();
 	param.dup_flag = 0U;
 	param.retain_flag = 0U;
 
@@ -296,22 +296,22 @@ static int test_disconnect(void)
 
 void test_mqtt_connect(void)
 {
-	zassert_true(test_connect() == TC_PASS, NULL);
+	zassert_true(test_connect() == TC_PASS);
 }
 
 void test_mqtt_pingreq(void)
 {
-	zassert_true(test_pingreq() == TC_PASS, NULL);
+	zassert_true(test_pingreq() == TC_PASS);
 }
 
 void test_mqtt_publish(void)
 {
-	zassert_true(test_publish(MQTT_QOS_0_AT_MOST_ONCE) == TC_PASS, NULL);
-	zassert_true(test_publish(MQTT_QOS_1_AT_LEAST_ONCE) == TC_PASS, NULL);
-	zassert_true(test_publish(MQTT_QOS_2_EXACTLY_ONCE) == TC_PASS, NULL);
+	zassert_true(test_publish(MQTT_QOS_0_AT_MOST_ONCE) == TC_PASS);
+	zassert_true(test_publish(MQTT_QOS_1_AT_LEAST_ONCE) == TC_PASS);
+	zassert_true(test_publish(MQTT_QOS_2_EXACTLY_ONCE) == TC_PASS);
 }
 
 void test_mqtt_disconnect(void)
 {
-	zassert_true(test_disconnect() == TC_PASS, NULL);
+	zassert_true(test_disconnect() == TC_PASS);
 }

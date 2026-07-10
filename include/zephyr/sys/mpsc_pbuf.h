@@ -19,7 +19,7 @@ extern "C" {
 /**
  * @brief Multi producer, single consumer packet buffer API
  * @defgroup mpsc_buf MPSC (Multi producer, single consumer) packet buffer API
- * @ingroup kernel_apis
+ * @ingroup datastructure_apis
  * @{
  */
 
@@ -60,6 +60,9 @@ extern "C" {
 
 /** @brief Flag indicating that maximum buffer usage is tracked. */
 #define MPSC_PBUF_MAX_UTILIZATION BIT(2)
+
+/** @brief Flag indicated that buffer is currently full. */
+#define MPSC_PBUF_FULL BIT(3)
 
 /**@} */
 

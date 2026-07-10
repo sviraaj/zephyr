@@ -16,6 +16,7 @@
 #define ZEPHYR_INCLUDE_NET_ETHERNET_BRIDGE_H_
 
 #include <zephyr/sys/slist.h>
+#include <zephyr/sys/iterable_sections.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,6 +35,7 @@ struct eth_bridge {
 	struct k_mutex lock;
 	sys_slist_t interfaces;
 	sys_slist_t listeners;
+	bool initialized;
 };
 
 #define ETH_BRIDGE_INITIALIZER(obj) \
@@ -54,6 +56,8 @@ struct eth_bridge {
 	STRUCT_SECTION_ITERABLE(eth_bridge, name) = \
 		ETH_BRIDGE_INITIALIZER(name)
 
+/** @cond INTERNAL_HIDDEN */
+
 struct eth_bridge_iface_context {
 	sys_snode_t node;
 	struct eth_bridge *instance;
@@ -64,6 +68,8 @@ struct eth_bridge_listener {
 	sys_snode_t node;
 	struct k_fifo pkt_queue;
 };
+
+/** @endcond */
 
 /**
  * @brief Add an Ethernet network interface to a bridge

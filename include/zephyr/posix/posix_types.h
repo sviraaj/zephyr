@@ -4,17 +4,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_INCLUDE_POSIX_SYS_TYPES_H_
-#define ZEPHYR_INCLUDE_POSIX_SYS_TYPES_H_
+#ifndef ZEPHYR_INCLUDE_POSIX_TYPES_H_
+#define ZEPHYR_INCLUDE_POSIX_TYPES_H_
 
-#ifndef CONFIG_ARCH_POSIX
+#if !(defined(CONFIG_ARCH_POSIX) && defined(CONFIG_EXTERNAL_LIBC))
 #include <sys/types.h>
+#endif
+
+#ifdef CONFIG_NEWLIB_LIBC
+#include <sys/_pthreadtypes.h>
 #endif
 
 #include <zephyr/kernel.h>
 
 #ifdef __cplusplus
 extern "C" {
+#endif
+
+#if !defined(CONFIG_ARCMWDT_LIBC)
+typedef int pid_t;
 #endif
 
 #ifndef __useconds_t_defined
@@ -31,68 +39,77 @@ typedef uint32_t clockid_t;
 typedef unsigned long timer_t;
 #endif
 
-#ifdef CONFIG_PTHREAD_IPC
 /* Thread attributes */
-typedef struct pthread_attr_t {
-	int priority;
+struct pthread_attr {
 	void *stack;
-	size_t stacksize;
-	uint32_t flags;
-	uint32_t delayedstart;
-	uint32_t schedpolicy;
-	int32_t detachstate;
-	uint32_t initialized;
-} pthread_attr_t;
+	uint32_t details[2];
+};
 
-typedef void *pthread_t;
+#if defined(CONFIG_MINIMAL_LIBC) || defined(CONFIG_PICOLIBC) || defined(CONFIG_ARMCLANG_STD_LIBC) \
+	|| defined(CONFIG_ARCMWDT_LIBC)
+typedef struct pthread_attr pthread_attr_t;
+#endif
+
+BUILD_ASSERT(sizeof(pthread_attr_t) >= sizeof(struct pthread_attr));
+
+typedef uint32_t pthread_t;
+typedef uint32_t pthread_spinlock_t;
 
 /* Semaphore */
 typedef struct k_sem sem_t;
 
 /* Mutex */
-typedef struct pthread_mutex {
-	pthread_t owner;
-	uint16_t lock_count;
-	int type;
-	_wait_q_t wait_q;
-} pthread_mutex_t;
+typedef uint32_t pthread_mutex_t;
 
-typedef struct pthread_mutexattr {
-	int type;
-} pthread_mutexattr_t;
+struct pthread_mutexattr {
+	unsigned char type: 2;
+	bool initialized: 1;
+};
+#if defined(CONFIG_MINIMAL_LIBC) || defined(CONFIG_PICOLIBC) || defined(CONFIG_ARMCLANG_STD_LIBC) \
+	|| defined(CONFIG_ARCMWDT_LIBC)
+typedef struct pthread_mutexattr pthread_mutexattr_t;
+#endif
+BUILD_ASSERT(sizeof(pthread_mutexattr_t) >= sizeof(struct pthread_mutexattr));
 
 /* Condition variables */
-typedef struct pthread_cond {
-	_wait_q_t wait_q;
-} pthread_cond_t;
+typedef uint32_t pthread_cond_t;
 
-typedef struct pthread_condattr {
-} pthread_condattr_t;
+struct pthread_condattr {
+	clockid_t clock;
+};
+
+#if defined(CONFIG_MINIMAL_LIBC) || defined(CONFIG_PICOLIBC) || defined(CONFIG_ARMCLANG_STD_LIBC) \
+	|| defined(CONFIG_ARCMWDT_LIBC)
+typedef struct pthread_condattr pthread_condattr_t;
+#endif
+BUILD_ASSERT(sizeof(pthread_condattr_t) >= sizeof(struct pthread_condattr));
 
 /* Barrier */
-typedef struct pthread_barrier {
-	_wait_q_t wait_q;
-	int max;
-	int count;
-} pthread_barrier_t;
+typedef uint32_t pthread_barrier_t;
 
 typedef struct pthread_barrierattr {
+	int pshared;
 } pthread_barrierattr_t;
 
 typedef uint32_t pthread_rwlockattr_t;
 
-typedef struct pthread_rwlock_obj {
-	struct k_sem rd_sem;
-	struct k_sem wr_sem;
-	struct k_sem reader_active;/* blocks WR till reader has acquired lock */
-	int32_t status;
-	k_tid_t wr_owner;
-} pthread_rwlock_t;
+typedef uint32_t pthread_rwlock_t;
 
-#endif /* CONFIG_PTHREAD_IPC */
+struct pthread_once {
+	bool flag;
+};
+
+#if defined(CONFIG_MINIMAL_LIBC) || defined(CONFIG_PICOLIBC) || defined(CONFIG_ARMCLANG_STD_LIBC) \
+	|| defined(CONFIG_ARCMWDT_LIBC)
+typedef uint32_t pthread_key_t;
+typedef struct pthread_once pthread_once_t;
+#endif
+
+/* Newlib typedefs pthread_once_t as a struct with two ints */
+BUILD_ASSERT(sizeof(pthread_once_t) >= sizeof(struct pthread_once));
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif	/* ZEPHYR_INCLUDE_POSIX_SYS_TYPES_H_ */
+#endif	/* ZEPHYR_INCLUDE_POSIX_TYPES_H_ */

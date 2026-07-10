@@ -14,6 +14,8 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/types.h>
 
+#include <soc.h>
+
 #define UART_RXTX_ADDR		DT_INST_REG_ADDR_BY_NAME(0, rxtx)
 #define UART_TXFULL_ADDR	DT_INST_REG_ADDR_BY_NAME(0, txfull)
 #define UART_RXEMPTY_ADDR	DT_INST_REG_ADDR_BY_NAME(0, rxempty)
@@ -267,14 +269,14 @@ static void uart_liteuart_irq_callback_set(const struct device *dev,
 static void liteuart_uart_irq_handler(const struct device *dev)
 {
 	struct uart_liteuart_data *data = dev->data;
-	int key = irq_lock();
+	unsigned int key = irq_lock();
 
 	if (data->callback) {
 		data->callback(dev, data->cb_data);
 	}
 
-	/* clear events */
-	litex_write8(UART_EV_TX | UART_EV_RX, UART_EV_PENDING_ADDR);
+	/* Clear RX events, TX events still needed to enqueue the next transfer */
+	litex_write8(UART_EV_RX, UART_EV_PENDING_ADDR);
 
 	irq_unlock(key);
 }

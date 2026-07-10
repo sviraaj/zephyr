@@ -7,7 +7,7 @@
 
 #define DT_DRV_COMPAT nxp_imx_usdhc
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/sdhc.h>
 #include <zephyr/sd/sd_spec.h>
@@ -15,18 +15,17 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <soc.h>
-#ifdef CONFIG_PINCTRL
 #include <zephyr/drivers/pinctrl.h>
 #define PINCTRL_STATE_SLOW PINCTRL_STATE_PRIV_START
 #define PINCTRL_STATE_MED (PINCTRL_STATE_PRIV_START + 1U)
 #define PINCTRL_STATE_FAST (PINCTRL_STATE_PRIV_START + 2U)
 #define PINCTRL_STATE_NOPULL (PINCTRL_STATE_PRIV_START + 3U)
-#endif
 
 LOG_MODULE_REGISTER(usdhc, CONFIG_SDHC_LOG_LEVEL);
 
 #include <fsl_usdhc.h>
 #include <fsl_cache.h>
+#include <zephyr/irq.h>
 
 enum transfer_callback_status {
 	TRANSFER_CMD_COMPLETE = BIT(0),
@@ -69,13 +68,14 @@ struct usdhc_config {
 	uint32_t power_delay_ms;
 	uint32_t min_bus_freq;
 	uint32_t max_bus_freq;
-#ifdef CONFIG_PINCTRL
+	bool mmc_hs200_1_8v;
+	bool mmc_hs400_1_8v;
 	const struct pinctrl_dev_config *pincfg;
-#endif
 	void (*irq_config_func)(const struct device *dev);
 };
 
 struct usdhc_data {
+	const struct device *dev;
 	struct sdhc_host_props props;
 	bool card_present;
 	struct k_sem transfer_sem;
@@ -83,7 +83,10 @@ struct usdhc_data {
 	usdhc_handle_t transfer_handle;
 	struct sdhc_io host_io;
 	struct k_mutex access_mutex;
-	uint8_t usdhc_rx_dummy[64] __aligned(32);
+	sdhc_interrupt_cb_t sdhc_cb;
+	struct gpio_callback cd_callback;
+	void *sdhc_cb_user_data;
+	uint8_t usdhc_rx_dummy[128] __aligned(32);
 #ifdef CONFIG_IMX_USDHC_DMA_SUPPORT
 	uint32_t *usdhc_dma_descriptor; /* ADMA descriptor table (noncachable) */
 	uint32_t dma_descriptor_len; /* DMA descriptor table length in words */
@@ -108,20 +111,72 @@ static void transfer_complete_cb(USDHC_Type *usdhc, usdhc_handle_t *handle,
 	k_sem_give(&data->transfer_sem);
 }
 
+
+static void sdio_interrupt_cb(USDHC_Type *usdhc, void *user_data)
+{
+	const struct device *dev = user_data;
+	struct usdhc_data *data = dev->data;
+
+	if (data->sdhc_cb) {
+		data->sdhc_cb(dev, SDHC_INT_SDIO, data->sdhc_cb_user_data);
+	}
+}
+
+static void card_inserted_cb(USDHC_Type *usdhc, void *user_data)
+{
+	const struct device *dev = user_data;
+	struct usdhc_data *data = dev->data;
+
+	if (data->sdhc_cb) {
+		data->sdhc_cb(dev, SDHC_INT_INSERTED, data->sdhc_cb_user_data);
+	}
+}
+
+static void card_removed_cb(USDHC_Type *usdhc, void *user_data)
+{
+	const struct device *dev = user_data;
+	struct usdhc_data *data = dev->data;
+
+	if (data->sdhc_cb) {
+		data->sdhc_cb(dev, SDHC_INT_REMOVED, data->sdhc_cb_user_data);
+	}
+}
+
+static void card_detect_gpio_cb(const struct device *port,
+				struct gpio_callback *cb,
+				gpio_port_pins_t pins)
+{
+	struct usdhc_data *data = CONTAINER_OF(cb, struct usdhc_data, cd_callback);
+	const struct device *dev = data->dev;
+	const struct usdhc_config *cfg = dev->config;
+
+	if (data->sdhc_cb) {
+		if (gpio_pin_get_dt(&cfg->detect_gpio)) {
+			data->sdhc_cb(dev, SDHC_INT_INSERTED, data->sdhc_cb_user_data);
+		} else {
+			data->sdhc_cb(dev, SDHC_INT_REMOVED, data->sdhc_cb_user_data);
+		}
+	}
+}
+
+static void imx_usdhc_select_1_8v(USDHC_Type *base, bool enable_1_8v)
+{
+#if !(defined(FSL_FEATURE_USDHC_HAS_NO_VOLTAGE_SELECT) && \
+	(FSL_FEATURE_USDHC_HAS_NO_VOLTAGE_SELECT))
+	UDSHC_SelectVoltage(base, enable_1_8v);
+#endif
+}
+
+
 static int imx_usdhc_dat3_pull(const struct usdhc_config *cfg, bool pullup)
 {
 	int ret = 0U;
 
-#ifdef CONFIG_PINCTRL
 	ret = pinctrl_apply_state(cfg->pincfg, PINCTRL_STATE_NOPULL);
 	if (ret) {
 		LOG_ERR("No DAT3 floating state defined, but dat3 detect selected");
 		return ret;
 	}
-#else
-	/* Call board specific function to pull down DAT3 */
-	imxrt_usdhc_dat3_pull(pullup);
-#endif
 #ifdef CONFIG_IMX_USDHC_DAT3_PWR_TOGGLE
 	if (!pullup) {
 		/* Power off the card to clear DAT3 legacy status */
@@ -196,6 +251,10 @@ static void imx_usdhc_init_host_props(const struct device *dev)
 	props->host_caps.ddr50_support = (bool)(caps.flags & kUSDHC_SupportDDR50Flag);
 	props->host_caps.sdr104_support = (bool)(caps.flags & kUSDHC_SupportSDR104Flag);
 	props->host_caps.sdr50_support = (bool)(caps.flags & kUSDHC_SupportSDR50Flag);
+	props->host_caps.bus_8_bit_support = (bool)(caps.flags & kUSDHC_Support8BitFlag);
+	props->host_caps.bus_4_bit_support = (bool)(caps.flags & kUSDHC_Support4BitFlag);
+	props->host_caps.hs200_support = (bool)(cfg->mmc_hs200_1_8v);
+	props->host_caps.hs400_support = (bool)(cfg->mmc_hs400_1_8v);
 }
 
 /*
@@ -205,7 +264,7 @@ static int imx_usdhc_reset(const struct device *dev)
 {
 	const struct usdhc_config *cfg = dev->config;
 	/* Switch to default I/O voltage of 3.3V */
-	UDSHC_SelectVoltage(cfg->base, false);
+	imx_usdhc_select_1_8v(cfg->base, false);
 	USDHC_EnableDDRMode(cfg->base, false, 0U);
 #if defined(FSL_FEATURE_USDHC_HAS_SDR50_MODE) && (FSL_FEATURE_USDHC_HAS_SDR50_MODE)
 	USDHC_EnableStandardTuning(cfg->base, 0, 0, false);
@@ -220,22 +279,7 @@ static int imx_usdhc_reset(const struct device *dev)
 #endif
 
 	/* Reset data/command/tuning circuit */
-	return USDHC_Reset(cfg->base, kUSDHC_ResetAll, 100U) == true ? 0 : -ETIMEDOUT;
-}
-
-/* Wait for USDHC to gate clock when it is disabled */
-static inline void imx_usdhc_wait_clock_gate(USDHC_Type *base)
-{
-	uint32_t timeout = 1000;
-
-	while (timeout--) {
-		if (base->PRES_STATE & USDHC_PRES_STATE_SDOFF_MASK) {
-			break;
-		}
-	}
-	if (timeout == 0) {
-		LOG_WRN("SD clock did not gate in time");
-	}
+	return USDHC_Reset(cfg->base, kUSDHC_ResetAll, 1000U) == true ? 0 : -ETIMEDOUT;
 }
 
 /*
@@ -270,6 +314,7 @@ static int imx_usdhc_set_io(const struct device *dev, struct sdhc_io *ios)
 		if (ios->clock != 0) {
 			/* Enable the clock output */
 			bus_clk = USDHC_SetSdClock(cfg->base, src_clk_hz, ios->clock);
+			LOG_DBG("BUS CLOCK: %d", bus_clk);
 			if (bus_clk == 0) {
 				return -ENOTSUP;
 			}
@@ -301,7 +346,7 @@ static int imx_usdhc_set_io(const struct device *dev, struct sdhc_io *ios)
 		switch (ios->signal_voltage) {
 		case SD_VOL_3_3_V:
 		case SD_VOL_3_0_V:
-			UDSHC_SelectVoltage(cfg->base, false);
+			imx_usdhc_select_1_8v(cfg->base, false);
 			break;
 		case SD_VOL_1_8_V:
 			/**
@@ -315,7 +360,7 @@ static int imx_usdhc_set_io(const struct device *dev, struct sdhc_io *ios)
 			 * 10 ms, then allow it to be gated again.
 			 */
 			/* Switch to 1.8V */
-			UDSHC_SelectVoltage(cfg->base, true);
+			imx_usdhc_select_1_8v(cfg->base, true);
 			/* Wait 10 ms- clock will be gated during this period */
 			k_msleep(10);
 			/* Force the clock on */
@@ -334,16 +379,10 @@ static int imx_usdhc_set_io(const struct device *dev, struct sdhc_io *ios)
 
 	/* Set card power */
 	if ((host_io->power_mode != ios->power_mode) && (cfg->pwr_gpio.port)) {
-		if (host_io->power_mode == SDHC_POWER_ON) {
-			/* Send 74 clock cycles if SD card is just powering on */
-			USDHC_SetCardActive(cfg->base, 0xFFFF);
-		}
-		if (cfg->pwr_gpio.port) {
-			if (ios->power_mode == SDHC_POWER_OFF) {
-				gpio_pin_set_dt(&cfg->pwr_gpio, 0);
-			} else if (ios->power_mode == SDHC_POWER_ON) {
-				gpio_pin_set_dt(&cfg->pwr_gpio, 1);
-			}
+		if (ios->power_mode == SDHC_POWER_OFF) {
+			gpio_pin_set_dt(&cfg->pwr_gpio, 0);
+		} else if (ios->power_mode == SDHC_POWER_ON) {
+			gpio_pin_set_dt(&cfg->pwr_gpio, 1);
 		}
 		host_io->power_mode = ios->power_mode;
 	}
@@ -354,31 +393,31 @@ static int imx_usdhc_set_io(const struct device *dev, struct sdhc_io *ios)
 		case SDHC_TIMING_LEGACY:
 		case SDHC_TIMING_HS:
 			break;
-		case SDHC_TIMING_SDR12:
-		case SDHC_TIMING_SDR25:
-#ifdef CONFIG_PINCTRL
-			pinctrl_apply_state(cfg->pincfg, PINCTRL_STATE_SLOW);
-#else
-			imxrt_usdhc_pinmux(cfg->nusdhc, false, 0, 7);
-#endif
-			break;
-		case SDHC_TIMING_SDR50:
-#ifdef CONFIG_PINCTRL
-			pinctrl_apply_state(cfg->pincfg, PINCTRL_STATE_MED);
-#else
-			imxrt_usdhc_pinmux(cfg->nusdhc, false, 2, 7);
-#endif
-			break;
-		case SDHC_TIMING_SDR104:
 		case SDHC_TIMING_DDR50:
 		case SDHC_TIMING_DDR52:
-		case SDHC_TIMING_HS200:
+			/* Enable DDR mode */
+			USDHC_EnableDDRMode(cfg->base, true, 0);
+			__fallthrough;
+		case SDHC_TIMING_SDR12:
+		case SDHC_TIMING_SDR25:
+			pinctrl_apply_state(cfg->pincfg, PINCTRL_STATE_SLOW);
+			break;
+		case SDHC_TIMING_SDR50:
+			pinctrl_apply_state(cfg->pincfg, PINCTRL_STATE_MED);
+			break;
 		case SDHC_TIMING_HS400:
-#ifdef CONFIG_PINCTRL
-			pinctrl_apply_state(cfg->pincfg, PINCTRL_STATE_FAST);
+#if FSL_FEATURE_USDHC_HAS_HS400_MODE
+			USDHC_EnableHS400Mode(cfg->base, true);
+			USDHC_EnableDDRMode(cfg->base, true, 0U);
+			USDHC_ConfigStrobeDLL(cfg->base, 7U, 4U);
+			USDHC_EnableStrobeDLL(cfg->base, true);
 #else
-			imxrt_usdhc_pinmux(cfg->nusdhc, false, 3, 7);
+			LOG_ERR("HS400 not supported for this device");
+			return -ENOTSUP;
 #endif
+		case SDHC_TIMING_SDR104:
+		case SDHC_TIMING_HS200:
+			pinctrl_apply_state(cfg->pincfg, PINCTRL_STATE_FAST);
 			break;
 		default:
 			return -ENOTSUP;
@@ -500,11 +539,21 @@ static int imx_usdhc_execute_tuning(const struct device *dev)
 	int ret;
 	bool retry_tuning = true;
 
-	cmd.index = SD_SEND_TUNING_BLOCK;
+	if ((dev_data->host_io.timing == SDHC_TIMING_HS200) ||
+		       (dev_data->host_io.timing == SDHC_TIMING_HS400)) {
+		/*Currently only reaches here when MMC */
+		cmd.index = MMC_SEND_TUNING_BLOCK;
+	} else {
+		cmd.index = SD_SEND_TUNING_BLOCK;
+	}
 	cmd.argument = 0;
 	cmd.responseType = SD_RSP_TYPE_R1;
 
-	data.blockSize = sizeof(dev_data->usdhc_rx_dummy);
+	if (dev_data->host_io.bus_width == SDHC_BUS_WIDTH8BIT) {
+		data.blockSize = sizeof(dev_data->usdhc_rx_dummy);
+	} else {
+		data.blockSize = sizeof(dev_data->usdhc_rx_dummy) / 2;
+	}
 	data.blockCount = 1;
 	data.rxData = (uint32_t *)dev_data->usdhc_rx_dummy;
 	data.dataType = kUSDHC_TransferDataTuning;
@@ -517,6 +566,7 @@ static int imx_usdhc_execute_tuning(const struct device *dev)
 	/* Disable standard tuning */
 	USDHC_EnableStandardTuning(cfg->base, IMX_USDHC_STANDARD_TUNING_START,
 		IMX_USDHC_TUNING_STEP, false);
+	USDHC_ForceClockOn(cfg->base, true);
 	/*
 	 * Tuning fail found on some SOCs is caused by the different of delay
 	 * cell, so we need to increase the tuning counter to cover the
@@ -561,6 +611,7 @@ static int imx_usdhc_execute_tuning(const struct device *dev)
 	if (USDHC_CheckStdTuningResult(cfg->base) == 0) {
 		return -EIO;
 	}
+	USDHC_ForceClockOn(cfg->base, false);
 
 	/* Enable auto tuning */
 	USDHC_EnableAutoTuning(cfg->base, true);
@@ -582,6 +633,10 @@ static int imx_usdhc_request(const struct device *dev, struct sdhc_command *cmd,
 	int busy_timeout = IMX_USDHC_DEFAULT_TIMEOUT;
 	int ret = 0;
 	int retries = (int)cmd->retries;
+
+	if (cmd->opcode == SD_GO_IDLE_STATE) {
+		USDHC_SetCardActive(cfg->base, 0xFFFF);
+	}
 
 	host_cmd.index = cmd->opcode;
 	host_cmd.argument = cmd->arg;
@@ -630,10 +685,20 @@ static int imx_usdhc_request(const struct device *dev, struct sdhc_command *cmd,
 			}
 			host_data.rxData = data->data;
 			break;
+		case MMC_CHECK_BUS_TEST:
+		case MMC_SEND_EXT_CSD:
 		case SD_APP_SEND_SCR:
 		case SD_SWITCH:
 		case SD_APP_SEND_NUM_WRITTEN_BLK:
 			host_data.rxData = data->data;
+			break;
+		case SDIO_RW_EXTENDED:
+			/* Use R/W bit to determine data direction */
+			if (host_cmd.argument & BIT(SDIO_CMD_ARG_RW_SHIFT)) {
+				host_data.txData = data->data;
+			} else {
+				host_data.rxData = data->data;
+			}
 			break;
 		default:
 			return -ENOTSUP;
@@ -688,7 +753,9 @@ static int imx_usdhc_request(const struct device *dev, struct sdhc_command *cmd,
 		if (ret == -EAGAIN) {
 			/* Retry, card made a tuning request */
 			if (dev_data->host_io.timing == SDHC_TIMING_SDR50 ||
-				dev_data->host_io.timing == SDHC_TIMING_SDR104) {
+				dev_data->host_io.timing == SDHC_TIMING_SDR104 ||
+				dev_data->host_io.timing == SDHC_TIMING_HS200 ||
+				dev_data->host_io.timing == SDHC_TIMING_HS400) {
 				/* Retune card */
 				LOG_DBG("Card made tuning request, retune");
 				ret = imx_usdhc_execute_tuning(dev);
@@ -745,8 +812,7 @@ static int imx_usdhc_get_card_present(const struct device *dev)
 	} else if (cfg->detect_gpio.port) {
 		data->card_present = gpio_pin_get_dt(&cfg->detect_gpio) > 0;
 	} else {
-		LOG_WRN("No card presence method configured, assuming card is present");
-		data->card_present = true;
+		data->card_present = USDHC_DetectCardInsert(cfg->base);
 	}
 	return ((int)data->card_present);
 }
@@ -760,6 +826,132 @@ static int imx_usdhc_get_host_props(const struct device *dev,
 	struct usdhc_data *data = dev->data;
 
 	memcpy(props, &data->props, sizeof(struct sdhc_host_props));
+	return 0;
+}
+
+/*
+ * Enable SDHC card interrupt
+ */
+static int imx_usdhc_enable_interrupt(const struct device *dev,
+				      sdhc_interrupt_cb_t callback,
+				      int sources, void *user_data)
+{
+	const struct usdhc_config *cfg = dev->config;
+	struct usdhc_data *data = dev->data;
+	int ret;
+
+	/* Record SDIO callback parameters */
+	data->sdhc_cb = callback;
+	data->sdhc_cb_user_data = user_data;
+
+	/* Disable interrupts, then enable what the user requested */
+	USDHC_DisableInterruptStatus(cfg->base, kUSDHC_CardInterruptFlag);
+	USDHC_DisableInterruptSignal(cfg->base, kUSDHC_CardInterruptFlag);
+	if (cfg->detect_gpio.port) {
+		ret = gpio_pin_interrupt_configure_dt(&cfg->detect_gpio,
+						      GPIO_INT_DISABLE);
+		if (ret) {
+			return ret;
+		}
+	} else {
+		USDHC_DisableInterruptSignal(cfg->base, kUSDHC_CardInsertionFlag);
+		USDHC_DisableInterruptStatus(cfg->base, kUSDHC_CardInsertionFlag);
+		USDHC_DisableInterruptSignal(cfg->base, kUSDHC_CardRemovalFlag);
+		USDHC_DisableInterruptStatus(cfg->base, kUSDHC_CardRemovalFlag);
+	}
+
+	if (sources & SDHC_INT_SDIO) {
+		/* Enable SDIO card interrupt */
+		USDHC_EnableInterruptStatus(cfg->base, kUSDHC_CardInterruptFlag);
+		USDHC_EnableInterruptSignal(cfg->base, kUSDHC_CardInterruptFlag);
+	}
+	if (sources & SDHC_INT_INSERTED) {
+		if (cfg->detect_gpio.port) {
+			/* Use GPIO interrupt */
+			ret = gpio_pin_interrupt_configure_dt(&cfg->detect_gpio,
+							      GPIO_INT_EDGE_TO_ACTIVE);
+			if (ret) {
+				return ret;
+			}
+		} else {
+			/* Enable card insertion interrupt */
+			USDHC_EnableInterruptStatus(cfg->base,
+						    kUSDHC_CardInsertionFlag);
+			USDHC_EnableInterruptSignal(cfg->base,
+						    kUSDHC_CardInsertionFlag);
+		}
+	}
+	if (sources & SDHC_INT_REMOVED) {
+		if (cfg->detect_gpio.port) {
+			/* Use GPIO interrupt */
+			ret = gpio_pin_interrupt_configure_dt(&cfg->detect_gpio,
+							      GPIO_INT_EDGE_TO_INACTIVE);
+			if (ret) {
+				return ret;
+			}
+		} else {
+			/* Enable card removal interrupt */
+			USDHC_EnableInterruptStatus(cfg->base,
+						    kUSDHC_CardRemovalFlag);
+			USDHC_EnableInterruptSignal(cfg->base,
+						    kUSDHC_CardRemovalFlag);
+		}
+	}
+
+	return 0;
+}
+
+static int imx_usdhc_disable_interrupt(const struct device *dev, int sources)
+{
+	const struct usdhc_config *cfg = dev->config;
+	struct usdhc_data *data = dev->data;
+	int ret;
+
+
+	if (sources & SDHC_INT_SDIO) {
+		/* Disable SDIO card interrupt */
+		USDHC_DisableInterruptStatus(cfg->base, kUSDHC_CardInterruptFlag);
+		USDHC_DisableInterruptSignal(cfg->base, kUSDHC_CardInterruptFlag);
+	}
+	if (sources & SDHC_INT_INSERTED) {
+		if (cfg->detect_gpio.port) {
+			ret = gpio_pin_interrupt_configure_dt(&cfg->detect_gpio,
+							      GPIO_INT_DISABLE);
+			if (ret) {
+				return ret;
+			}
+		} else {
+			/* Disable card insertion interrupt */
+			USDHC_DisableInterruptStatus(cfg->base,
+						     kUSDHC_CardInsertionFlag);
+			USDHC_DisableInterruptSignal(cfg->base,
+						     kUSDHC_CardInsertionFlag);
+		}
+	}
+	if (sources & SDHC_INT_REMOVED) {
+		if (cfg->detect_gpio.port) {
+			ret = gpio_pin_interrupt_configure_dt(&cfg->detect_gpio,
+							      GPIO_INT_DISABLE);
+			if (ret) {
+				return ret;
+			}
+		} else {
+			/* Disable card removal interrupt */
+			USDHC_DisableInterruptStatus(cfg->base,
+						     kUSDHC_CardRemovalFlag);
+			USDHC_DisableInterruptSignal(cfg->base,
+						     kUSDHC_CardRemovalFlag);
+		}
+	}
+
+	/* If all interrupt flags are disabled, remove callback */
+	if ((USDHC_GetEnabledInterruptStatusFlags(cfg->base) &
+	    (kUSDHC_CardInterruptFlag | kUSDHC_CardInsertionFlag |
+	     kUSDHC_CardRemovalFlag)) == 0) {
+		data->sdhc_cb = NULL;
+		data->sdhc_cb_user_data = NULL;
+	}
+
 	return 0;
 }
 
@@ -783,15 +975,20 @@ static int imx_usdhc_init(const struct device *dev)
 	int ret;
 	const usdhc_transfer_callback_t callbacks = {
 		.TransferComplete = transfer_complete_cb,
+		.SdioInterrupt = sdio_interrupt_cb,
+		.CardInserted = card_inserted_cb,
+		.CardRemoved = card_removed_cb,
 	};
 
+	if (!device_is_ready(cfg->clock_dev)) {
+		LOG_ERR("clock control device not ready");
+		return -ENODEV;
+	}
 
-#ifdef CONFIG_PINCTRL
 	ret = pinctrl_apply_state(cfg->pincfg, PINCTRL_STATE_DEFAULT);
 	if (ret) {
 		return ret;
 	}
-#endif
 	USDHC_TransferCreateHandle(cfg->base, &data->transfer_handle,
 		&callbacks, (void *)dev);
 	cfg->irq_config_func(dev);
@@ -819,9 +1016,24 @@ static int imx_usdhc_init(const struct device *dev)
 		if (ret) {
 			return ret;
 		}
+		gpio_init_callback(&data->cd_callback, card_detect_gpio_cb,
+				   BIT(cfg->detect_gpio.pin));
+		ret = gpio_add_callback_dt(&cfg->detect_gpio, &data->cd_callback);
+		if (ret) {
+			return ret;
+		}
 	}
+	data->dev = dev;
 	k_mutex_init(&data->access_mutex);
-	memset(&data->host_io, 0, sizeof(data->host_io));
+	/* Setup initial host IO values */
+	data->host_io.clock = 0;
+	data->host_io.bus_mode = SDHC_BUSMODE_PUSHPULL;
+	data->host_io.power_mode = SDHC_POWER_OFF;
+	data->host_io.bus_width = SDHC_BUS_WIDTH1BIT;
+	data->host_io.timing = SDHC_TIMING_LEGACY;
+	data->host_io.driver_type = SD_DRIVER_TYPE_B;
+	data->host_io.signal_voltage = SD_VOL_3_3_V;
+
 	return k_sem_init(&data->transfer_sem, 0, 1);
 }
 
@@ -833,21 +1045,21 @@ static const struct sdhc_driver_api usdhc_api = {
 	.execute_tuning = imx_usdhc_execute_tuning,
 	.card_busy = imx_usdhc_card_busy,
 	.get_host_props = imx_usdhc_get_host_props,
+	.enable_interrupt = imx_usdhc_enable_interrupt,
+	.disable_interrupt = imx_usdhc_disable_interrupt,
 };
 
-#ifdef CONFIG_PINCTRL
-#define IMX_USDHC_PINCTRL_DEFINE(n) PINCTRL_DT_INST_DEFINE(n);
-#define IMX_USDHC_PINCTRL_INIT(n) .pincfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),
+#ifdef CONFIG_NOCACHE_MEMORY
+#define IMX_USDHC_NOCACHE_TAG __attribute__((__section__(".nocache")));
 #else
-#define IMX_USDHC_PINCTRL_DEFINE(n)
-#define IMX_USDHC_PINCTRL_INIT(n)
+#define IMX_USDHC_NOCACHE_TAG
 #endif
 
 #ifdef CONFIG_IMX_USDHC_DMA_SUPPORT
 #define IMX_USDHC_DMA_BUFFER_DEFINE(n)						\
 	static uint32_t	__aligned(32)						\
 		usdhc_##n##_dma_descriptor[CONFIG_IMX_USDHC_DMA_BUFFER_SIZE / 4]\
-		__attribute__((__section__(".nocache")));
+		IMX_USDHC_NOCACHE_TAG;
 #define IMX_USDHC_DMA_BUFFER_INIT(n)						\
 	.usdhc_dma_descriptor = usdhc_##n##_dma_descriptor,			\
 	.dma_descriptor_len = CONFIG_IMX_USDHC_DMA_BUFFER_SIZE / 4,
@@ -866,7 +1078,7 @@ static const struct sdhc_driver_api usdhc_api = {
 		irq_enable(DT_INST_IRQN(n));					\
 	}									\
 										\
-	IMX_USDHC_PINCTRL_DEFINE(n)						\
+	PINCTRL_DT_INST_DEFINE(n);						\
 										\
 	static const struct usdhc_config usdhc_##n##_config = {			\
 		.base = (USDHC_Type *) DT_INST_REG_ADDR(n),			\
@@ -886,8 +1098,10 @@ static const struct sdhc_driver_api usdhc_api = {
 		.min_bus_freq = DT_INST_PROP(n, min_bus_freq),			\
 		.max_bus_freq = DT_INST_PROP(n, max_bus_freq),			\
 		.power_delay_ms = DT_INST_PROP(n, power_delay_ms),		\
+		.mmc_hs200_1_8v = DT_INST_PROP(n, mmc_hs200_1_8v),		\
+		.mmc_hs400_1_8v = DT_INST_PROP(n, mmc_hs400_1_8v),              \
 		.irq_config_func = usdhc_##n##_irq_config_func,			\
-		IMX_USDHC_PINCTRL_INIT(n)					\
+		.pincfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),			\
 	};									\
 										\
 										\

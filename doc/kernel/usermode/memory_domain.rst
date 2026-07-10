@@ -74,10 +74,24 @@ Thread Stack
 ************
 
 Any thread running in user mode will need access to its own stack buffer.
-On context switch into a user mode thread, a dedicated MPU region will be
-programmed with the bounds of the stack buffer. A thread exceeding its stack
-buffer will start pushing data onto memory it doesn't have access to and a
-memory access violation exception will be generated.
+On context switch into a user mode thread, a dedicated MPU region or MMU
+page table entries will be programmed with the bounds of the stack buffer.
+A thread exceeding its stack buffer will start pushing data onto memory
+it doesn't have access to and a memory access violation exception will be
+generated.
+
+Note that user threads have access to the stacks of other user threads in
+the same memory domain. This is the minimum required for architectures to
+support memory domains. Architecture can further restrict access to stacks
+so each user thread only has access to its own stack if such architecture
+advertises this capability via
+:kconfig:option:`CONFIG_ARCH_MEM_DOMAIN_SUPPORTS_ISOLATED_STACKS`.
+This behavior is enabled by default if supported and can be selectively
+disabled via :kconfig:option:`CONFIG_MEM_DOMAIN_ISOLATED_STACKS` if
+architecture supports both operating modes. However, some architectures
+may decide to enable this all the time, and thus this option cannot be
+disabled. Regardless of these kconfigs, user threads cannot access
+the stacks of other user threads outside of their memory domains.
 
 Thread Resource Pools
 *********************
@@ -85,9 +99,9 @@ Thread Resource Pools
 A small subset of kernel APIs, invoked as system calls, require heap memory
 allocations. This memory is used only by the kernel and is not accessible
 directly by user mode. In order to use these system calls, invoking threads
-must assign themselves to a resource pool, which is a k_mem_pool object.
-Memory is drawn from a thread's resource pool using :c:func:`z_thread_malloc`
-and freed with :c:func:`k_free`.
+must assign themselves to a resource pool, which is a :c:struct:`k_heap`
+object. Memory is drawn from a thread's resource pool using
+:c:func:`z_thread_malloc` and freed with :c:func:`k_free`.
 
 The APIs which use resource pools are as follows, with any alternatives
 noted for users who do not want heap allocations within their application:
@@ -270,7 +284,7 @@ Automatic Partitions for Static Library Globals
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The build-time logic for setting up automatic memory partitions is in
-``scripts/gen_app_partitions.py``. If a static library is linked into Zephyr,
+``scripts/build/gen_app_partitions.py``. If a static library is linked into Zephyr,
 it is possible to route all the globals in that library to a specific
 memory partition with the ``--library`` argument.
 
@@ -305,7 +319,7 @@ There are a few memory partitions which are pre-defined by the system:
 
  - ``z_libc_partition`` - Contains globals required by the C library and runtime.
    Required when using either the Minimal C library or the Newlib C Library.
-   Required when option:`CONFIG_STACK_CANARIES` is enabled.
+   Required when :kconfig:option:`CONFIG_STACK_CANARIES` is enabled.
 
 Library-specific partitions are listed in ``include/app_memory/partitions.h``.
 For example, to use the MBEDTLS library from user mode, the
@@ -419,7 +433,7 @@ dependent.
 
 The complete list of available partition attributes for a specific architecture
 is found in the architecture-specific include file
-``include/arch/<arch name>/arch.h``, (for example, ``include/arch/arm/aarch32/arch.h``.)
+``include/zephyr/arch/<arch name>/arch.h``, (for example, ``include/zehpyr/arch/arm/arch.h``.)
 Some examples of partition attributes are:
 
 .. code-block:: c

@@ -7,6 +7,10 @@
 #ifndef ZEPHYR_INCLUDE_TOOLCHAIN_GCC_H_
 #define ZEPHYR_INCLUDE_TOOLCHAIN_GCC_H_
 
+#ifndef ZEPHYR_INCLUDE_TOOLCHAIN_H_
+#error Please do not include toolchain-specific headers directly, use <zephyr/toolchain.h> instead
+#endif
+
 /**
  * @file
  * @brief GCC toolchain abstraction
@@ -14,21 +18,23 @@
  * Macros to abstract compiler capabilities for GCC toolchain.
  */
 
-#define GCC_VERSION \
+#define TOOLCHAIN_GCC_VERSION \
 	((__GNUC__ * 10000) + (__GNUC_MINOR__ * 100) + __GNUC_PATCHLEVEL__)
 
 /* GCC supports #pragma diagnostics since 4.6.0 */
-#if !defined(TOOLCHAIN_HAS_PRAGMA_DIAG) && (GCC_VERSION >= 40600)
+#if !defined(TOOLCHAIN_HAS_PRAGMA_DIAG) && (TOOLCHAIN_GCC_VERSION >= 40600)
 #define TOOLCHAIN_HAS_PRAGMA_DIAG 1
 #endif
 
-#if !defined(TOOLCHAIN_HAS_C_GENERIC) && (GCC_VERSION >= 40900)
+#if !defined(TOOLCHAIN_HAS_C_GENERIC) && (TOOLCHAIN_GCC_VERSION >= 40900)
 #define TOOLCHAIN_HAS_C_GENERIC 1
 #endif
 
-#if !defined(TOOLCHAIN_HAS_C_AUTO_TYPE) && (GCC_VERSION >= 40900)
+#if !defined(TOOLCHAIN_HAS_C_AUTO_TYPE) && (TOOLCHAIN_GCC_VERSION >= 40900)
 #define TOOLCHAIN_HAS_C_AUTO_TYPE 1
 #endif
+
+#define TOOLCHAIN_HAS_ZLA 1
 
 /*
  * Older versions of GCC do not define __BYTE_ORDER__, so it must be manually
@@ -64,17 +70,21 @@
 #endif
 
 
+#undef BUILD_ASSERT /* clear out common version */
 /* C++11 has static_assert built in */
 #if defined(__cplusplus) && (__cplusplus >= 201103L)
 #define BUILD_ASSERT(EXPR, MSG...) static_assert(EXPR, "" MSG)
 
 /*
- * GCC 4.6 and higher have the C11 _Static_assert built in, and its
+ * GCC 4.6 and higher have the C11 _Static_assert built in and its
  * output is easier to understand than the common BUILD_ASSERT macros.
+ * Don't use this in C++98 mode though (which we can hit, as
+ * static_assert() is not available)
  */
-#elif (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)) || \
-	(__STDC_VERSION__) >= 201100
-#define BUILD_ASSERT(EXPR, MSG...) _Static_assert(EXPR, "" MSG)
+#elif !defined(__cplusplus) && \
+	(((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 6))) ||	\
+	 (__STDC_VERSION__) >= 201100)
+#define BUILD_ASSERT(EXPR, MSG...) _Static_assert((EXPR), "" MSG)
 #else
 #define BUILD_ASSERT(EXPR, MSG...)
 #endif
@@ -93,7 +103,7 @@
 #define FUNC_ALIAS(real_func, new_alias, return_type) \
 	return_type new_alias() ALIAS_OF(real_func)
 
-#if defined(CONFIG_ARCH_POSIX)
+#if defined(CONFIG_ARCH_POSIX) && !defined(_ASMLANGUAGE)
 #include <zephyr/arch/posix/posix_trace.h>
 
 /*let's not segfault if this were to happen for some reason*/
@@ -119,16 +129,16 @@
 #endif
 
 /* Unaligned access */
-#define UNALIGNED_GET(p)						\
+#define UNALIGNED_GET(g)						\
 __extension__ ({							\
 	struct  __attribute__((__packed__)) {				\
-		__typeof__(*(p)) __v;					\
-	} *__p = (__typeof__(__p)) (p);					\
-	__p->__v;							\
+		__typeof__(*(g)) __v;					\
+	} *__g = (__typeof__(__g)) (g);					\
+	__g->__v;							\
 })
 
 
-#if __GNUC__ >= 7 && (defined(CONFIG_ARM) || defined(CONFIG_ARM64))
+#if (__GNUC__ >= 7) && (defined(CONFIG_ARM) || defined(CONFIG_ARM64))
 
 /* Version of UNALIGNED_PUT() which issues a compiler_barrier() after
  * the store. It is required to workaround an apparent optimization
@@ -190,8 +200,13 @@ do {                                                                    \
 #if !defined(CONFIG_XIP)
 #define __ramfunc
 #elif defined(CONFIG_ARCH_HAS_RAMFUNC_SUPPORT)
+#if defined(CONFIG_ARM)
 #define __ramfunc	__attribute__((noinline))			\
 			__attribute__((long_call, section(".ramfunc")))
+#else
+#define __ramfunc	__attribute__((noinline))			\
+			__attribute__((section(".ramfunc")))
+#endif
 #endif /* !CONFIG_XIP */
 
 #ifndef __fallthrough
@@ -205,29 +220,51 @@ do {                                                                    \
 #ifndef __packed
 #define __packed        __attribute__((__packed__))
 #endif
+
 #ifndef __aligned
 #define __aligned(x)	__attribute__((__aligned__(x)))
 #endif
+
 #define __may_alias     __attribute__((__may_alias__))
+
 #ifndef __printf_like
+#ifdef CONFIG_ENFORCE_ZEPHYR_STDINT
 #define __printf_like(f, a)   __attribute__((format (printf, f, a)))
+#else
+/*
+ * The Zephyr stdint convention enforces int32_t = int, int64_t = long long,
+ * and intptr_t = long so that short string format length modifiers can be
+ * used universally across ILP32 and LP64 architectures. Without that it
+ * is possible for ILP32 toolchains to have int32_t = long and intptr_t = int
+ * clashing with the Zephyr convention and generating pointless warnings
+ * as they're still the same size. Inhibit the format argument type
+ * validation in that case and let the other configs do it.
+ */
+#define __printf_like(f, a)
 #endif
+#endif
+
 #define __used		__attribute__((__used__))
+#define __unused	__attribute__((__unused__))
+#define __maybe_unused	__attribute__((__unused__))
+
 #ifndef __deprecated
 #define __deprecated	__attribute__((deprecated))
 #endif
+
 #ifndef __attribute_const__
 #define __attribute_const__ __attribute__((__const__))
 #endif
+
 #ifndef __must_check
 #define __must_check __attribute__((warn_unused_result))
 #endif
+
 #define ARG_UNUSED(x) (void)(x)
 
-#define likely(x)   __builtin_expect((bool)!!(x), true)
-#define unlikely(x) __builtin_expect((bool)!!(x), false)
-
-#define popcount(x) __builtin_popcount(x)
+#define likely(x)   (__builtin_expect((bool)!!(x), true) != 0L)
+#define unlikely(x) (__builtin_expect((bool)!!(x), false) != 0L)
+#define POPCOUNT(x) __builtin_popcount(x)
 
 #ifndef __no_optimization
 #define __no_optimization __attribute__((optimize("-O0")))
@@ -236,7 +273,10 @@ do {                                                                    \
 #ifndef __weak
 #define __weak __attribute__((__weak__))
 #endif
-#define __unused __attribute__((__unused__))
+
+#ifndef __attribute_nonnull
+#define __attribute_nonnull(...) __attribute__((nonnull(__VA_ARGS__)))
+#endif
 
 /* Builtins with availability that depend on the compiler version. */
 #if __GNUC__ >= 5
@@ -287,7 +327,7 @@ do {                                                                    \
 
 #else
 
-#define FUNC_CODE() .code 32
+#define FUNC_CODE() .code 32;
 #define FUNC_INSTR(a)
 
 #endif /* CONFIG_ASSEMBLER_ISA_THUMB2 */
@@ -550,7 +590,7 @@ do {                                                                    \
 		/* random suffix to avoid naming conflict */ \
 		__typeof__(a) _value_a_ = (a); \
 		__typeof__(b) _value_b_ = (b); \
-		_value_a_ > _value_b_ ? _value_a_ : _value_b_; \
+		(_value_a_ > _value_b_) ? _value_a_ : _value_b_; \
 	})
 
 /** @brief Return smaller value of two provided expressions.
@@ -562,7 +602,7 @@ do {                                                                    \
 		/* random suffix to avoid naming conflict */ \
 		__typeof__(a) _value_a_ = (a); \
 		__typeof__(b) _value_b_ = (b); \
-		_value_a_ < _value_b_ ? _value_a_ : _value_b_; \
+		(_value_a_ < _value_b_) ? _value_a_ : _value_b_; \
 	})
 
 /** @brief Return a value clamped to a given range.
@@ -586,15 +626,8 @@ do {                                                                    \
  * @param x Nonzero unsigned long value
  * @return X rounded up to the next power of two
  */
-#ifdef CONFIG_64BIT
-#define Z_POW2_CEIL(x) ((1UL << (63U - __builtin_clzl(x))) < x ?  \
-		1UL << (63U - __builtin_clzl(x) + 1U) : \
-		1UL << (63U - __builtin_clzl(x)))
-#else
-#define Z_POW2_CEIL(x) ((1UL << (31U - __builtin_clz(x))) < x ?  \
-		1UL << (31U - __builtin_clz(x) + 1U) : \
-		1UL << (31U - __builtin_clz(x)))
-#endif
+#define Z_POW2_CEIL(x) \
+	((x) <= 2UL ? (x) : (1UL << (8 * sizeof(long) - __builtin_clzl((x) - 1))))
 
 /**
  * @brief Check whether or not a value is a power of 2
@@ -603,6 +636,37 @@ do {                                                                    \
  * @return true if x is a power of 2, false otherwise
  */
 #define Z_IS_POW2(x) (((x) != 0) && (((x) & ((x)-1)) == 0))
+
+#if defined(CONFIG_ASAN) && defined(__clang__)
+#define __noasan __attribute__((no_sanitize("address")))
+#else
+#define __noasan /**/
+#endif
+
+#if defined(CONFIG_UBSAN)
+#define __noubsan __attribute__((no_sanitize("undefined")))
+#else
+#define __noubsan
+#endif
+
+/**
+ * @brief Function attribute to disable stack protector.
+ *
+ * @note Only supported for GCC >= 11.0.0 or Clang >= 7.
+ */
+#if (TOOLCHAIN_GCC_VERSION >= 110000) || \
+	(defined(TOOLCHAIN_CLANG_VERSION) && (TOOLCHAIN_CLANG_VERSION >= 70000))
+#define FUNC_NO_STACK_PROTECTOR __attribute__((no_stack_protector))
+#else
+#define FUNC_NO_STACK_PROTECTOR
+#endif
+
+#define TOOLCHAIN_IGNORE_WSHADOW_BEGIN \
+	_Pragma("GCC diagnostic push") \
+	_Pragma("GCC diagnostic ignored \"-Wshadow\"")
+
+#define TOOLCHAIN_IGNORE_WSHADOW_END \
+	_Pragma("GCC diagnostic pop")
 
 #endif /* !_LINKER */
 #endif /* ZEPHYR_INCLUDE_TOOLCHAIN_GCC_H_ */

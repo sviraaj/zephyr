@@ -7,7 +7,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_mgmt_sock_sample, LOG_LEVEL_DBG);
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <errno.h>
 #include <stdio.h>
 #include <zephyr/net/socket.h>
@@ -16,7 +16,7 @@ LOG_MODULE_REGISTER(net_mgmt_sock_sample, LOG_LEVEL_DBG);
 
 #define MAX_BUF_LEN 64
 #define STACK_SIZE 1024
-#if IS_ENABLED(CONFIG_NET_TC_THREAD_COOPERATIVE)
+#if defined(CONFIG_NET_TC_THREAD_COOPERATIVE)
 #define THREAD_PRIORITY K_PRIO_COOP(CONFIG_NUM_COOP_PRIORITIES - 1)
 #else
 #define THREAD_PRIORITY K_PRIO_PREEMPT(8)
@@ -82,8 +82,12 @@ static char *get_ip_addr(char *ipaddr, size_t len, sa_family_t family,
 	return buf;
 }
 
-static void listener(void)
+static void listener(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	struct sockaddr_nm sockaddr;
 	struct sockaddr_nm event_addr;
 	socklen_t event_addr_len;
@@ -155,7 +159,7 @@ static void listener(void)
 	}
 }
 
-void main(void)
+int main(void)
 {
 	/* The thread start to trigger network management events that
 	 * we then can catch.
@@ -163,9 +167,10 @@ void main(void)
 	k_thread_start(trigger_events_thread_id);
 
 	if (IS_ENABLED(CONFIG_USERSPACE)) {
-		k_thread_user_mode_enter((k_thread_entry_t)listener,
+		k_thread_user_mode_enter(listener,
 					 NULL, NULL, NULL);
 	} else {
-		listener();
+		listener(NULL, NULL, NULL);
 	}
+	return 0;
 }

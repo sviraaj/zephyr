@@ -8,7 +8,7 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
-#include <zephyr/mgmt/mcumgr/smp_bt.h>
+#include <zephyr/mgmt/mcumgr/transport/smp_bt.h>
 
 #define LOG_LEVEL LOG_LEVEL_DBG
 #include <zephyr/logging/log.h>
@@ -23,13 +23,15 @@ static const struct bt_data ad[] = {
 		      0xd3, 0x4c, 0xb7, 0x1d, 0x1d, 0xdc, 0x53, 0x8d),
 };
 
+static const struct bt_data sd[] = {
+	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
+};
+
 static void advertise(struct k_work *work)
 {
 	int rc;
 
-	bt_le_adv_stop();
-
-	rc = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+	rc = bt_le_adv_start(BT_LE_ADV_CONN_ONE_TIME, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
 	if (rc) {
 		LOG_ERR("Advertising failed to start (rc %d)", rc);
 		return;
@@ -45,43 +47,43 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	} else {
 		LOG_INF("Connected");
 	}
+
+	k_work_submit(&advertise_work);
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	LOG_INF("Disconnected (reason 0x%02x)", reason);
+}
+
+static void on_conn_recycled(void)
+{
 	k_work_submit(&advertise_work);
 }
 
 BT_CONN_CB_DEFINE(conn_callbacks) = {
 	.connected = connected,
 	.disconnected = disconnected,
+	.recycled = on_conn_recycled,
 };
 
 static void bt_ready(int err)
 {
-	if (err) {
-		LOG_ERR("Bluetooth init failed (err %d)", err);
-		return;
+	if (err != 0) {
+		LOG_ERR("Bluetooth failed to initialise: %d", err);
+	} else {
+		k_work_submit(&advertise_work);
 	}
-
-	LOG_INF("Bluetooth initialized");
-
-	k_work_submit(&advertise_work);
 }
 
-void start_smp_bluetooth(void)
+void start_smp_bluetooth_adverts(void)
 {
-	k_work_init(&advertise_work, advertise);
+	int rc;
 
-	/* Enable Bluetooth. */
-	int rc = bt_enable(bt_ready);
+	k_work_init(&advertise_work, advertise);
+	rc = bt_enable(bt_ready);
 
 	if (rc != 0) {
-		LOG_ERR("Bluetooth init failed (err %d)", rc);
-		return;
+		LOG_ERR("Bluetooth enable failed: %d", rc);
 	}
-
-	/* Initialize the Bluetooth mcumgr transport. */
-	smp_bt_register();
 }

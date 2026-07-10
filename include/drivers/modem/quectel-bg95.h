@@ -1,16 +1,16 @@
 #ifndef __MDM_QUECTEL_BG95_H__
 #define __MDM_QUECTEL_BG95_H__
 
-#include <kernel.h>
+#include <zephyr/kernel.h>
 #include <ctype.h>
 #include <errno.h>
-#include <zephyr.h>
-#include <device.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
 
-#include <net/net_if.h>
-#include <net/net_offload.h>
-#include <net/socket_offload.h>
-#include <net/http_parser.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_offload.h>
+#include <zephyr/net/socket_offload.h>
+#include <zephyr/net/http/parser.h>
 
 /* uncomment for File operations API */
 #define CONFIG_QUECTEL_BG95_FILE_OPS

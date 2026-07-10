@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 #include <zephyr/kernel.h>
 #include <cmsis_os2.h>
 
@@ -15,7 +15,7 @@ static int thread_yield_check;
 static int thread_yield_check_dynamic;
 
 static K_THREAD_STACK_DEFINE(test_stack1, STACKSZ);
-static osThreadAttr_t thread1_attr = {
+static osThreadAttr_t os_thread1_attr = {
 	.name = "Thread1",
 	.stack_mem = &test_stack1,
 	.stack_size = STACKSZ,
@@ -23,7 +23,7 @@ static osThreadAttr_t thread1_attr = {
 };
 
 static K_THREAD_STACK_DEFINE(test_stack2, STACKSZ);
-static osThreadAttr_t thread2_attr = {
+static osThreadAttr_t os_thread2_attr = {
 	.name = "Thread2",
 	.stack_mem = &test_stack2,
 	.stack_size = STACKSZ,
@@ -46,12 +46,11 @@ static void thread1(void *argument)
 	zassert_true(thread_id != NULL, "Failed getting Thread ID");
 
 	name = osThreadGetName(thread_id);
-	zassert_true(strcmp(args->name, name) == 0,
-		     "Failed getting Thread name");
+	zassert_str_equal(args->name, name, "Failed getting Thread name");
 
 	/* This thread starts off at a high priority (same as thread2) */
 	(*args->yield_check)++;
-	zassert_equal(*args->yield_check, 1, NULL);
+	zassert_equal(*args->yield_check, 1);
 
 	/* Yield to thread2 which is of same priority */
 	status = osThreadYield();
@@ -60,7 +59,7 @@ static void thread1(void *argument)
 	/* thread_yield_check should now be 2 as it was incremented
 	 * in thread2.
 	 */
-	zassert_equal(*args->yield_check, 2, NULL);
+	zassert_equal(*args->yield_check, 2);
 
 	osThreadExit();
 }
@@ -136,16 +135,16 @@ static void thread_apis_common(int *yield_check,
 	} while (*yield_check != 2);
 }
 
-void test_thread_apis_dynamic(void)
+ZTEST(cmsis_thread_apis, test_thread_apis_dynamic)
 {
 	thread_apis_common(&thread_yield_check_dynamic, "ZephyrThread",
 			   NULL, NULL);
 }
 
-void test_thread_apis(void)
+ZTEST(cmsis_thread_apis, test_thread_apis)
 {
-	thread_apis_common(&thread_yield_check, thread1_attr.name,
-			   &thread1_attr, &thread2_attr);
+	thread_apis_common(&thread_yield_check, os_thread1_attr.name,
+			   &os_thread1_attr, &os_thread2_attr);
 }
 
 static osPriority_t OsPriorityInvalid = 60;
@@ -236,12 +235,12 @@ static void thread_prior_common(int *state, osThreadAttr_t *attr)
 	*state = 0;
 }
 
-void test_thread_prio_dynamic(void)
+ZTEST(cmsis_thread_apis, test_thread_prio_dynamic)
 {
 	thread_prior_common(&thread3_state_dynamic, NULL);
 }
 
-void test_thread_prio(void)
+ZTEST(cmsis_thread_apis, test_thread_prio)
 {
 	thread_prior_common(&thread3_state, &thread3_attr);
 }
@@ -267,7 +266,7 @@ static void thread4(void *argument)
 	printk(" + Thread A joining...\n");
 }
 
-void test_thread_join(void)
+ZTEST(cmsis_thread_apis, test_thread_join)
 {
 	osThreadAttr_t attr = { 0 };
 	int64_t time_stamp;
@@ -310,7 +309,7 @@ void test_thread_join(void)
 	}
 }
 
-void test_thread_detached(void)
+ZTEST(cmsis_thread_apis, test_thread_detached)
 {
 	osThreadId_t thread;
 	osStatus_t status;
@@ -337,7 +336,7 @@ void thread6(void *argument)
 		      "Incorrect status returned from osThreadJoin!");
 }
 
-void test_thread_joinable_detach(void)
+ZTEST(cmsis_thread_apis, test_thread_joinable_detach)
 {
 	osThreadAttr_t attr = { 0 };
 	osThreadId_t tA, tB;
@@ -359,7 +358,7 @@ void test_thread_joinable_detach(void)
 	osDelay(k_ms_to_ticks_ceil32(DELTA_MS));
 }
 
-void test_thread_joinable_terminate(void)
+ZTEST(cmsis_thread_apis, test_thread_joinable_terminate)
 {
 	osThreadAttr_t attr = { 0 };
 	osThreadId_t tA, tB;
@@ -380,3 +379,4 @@ void test_thread_joinable_terminate(void)
 
 	osDelay(k_ms_to_ticks_ceil32(DELTA_MS));
 }
+ZTEST_SUITE(cmsis_thread_apis, NULL, NULL, NULL, NULL, NULL);

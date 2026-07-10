@@ -49,6 +49,11 @@
  */
 #define Z_IS_ENABLED3(ignore_this, val, ...) val
 
+/* Implementation of IS_EQ(). Returns 1 if _0 and _1 are the same integer from
+ * 0 to 4095, 0 otherwise.
+ */
+#define Z_IS_EQ(_0, _1) Z_HAS_COMMA(Z_CAT4(Z_IS_, _0, _EQ_, _1)())
+
 /* Used internally by COND_CODE_1 and COND_CODE_0. */
 #define Z_COND_CODE_1(_flag, _if_1_code, _else_code) \
 	__COND_CODE(_XXXX##_flag, _if_1_code, _else_code)
@@ -80,6 +85,7 @@
 		Z_HAS_COMMA(Z_TRIGGER_PARENTHESIS_ __VA_ARGS__), \
 		Z_HAS_COMMA(__VA_ARGS__ (/*empty*/)), \
 		Z_HAS_COMMA(Z_TRIGGER_PARENTHESIS_ __VA_ARGS__ (/*empty*/)))
+#define Z_CAT4(_0, _1, _2, _3) _0 ## _1 ## _2 ## _3
 #define Z_CAT5(_0, _1, _2, _3, _4) _0 ## _1 ## _2 ## _3 ## _4
 #define Z_IS_EMPTY__(_0, _1, _2, _3) \
 	Z_HAS_COMMA(Z_CAT5(Z_IS_EMPTY_CASE_, _0, _1, _2, _3))
@@ -109,6 +115,15 @@
 #define UTIL_EVAL(...) __VA_ARGS__
 #define UTIL_EXPAND(...) __VA_ARGS__
 #define UTIL_REPEAT(...) UTIL_LISTIFY(__VA_ARGS__)
+
+#define _CONCAT_0(arg, ...) arg
+#define _CONCAT_1(arg, ...) UTIL_CAT(arg, _CONCAT_0(__VA_ARGS__))
+#define _CONCAT_2(arg, ...) UTIL_CAT(arg, _CONCAT_1(__VA_ARGS__))
+#define _CONCAT_3(arg, ...) UTIL_CAT(arg, _CONCAT_2(__VA_ARGS__))
+#define _CONCAT_4(arg, ...) UTIL_CAT(arg, _CONCAT_3(__VA_ARGS__))
+#define _CONCAT_5(arg, ...) UTIL_CAT(arg, _CONCAT_4(__VA_ARGS__))
+#define _CONCAT_6(arg, ...) UTIL_CAT(arg, _CONCAT_5(__VA_ARGS__))
+#define _CONCAT_7(arg, ...) UTIL_CAT(arg, _CONCAT_6(__VA_ARGS__))
 
 /* Implementation details for NUM_VA_ARGS_LESS_1 */
 #define NUM_VA_ARGS_LESS_1_IMPL(				\
@@ -142,5 +157,45 @@
 #define MACRO_MC_13(m, a, ...) UTIL_CAT(m(a), MACRO_MC_12(m, __VA_ARGS__,))
 #define MACRO_MC_14(m, a, ...) UTIL_CAT(m(a), MACRO_MC_13(m, __VA_ARGS__,))
 #define MACRO_MC_15(m, a, ...) UTIL_CAT(m(a), MACRO_MC_14(m, __VA_ARGS__,))
+
+/* Used by Z_IS_EQ */
+#include "util_internal_is_eq.h"
+
+/*
+ * Generic sparse list of odd numbers (check the implementation of
+ * GPIO_DT_RESERVED_RANGES_NGPIOS as a usage example)
+ */
+#define Z_SPARSE_LIST_ODD_NUMBERS		\
+	EMPTY,  1, EMPTY,  3, EMPTY,  5, EMPTY,  7, \
+	EMPTY,  9, EMPTY, 11, EMPTY, 13, EMPTY, 15, \
+	EMPTY, 17, EMPTY, 19, EMPTY, 21, EMPTY, 23, \
+	EMPTY, 25, EMPTY, 27, EMPTY, 29, EMPTY, 31, \
+	EMPTY, 33, EMPTY, 35, EMPTY, 37, EMPTY, 39, \
+	EMPTY, 41, EMPTY, 43, EMPTY, 45, EMPTY, 47, \
+	EMPTY, 49, EMPTY, 51, EMPTY, 53, EMPTY, 55, \
+	EMPTY, 57, EMPTY, 59, EMPTY, 61, EMPTY, 63
+
+/*
+ * Generic sparse list of even numbers (check the implementation of
+ * GPIO_DT_RESERVED_RANGES_NGPIOS as a usage example)
+ */
+#define Z_SPARSE_LIST_EVEN_NUMBERS		\
+	 0, EMPTY,  2, EMPTY,  4, EMPTY,  6, EMPTY, \
+	 8, EMPTY, 10, EMPTY, 12, EMPTY, 14, EMPTY, \
+	16, EMPTY, 18, EMPTY, 20, EMPTY, 22, EMPTY, \
+	24, EMPTY, 26, EMPTY, 28, EMPTY, 30, EMPTY, \
+	32, EMPTY, 34, EMPTY, 36, EMPTY, 38, EMPTY, \
+	40, EMPTY, 42, EMPTY, 44, EMPTY, 46, EMPTY, \
+	48, EMPTY, 50, EMPTY, 52, EMPTY, 54, EMPTY, \
+	56, EMPTY, 58, EMPTY, 60, EMPTY, 62, EMPTY
+
+/* Used by UTIL_INC */
+#include "util_internal_util_inc.h"
+
+/* Used by UTIL_DEC */
+#include "util_internal_util_dec.h"
+
+/* Used by UTIL_X2 */
+#include "util_internal_util_x2.h"
 
 #endif /* ZEPHYR_INCLUDE_SYS_UTIL_INTERNAL_H_ */

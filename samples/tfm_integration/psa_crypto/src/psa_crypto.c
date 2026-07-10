@@ -6,7 +6,7 @@
 
 #include <stdio.h>
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/logging/log_ctrl.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/data/json.h>
@@ -510,7 +510,7 @@ void crp_generate_csr(void)
 	LOG_INF("Certificate Signing Request in JSON:\n");
 	al_dump_log();
 
-	printf("%s\n", json_encoded_buf);
+	printf("%s\n\n", json_encoded_buf);
 
 	/* Close the key to free up the volatile slot. */
 	status = al_psa_status(

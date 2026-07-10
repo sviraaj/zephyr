@@ -1,5 +1,5 @@
-identifier: zb_tv_h743zi
-name: ZB_TV H743ZI
+identifier: zb_tv_h723zi
+name: ZB_TV H723ZI
 type: mcu
 arch: arm
 toolchain:

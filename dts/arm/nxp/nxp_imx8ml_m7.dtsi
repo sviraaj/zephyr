@@ -24,7 +24,6 @@
 			mpu: mpu@e000ed90 {
 				compatible = "arm,armv7m-mpu";
 				reg = <0xe000ed90 0x40>;
-				arm,num-mpu-regions = <16>;
 			};
 		};
 	};
@@ -43,47 +42,40 @@
 		ocram_code: code@900000 {
 			compatible = "nxp,imx-code-bus";
 			reg = <0x00900000 DT_SIZE_K(576)>;
-			label = "OCRAM CODE";
 		};
 
 		ocram_sys: memory@20200000 {
 			device_type = "memory";
 			compatible = "nxp,imx-sys-bus";
 			reg = <0x20200000 DT_SIZE_K(576)>;
-			label = "OCRAM SYSTEM";
 		};
 
 		ocram_s_code: code@180000 {
 			compatible = "nxp,imx-code-bus";
 			reg = <0x00180000 DT_SIZE_K(36)>;
-			label = "OCRAM_S CODE";
 		};
 
 		ocram_s_sys: memory@20180000 {
 			device_type = "memory";
 			compatible = "nxp,imx-sys-bus";
 			reg = <0x20180000 DT_SIZE_K(36)>;
-			label = "OCRAM_S SYSTEM";
 		};
 
 		ddr_code: code@80000000 {
 			device_type = "memory";
 			compatible = "nxp,imx-code-bus";
 			reg = <0x80000000 DT_SIZE_M(2)>;
-			label = "DDR CODE";
 		};
 
 		ddr_sys: memory@80200000 {
 			device_type = "memory";
 			compatible = "nxp,imx-sys-bus";
 			reg = <0x80200000 DT_SIZE_M(2)>;
-			label = "DDR SYSTEM";
 		};
 
 		ccm: ccm@30380000 {
 			compatible = "nxp,imx-ccm";
 			reg = <0x30380000 DT_SIZE_K(64)>;
-			label = "CCM";
 			#clock-cells = <3>;
 		};
 
@@ -105,7 +97,6 @@
 					       RDC_DOMAIN_PERM_RW)|\
 			       RDC_DOMAIN_PERM(M7_DOMAIN_ID,\
 					       RDC_DOMAIN_PERM_RW))>;
-			label = "GPIO_1";
 			gpio-controller;
 			#gpio-cells = <2>;
 			status = "disabled";
@@ -119,7 +110,6 @@
 					       RDC_DOMAIN_PERM_RW)|\
 			       RDC_DOMAIN_PERM(M7_DOMAIN_ID,\
 					       RDC_DOMAIN_PERM_RW))>;
-			label = "GPIO_2";
 			gpio-controller;
 			#gpio-cells = <2>;
 			status = "disabled";
@@ -133,7 +123,6 @@
 					       RDC_DOMAIN_PERM_RW)|\
 			       RDC_DOMAIN_PERM(M7_DOMAIN_ID,\
 					       RDC_DOMAIN_PERM_RW))>;
-			label = "GPIO_3";
 			gpio-controller;
 			#gpio-cells = <2>;
 			status = "disabled";
@@ -147,7 +136,6 @@
 					       RDC_DOMAIN_PERM_RW)|\
 			       RDC_DOMAIN_PERM(M7_DOMAIN_ID,\
 					       RDC_DOMAIN_PERM_RW))>;
-			label = "GPIO_4";
 			gpio-controller;
 			#gpio-cells = <2>;
 			status = "disabled";
@@ -161,22 +149,24 @@
 					       RDC_DOMAIN_PERM_RW)|\
 			       RDC_DOMAIN_PERM(M7_DOMAIN_ID,\
 					       RDC_DOMAIN_PERM_RW))>;
-			label = "GPIO_5";
 			gpio-controller;
 			#gpio-cells = <2>;
 			status = "disabled";
 		};
 
-		/*
-		 * For now only UART4 is supported and
-		 * tested with the serial driver
-		 */
 		uart4: uart@30a60000 {
 			compatible = "nxp,imx-iuart";
 			reg = <0x30a60000 0x10000>;
 			interrupts = <29 3>;
 			clocks = <&ccm IMX_CCM_UART4_CLK 0x6c 24>;
-			label = "UART_4";
+			status = "disabled";
+		};
+
+		uart1: uart@30860000 {
+			compatible = "nxp,imx-iuart";
+			reg = <0x30860000 0x10000>;
+			interrupts = <26 3>;
+			clocks = <&ccm IMX_CCM_UART1_CLK 0x7c 24>;
 			status = "disabled";
 		};
 
@@ -184,7 +174,6 @@
 			compatible = "nxp,imx-mu";
 			reg = <0x30ab0000 DT_SIZE_K(64)>;
 			interrupts = <97 0>;
-			label = "MAILBOX_0";
 			rdc = <(RDC_DOMAIN_PERM(A7_DOMAIN_ID,\
 					       RDC_DOMAIN_PERM_RW)|\
 			       RDC_DOMAIN_PERM(M7_DOMAIN_ID,\
@@ -192,6 +181,35 @@
 			status = "disabled";
 		};
 
+		ecspi1: spi@30820000 {
+			compatible = "nxp,imx-ecspi";
+			reg = <0x30820000 DT_SIZE_K(64)>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			interrupts = <31 3>;
+			clocks = <&ccm IMX_CCM_ECSPI1_CLK 0 0>;
+			status = "disabled";
+		};
+
+		ecspi2: spi@30830000 {
+			compatible = "nxp,imx-ecspi";
+			reg = <0x30830000 DT_SIZE_K(64)>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			interrupts = <32 3>;
+			clocks = <&ccm IMX_CCM_ECSPI2_CLK 0 0>;
+			status = "disabled";
+		};
+
+		ecspi3: spi@30840000 {
+			compatible = "nxp,imx-ecspi";
+			reg = <0x30840000 DT_SIZE_K(64)>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			interrupts = <33 3>;
+			clocks = <&ccm IMX_CCM_ECSPI3_CLK 0 0>;
+			status = "disabled";
+		};
 	};
 };
 

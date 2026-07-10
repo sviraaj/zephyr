@@ -197,7 +197,7 @@ Kernel
 * Propagate a distinct error code if a workqueue item is submitted that
   has already been completed
 * Disable preemption when handing fatal errors
-* Fix an issue with the sytsem call stack frame if the system call is
+* Fix an issue with the system call stack frame if the system call is
   preempted and then later tries to Z_OOPS()
 * add k_thread_stack_space_get() system call for analyzing thread stack
   space. Older methods which had problems in some cases or on some
@@ -636,7 +636,7 @@ Bluetooth
     address resolution support
   * Added dynamic TX power control, including a set of vendor-specific commands
     to read and write the TX power
-  * Added a Kconfig option, BT_CTLR_PARAM_CHECK, to enable addtional parameter
+  * Added a Kconfig option, BT_CTLR_PARAM_CHECK, to enable additional parameter
     checking
   * Added basic support for SMI (Stable Modulation Index)
   * Ticker: Implemented dynamic rescheduling
@@ -790,7 +790,7 @@ release:
 * :github:`22730` - CONFIG_BT_SETTINGS writes bt/hash to storage twice
 * :github:`22722` - posix: redefinition of symbols while porting zeromq to zephyr
 * :github:`22720` - armv8-m: userspace: some parts in userspace enter sequence need to be atomic
-* :github:`22698` - log_stack_usage: prints err: missinglog_strdup()
+* :github:`22698` - log_stack_usage: prints err: missing
 * :github:`22697` - nrf52 telnet_shell panic. Mutex using in ISR.
 * :github:`22693` - net: config: build break when CONFIG_NET_NATIVE=n
 * :github:`22689` - driver: modem: sara-u2  error when connecting
