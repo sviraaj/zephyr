@@ -396,7 +396,7 @@ static int usb_dc_stm32_init(void)
 	/* Per AN2606: USBREGEN not supported when running in FS mode. */
 	LL_PWR_DisableUSBReg();
 	while (!LL_PWR_IsActiveFlag_USB()) {
-		LOG_INF("PWR not active yet");
+		printk("USB33RDY is still 0, PWR->CR3=0x%08x\n", PWR->CR3);
 		k_sleep(K_MSEC(100));
 	}
 #endif

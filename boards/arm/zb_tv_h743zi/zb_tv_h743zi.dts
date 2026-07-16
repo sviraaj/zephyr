@@ -67,6 +67,19 @@
         //power-gpios = <&sx1509b 8 GPIO_ACTIVE_HIGH>;
 	};
 
+	
+	
+
+	heaters {
+        compatible = "gpio-leds";
+        heater_pin: heater_pin {
+            // Target Port A, Pin 5. Flag sets it to push-pull active-high
+            gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>;
+            label = "System Enclosure Heater";
+        };
+    };
+
+
 	aliases {
 		led0 = &green_led;
 		led1 = &green_led;
@@ -85,6 +98,7 @@
         spi3 = &spi3;
 		uart5 = &uart5;
 		usart3 = &usart3;
+		heater = &heater_pin;
 	};
 
 /*
@@ -177,12 +191,26 @@
 };
 
 /*
-zephyr_udc0: &usbotg_hs {
-	pinctrl-0 = <&usb_otg_hs_dm_pb14 &usb_otg_hs_dp_pb15>;
-    pinctrl-names = "default";
-	status = "okay";
+ * STM32H743 OTG-HS, used with its internal full-speed PHY.
+ * PB14/PB15 are the dedicated OTG-HS D-/D+ pins on this SoC.
+ */
+&{/soc} {
+	zephyr_udc0: usbotg_hs: usb@40040000 {
+		compatible = "st,stm32-otghs";
+		reg = <0x40040000 0x40000>;
+		interrupts = <77 0>, <74 0>, <75 0>;
+		interrupt-names = "otghs", "ep1_out", "ep1_in";
+		num-bidir-endpoints = <9>;
+		ram-size = <DT_SIZE_K(4)>;
+		maximum-speed = "full-speed";
+		clocks = <&rcc STM32_CLOCK_BUS_AHB1 0x02000000>,
+			 <&rcc STM32_SRC_HSI48 USB_SEL(3)>;
+		phys = <&otghs_fs_phy>;
+		pinctrl-0 = <&usb_otg_hs_dm_pb14 &usb_otg_hs_dp_pb15>;
+		pinctrl-names = "default";
+		status = "okay";
+	};
 };
-*/
 
 /*
 &zephyr_udc0 {
