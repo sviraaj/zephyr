@@ -67,18 +67,14 @@
         //power-gpios = <&sx1509b 8 GPIO_ACTIVE_HIGH>;
 	};
 
-	
-	
-
-	heaters {
-        compatible = "gpio-leds";
-        heater_pin: heater_pin {
-            // Target Port A, Pin 5. Flag sets it to push-pull active-high
-            gpios = <&gpioa 5 GPIO_ACTIVE_HIGH>;
-            label = "System Enclosure Heater";
-        };
-    };
-
+	heater_pwm_devices {
+		compatible = "pwm-leds";
+		status = "okay";
+		heater_pwm: heater_pwm {
+			pwms = <&pwm2 1 PWM_MSEC(20) PWM_POLARITY_INVERTED>;
+			label = "Heater PWM";
+		};
+	};
 
 	aliases {
 		led0 = &green_led;
@@ -98,7 +94,7 @@
         spi3 = &spi3;
 		uart5 = &uart5;
 		usart3 = &usart3;
-		heater = &heater_pin;
+		heater-pwm = &heater_pwm;
 	};
 
 /*
@@ -354,7 +350,7 @@
 	status = "okay";
 	clock-frequency = <I2C_BITRATE_STANDARD>;
 
-    ti_tmp116_int: ti_tmp116@48 {
+    ti_tmp116_int1: ti_tmp116@48 {
 		compatible = "ti,tmp116";
 		reg = <0x48>;
 		label = "TMP116_INT";
@@ -388,11 +384,20 @@
     };
 };
 
+
 &i2c3 {
 	pinctrl-0 = <&i2c3_scl_pa8 &i2c3_sda_pc9>;
     pinctrl-names = "default";
 	status = "okay";
-	clock-frequency = <I2C_BITRATE_FAST>;
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+
+    ti_tmp116_int2: ti_tmp116@48 {
+		compatible = "ti,tmp116";
+		reg = <0x48>;
+		label = "TMP116_INT";
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
 };
 
 &i2c4 {
@@ -407,13 +412,27 @@
     };
 };
 
-&timers12 {
-	status = "okay";
 
-	pwm12: pwm {
+/* Enable GPIOA for heater PWM */
+&gpioa {
+	status = "okay";
+};
+
+/* Configure pinctrl to route PA5 to Timer 2 Channel 1 */
+&pinctrl {
+	tim2_ch1_pa5: tim2_ch1_pa5 {
+		pinmux = <STM32_PINMUX('A', 5, AF1)>;
+		bias-pull-up;
+	};
+};
+
+/* Enable Timer 2 and its PWM generation block */
+&timers2 {
+	status = "okay";
+	pwm2: pwm {
 		status = "okay";
-		pinctrl-0 = <&tim12_ch1_pb14>;
-        pinctrl-names = "default";
+		pinctrl-0 = <&tim2_ch1_pa5>;
+		pinctrl-names = "default";
 	};
 };
 
