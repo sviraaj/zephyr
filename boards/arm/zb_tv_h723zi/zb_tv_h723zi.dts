@@ -60,38 +60,6 @@
 		};
 	};
 
-
-		/* 1. Ensure the GPIOA bank is enabled */
-	&gpioa {
-		status = "okay";
-	};
-
-	/* 2. Configure pinctrl to route PA5 to Timer 2 Channel 1 */
-	&pinctrl {
-		tim2_ch1_pa5: tim2_ch1_pa5 {
-			pinmux = <STM32_PINMUX('A', 5, AF1)>;
-			bias-pull-down;
-		};
-	};
-
-	/* 3. Enable Timer 2 and its PWM generation block */
-	&timers2 {
-		status = "okay";
-		pwm2: pwm {
-			status = "okay";
-			pinctrl-0 = <&tim2_ch1_pa5>;
-			pinctrl-names = "default";
-		};
-	};
-
-	/* 4. Define the heater node with a default period of 20ms */
-	&pwm2 {
-		heater_pwm: heater_pwm {
-			pwms = <&pwm2 1 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
-		};
-	};
-
-
     vbatt {
 		compatible = "voltage-divider";
 		io-channels = <&adc1 0>;
@@ -99,6 +67,16 @@
 		full-ohms = <(47000 + 220000)>;
         //power-gpios = <&sx1509b 8 GPIO_ACTIVE_HIGH>;
 	};
+
+	heater_pwm_devices {
+		compatible = "pwm-leds";
+		status = "okay";
+		heater_pwm: heater_pwm {
+			pwms = <&pwm2 1 PWM_SEC(1) PWM_POLARITY_INVERTED>;
+			label = "Heater PWM";
+		};
+	};
+
 
 	aliases {
 		led0 = &green_led;
@@ -362,7 +340,7 @@ zephyr_udc0: &usbotg_hs {
     status = "okay";
     clock-frequency = <I2C_BITRATE_STANDARD>;
 
-    ti_tmp116_int: ti_tmp116@48 {
+    ti_tmp116_int1: ti_tmp116@48 {
         compatible = "ti,tmp116";
 		status = "okay";
         reg = <0x48>;
@@ -398,6 +376,21 @@ zephyr_udc0: &usbotg_hs {
 	};
 };
 
+&i2c3 {
+	pinctrl-0 = <&i2c3_scl_pa8 &i2c3_sda_pc9>;
+    pinctrl-names = "default";
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+
+    ti_tmp116_int2: ti_tmp116@48 {
+		compatible = "ti,tmp116";
+		reg = <0x48>;
+		label = "TMP116_INT";
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+};
+
 &i2c4 {
 	pinctrl-0 = <&i2c4_scl_pf14 &i2c4_sda_pf15>;
 
@@ -415,15 +408,31 @@ zephyr_udc0: &usbotg_hs {
 	};
 };
 
-&timers12 {
-	status = "okay";
 
-	pwm12: pwm {
-		status = "okay";
-		pinctrl-0 = <&tim12_ch1_pb14>;
-        pinctrl-names = "default";
+/* Enable GPIOA for heater PWM */
+&gpioa {
+	status = "okay";
+};
+
+/* Configure pinctrl to route PA5 to Timer 2 Channel 1 */
+&pinctrl {
+	tim2_ch1_pa5: tim2_ch1_pa5 {
+		pinmux = <STM32_PINMUX('A', 5, AF1)>;
+		bias-pull-up;
 	};
 };
+
+/* Enable Timer 2 and its PWM generation block */
+&timers2 {
+	status = "okay";
+	pwm2: pwm {
+		status = "okay";
+		pinctrl-0 = <&tim2_ch1_pa5>;
+		pinctrl-names = "default";
+	};
+};
+
+
 
 &adc1 {
     pinctrl-0 = <&adc1_inp16_pa0>;

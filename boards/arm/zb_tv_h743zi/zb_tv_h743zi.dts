@@ -71,7 +71,7 @@
 		compatible = "pwm-leds";
 		status = "okay";
 		heater_pwm: heater_pwm {
-			pwms = <&pwm2 1 PWM_MSEC(20) PWM_POLARITY_INVERTED>;
+			pwms = <&pwm2 1 PWM_SEC(1) PWM_POLARITY_INVERTED>;
 			label = "Heater PWM";
 		};
 	};
